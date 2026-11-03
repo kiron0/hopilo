@@ -1,0 +1,23 @@
+[package]
+name = "hopilo-native-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native messaging bridge between the Hopilo browser extension and the local library"
+
+[[bin]]
+name = "hopilo-native-host"
+path = "src/main.rs"
+
+[lib]
+name = "hopilo_native_host"
+path = "src/lib.rs"
+
+[dependencies]
+hopilo-core.workspace = true
+hopilo-database.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

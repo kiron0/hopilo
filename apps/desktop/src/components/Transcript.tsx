@@ -1,0 +1,105 @@
+import { useState } from "react";
+import { AlertTriangle, ChevronRight, Wrench } from "lucide-react";
+import type { Block, Message } from "../lib/api";
+import { Button, Checkbox, cx } from "./ui";
+
+const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
+
+function ToolBlock({ title, body, error }: { title: string; body: string; error?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const firstLine = body.split("\n").find((l) => l.trim()) ?? "";
+  return (
+    <div className="rounded-lg border border-line bg-surface-2">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px]">
+        <ChevronRight size={13} className={cx("shrink-0 text-faint transition-transform", open && "rotate-90")} />
+        <Wrench size={12} className={error ? "text-danger" : "text-faint"} />
+        <span className={cx("font-medium", error ? "text-danger" : "text-muted")}>{title}</span>
+        {!open && <span className="truncate font-mono text-[11.5px] text-faint">{firstLine.slice(0, 120)}</span>}
+      </button>
+      {open && (
+        <pre data-selectable className="max-h-80 overflow-auto border-t border-line px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink">
+          {body}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function BlockView({ b }: { b: Block }) {
+  switch (b.type) {
+    case "text":
+      return (
+        <div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
+          {b.text}
+        </div>
+      );
+    case "toolCall":
+      return <ToolBlock title={`Tool call · ${b.name}`} body={b.input} />;
+    case "toolResult":
+      return <ToolBlock title={`${b.isError ? "Tool error" : "Tool result"}${b.name ? ` · ${b.name}` : ""}`} body={b.output} error={b.isError} />;
+    case "missing":
+      return (
+        <div className="flex items-center gap-2 rounded-lg bg-warning-soft px-2.5 py-1.5 text-[12px] text-warning">
+          <AlertTriangle size={13} /> Referenced but not recovered: {b.description}
+        </div>
+      );
+  }
+}
+
+/** Messages rendered at first; more are added on request so sessions with
+ *  thousands of turns open instantly. */
+const PAGE = 120;
+
+export function Transcript({
+  messages,
+  selected,
+  onToggle,
+}: {
+  messages: Message[];
+  selected?: Set<string>;
+  onToggle?: (id: string) => void;
+}) {
+  const [shown, setShown] = useState(PAGE);
+  const visible = messages.length > shown ? messages.slice(0, shown) : messages;
+  return (
+    <>
+    <ol className="space-y-3">
+      {visible.map((m) => {
+        const isSel = selected?.has(m.id);
+        return (
+          <li
+            key={m.id + m.sourceId}
+            className={cx(
+              "flex gap-3 rounded-xl border px-3.5 py-3 transition-colors",
+              isSel ? "border-accent/50 bg-accent-soft/50" : "border-transparent",
+              m.role === "user" && !isSel && "bg-surface-2",
+            )}
+          >
+            {onToggle && (
+              <Checkbox label={`Include ${ROLE_LABEL[m.role]} message`} checked={!!isSel} onChange={() => onToggle(m.id)} className="mt-0.5" />
+            )}
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-center gap-2 text-[11.5px]">
+                <span className={cx("font-semibold", m.role === "user" ? "text-accent" : "text-muted")}>{ROLE_LABEL[m.role]}</span>
+                {m.createdAt && <span className="text-faint">{new Date(m.createdAt).toLocaleString()}</span>}
+              </div>
+              {m.blocks.map((b, i) => (
+                <BlockView key={i} b={b} />
+              ))}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+    {messages.length > shown && (
+      <div className="mt-3 flex items-center justify-center gap-2">
+        <span className="text-[12.5px] text-muted">
+          Showing {shown} of {messages.length} messages
+        </span>
+        <Button size="sm" onClick={() => setShown((n) => n + PAGE * 4)}>Show more</Button>
+        <Button size="sm" variant="ghost" onClick={() => setShown(messages.length)}>Show all</Button>
+      </div>
+    )}
+    </>
+  );
+}

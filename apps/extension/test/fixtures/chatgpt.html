@@ -1,0 +1,6 @@
+<html><head><title>Postgres index advice - ChatGPT</title></head><body><main>
+<article><div data-message-author-role="user"><div class="whitespace-pre-wrap">Which index for <code>WHERE user_id = $1</code>?</div></div></article>
+<article><div data-message-author-role="assistant"><div class="markdown"><p>Use a <strong>composite</strong> index:</p><pre><div>sql</div><button>Copy code</button><code class="language-sql">CREATE INDEX ON orders (user_id, created_at);
+</code></pre><ul><li>covers the sort</li><li>see <a href="https://www.postgresql.org/docs/">docs</a></li></ul></div></div></article>
+<form><div id="prompt-textarea" contenteditable="true"></div></form>
+</main></body></html>

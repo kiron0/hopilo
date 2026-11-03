@@ -1,0 +1,17 @@
+[
+  {
+    "uuid": "k1",
+    "name": "Release checklist",
+    "created_at": "2026-10-30T09:00:00Z",
+    "updated_at": "2026-10-30T09:05:00Z",
+    "chat_messages": [
+      { "uuid": "a", "sender": "human", "created_at": "2026-10-30T09:00:00Z", "text": "Turn these notes into a checklist",
+        "content": [{ "type": "text", "text": "Turn these notes into a checklist" }],
+        "attachments": [{ "file_name": "notes.md", "extracted_content": "- bump version\n- tag" }],
+        "files": [{ "file_name": "screenshot.png" }] },
+      { "uuid": "b", "sender": "assistant", "created_at": "2026-10-30T09:00:10Z", "text": "",
+        "content": [{ "type": "thinking", "thinking": "hidden" }, { "type": "text", "text": "1. Bump version\n2. Tag release" }],
+        "attachments": [], "files": [] }
+    ]
+  }
+]

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hopilo</title>
+    <style>
+      :root {
+        --bg: #f6f5f9; --card: #fff; --border: #e2e5ea; --text: #0f1218; --muted: #3c4250; --faint: #6f7686;
+        --accent: #5a63ff; --accent-soft: #ecedff; --ok: #12875a; --ok-soft: #e1f5ec; --warn: #a35900; --warn-soft: #fdf1df;
+        --err: #c4253a; --err-soft: #fde6ea; --shadow: 0 1px 2px rgb(15 18 24/.08), 0 6px 18px rgb(15 18 24/.06);
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d0e14; --card: #1b1e29; --border: rgb(255 255 255/.11); --text: #eef0f6; --muted: #b4b9c8; --faint: #9097aa;
+          --accent: #8c93ff; --accent-soft: #262a57; --ok: #44d39b; --ok-soft: #0f2a20; --warn: #f2b45d; --warn-soft: #2e2312;
+          --err: #ff7d90; --err-soft: #35161d; --shadow: inset 0 1px 0 rgb(255 255 255/.06), 0 6px 18px rgb(0 0 0/.3);
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; width: 340px; background: var(--bg); color: var(--text); font: 13.5px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+      header { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
+      header img { width: 22px; height: 22px; border-radius: 6px; }
+      header b { flex: 1; font-size: 15px; }
+      .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); }
+      #conn { width: 7px; height: 7px; border-radius: 99px; background: var(--faint); }
+      #conn[data-state="on"] { background: var(--ok); }
+      #conn[data-state="off"] { background: var(--err); }
+      section { margin: 0 12px 12px; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
+      h2 { margin: 0 0 4px; font-size: 13.5px; }
+      p { margin: 0; color: var(--muted); font-size: 12.5px; }
+      button { font: inherit; cursor: pointer; }
+      .primary { width: 100%; margin-top: 10px; height: 36px; border: 0; border-radius: 99px; color: #fff; font-weight: 600;
+        background: linear-gradient(160deg, #5a63ff, #7b4fe0); box-shadow: inset 0 1px 1px rgb(255 255 255/.35), 0 8px 20px -6px rgb(90 99 255/.6); }
+      @media (prefers-color-scheme: dark) { .primary { box-shadow: inset 0 1px 1px rgb(255 255 255/.25), 0 6px 14px rgb(0 0 0/.45); } }
+      .primary:disabled { opacity: .45; cursor: default; }
+      .primary:focus-visible, .pack:focus-visible, .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+      ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 190px; overflow: auto; }
+      .pack { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text); }
+      .pack:hover { background: var(--accent-soft); }
+      .pack .t { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pack .m { display: block; font-size: 12px; color: var(--faint); }
+      .empty { padding: 8px 10px; color: var(--faint); }
+      .seg { display: flex; margin-top: 10px; padding: 3px; border-radius: 99px; background: var(--bg); border: 1px solid var(--border); }
+      .seg label { flex: 1; text-align: center; padding: 5px 0; border-radius: 99px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+      .seg input { position: absolute; opacity: 0; pointer-events: none; }
+      .seg label:has(input:checked) { background: var(--card); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
+      #status { margin: 0 12px 12px; padding: 10px 12px; border-radius: 14px; font-size: 12.5px; background: var(--accent-soft); }
+      #status[data-tone="ok"] { background: var(--ok-soft); color: var(--ok); }
+      #status[data-tone="warn"] { background: var(--warn-soft); color: var(--warn); }
+      #status[data-tone="err"] { background: var(--err-soft); color: var(--err); }
+      code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+      .note { margin: 0 16px 14px; font-size: 12px; color: var(--faint); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="icons/32.png" alt="" />
+      <b>Hopilo</b>
+      <span class="conn"><span id="conn"></span><span id="conn-label">Connecting…</span></span>
+    </header>
+    <div id="status" role="status" hidden></div>
+    <section id="setup" hidden>
+      <h2>Connect to the Hopilo app</h2>
+      <p>Open Hopilo › AI tools › <b>Browser</b> and click <b>Connect</b>, then reopen this panel. The extension talks only to the app on this computer.</p>
+    </section>
+    <div id="main">
+      <section>
+        <h2>Capture this chat</h2>
+        <p id="site">Checking this page…</p>
+        <button id="capture" class="primary" type="button" disabled>Save conversation to Hopilo</button>
+      </section>
+      <section>
+        <h2>Continue with a pack</h2>
+        <p>Pick a pack to put into this chat's message box as a draft.</p>
+        <ul id="packs"></ul>
+        <div id="insert-panel" hidden>
+          <p style="margin-top: 10px">Selected: <b id="pick-title"></b></p>
+          <div class="seg" role="radiogroup" aria-label="How much to include">
+            <label><input type="radio" name="level" value="minimal" />Minimal</label>
+            <label><input type="radio" name="level" value="balanced" checked />Balanced</label>
+            <label><input type="radio" name="level" value="full" />Full</label>
+          </div>
+          <button id="insert" class="primary" type="button">Insert as draft</button>
+        </div>
+      </section>
+      <p class="note">Hopilo never presses send. You review every draft first.</p>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

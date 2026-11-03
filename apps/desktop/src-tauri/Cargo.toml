@@ -1,0 +1,34 @@
+[package]
+name = "hopilo-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hopilo — Universal AI Session Handoff"
+
+[lib]
+name = "hopilo_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+hopilo-core.workspace = true
+hopilo-adapters.workspace = true
+hopilo-pack-format.workspace = true
+hopilo-database.workspace = true
+hopilo-native-host = { path = "../../../crates/native-host" }
+ureq = { version = "2", default-features = false, features = ["json"] }
+serde.workspace = true
+serde_json.workspace = true
+# macos-private-api: transparent borderless windows (rounded Quick Panel and
+# Drop Shelf). No vibrancy is used.
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-window-state = "2"
+
+[dev-dependencies]
+tempfile.workspace = true

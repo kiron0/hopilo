@@ -1,0 +1,11 @@
+{
+  "name": "hopilo",
+  "private": true,
+  "packageManager": "pnpm@10.30.0",
+  "scripts": {
+    "dev": "pnpm --filter @hopilo/desktop tauri dev",
+    "build": "pnpm --filter @hopilo/desktop tauri build",
+    "typecheck": "pnpm --filter @hopilo/desktop typecheck",
+    "test": "cargo test --workspace && pnpm --filter @hopilo/desktop test"
+  }
+}
