@@ -402,8 +402,26 @@ export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 3) {
   return [ref, rows] as const;
 }
 
-/** Compact pager: range, previous/next and nearby page numbers. */
-export function Pagination({ page, pageSize, total, onPage, noun = "item" }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; noun?: string }) {
+/** Compact pager: range, limit options, previous/next and nearby page numbers. */
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onPage,
+  noun = "item",
+  limitOptions,
+  currentLimit,
+  onLimitChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPage: (p: number) => void;
+  noun?: string;
+  limitOptions?: readonly (number | "auto")[];
+  currentLimit?: number | "auto";
+  onLimitChange?: (limit: number | "auto") => void;
+}) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total === 0) return null;
   const from = page * pageSize + 1;
@@ -411,10 +429,34 @@ export function Pagination({ page, pageSize, total, onPage, noun = "item" }: { p
   const around = [...new Set([0, page - 1, page, page + 1, pages - 1])].filter((p) => p >= 0 && p < pages).sort((a, b) => a - b);
   const btn = "flex h-8 min-w-8 items-center justify-center rounded-full px-2 font-mono text-[12px] transition-colors disabled:pointer-events-none disabled:opacity-40";
   return (
-    <nav aria-label="Pages" className="flex items-center gap-3">
+    <nav aria-label="Pages" className="flex flex-wrap items-center gap-3">
       <span className="font-mono text-[11.5px] text-faint">
         {from.toLocaleString()}–{to.toLocaleString()} of {total.toLocaleString()} {total === 1 ? noun : `${noun}s`}
       </span>
+      {limitOptions && onLimitChange && (
+        <div className="flex items-center gap-1.5 pl-1 text-[11.5px] text-faint">
+          <span>Limit:</span>
+          <div className="flex items-center rounded-full border border-line bg-card p-0.5 shadow-item">
+            {limitOptions.map((opt) => {
+              const active = currentLimit === opt;
+              return (
+                <button
+                  key={String(opt)}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onLimitChange(opt)}
+                  className={cx(
+                    "flex h-6.5 items-center justify-center rounded-full px-2 font-mono text-[11px] transition-colors",
+                    active ? "bg-surface font-semibold text-ink shadow-item" : "text-muted hover:bg-surface-3 hover:text-ink"
+                  )}
+                >
+                  {opt === "auto" ? "Auto" : opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex-1" />
       <div className="flex items-center gap-0.5 rounded-full border border-line bg-card p-0.5 shadow-item">
         <button type="button" aria-label="Previous page" disabled={page === 0} onClick={() => onPage(page - 1)} className={cx(btn, "text-muted hover:bg-surface-3 hover:text-ink")}>

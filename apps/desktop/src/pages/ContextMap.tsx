@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileDown, GitMerge, Hammer, Map as MapIcon, Scissors } from "../components/Icons";
+import { FileDown, GitMerge, Hammer, Map as MapIcon, RefreshCw, Scissors } from "../components/Icons";
 import { api, errorText, type PackRow } from "../lib/api";
 import { exportPack } from "../lib/actions";
 import { plural, provider, relativeTime, tokens } from "../lib/format";
@@ -8,6 +8,7 @@ import { useApp } from "../lib/store";
 import { packDraftItem } from "./Builder";
 import { Badge, Button, Card, Checkbox, cx, EmptyState, Modal, PageHeader, ProviderChip, Segmented, TextInput } from "../components/ui";
 import { MapSkeleton } from "../components/Skeletons";
+import { FillPage } from "../components/PageSlots";
 
 type Metric = "tokens" | "messages" | "files";
 type Pos = { x: number; y: number };
@@ -57,6 +58,28 @@ export function ContextMap() {
   const rows = useMemo(() => (packs.data ?? []).filter((p) => !p.archived && (!tag || p.tags.includes(tag))), [packs.data, tag]);
   const allTags = useMemo(() => [...new Set((packs.data ?? []).flatMap((p) => p.tags))].sort(), [packs.data]);
 
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
+
+  useEffect(() => {
+    if (!canvas.current) return;
+    const measure = () => {
+      if (canvas.current) {
+        const rect = canvas.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setCanvasSize({ width: rect.width, height: rect.height });
+        }
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(canvas.current);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [view]);
+
   useEffect(() => {
     const stored = (saved.data?.["map.positions"] ?? {}) as Record<string, Pos>;
     setPositions((cur) => ({ ...stored, ...cur }));
@@ -64,7 +87,30 @@ export function ContextMap() {
 
   const pos = (p: PackRow, i: number) => positions[p.id] ?? seedPosition(i);
   const max = Math.max(1, ...rows.map((p) => metricOf(p, metric)));
-  const sizeOf = (p: PackRow) => 64 + Math.sqrt(metricOf(p, metric) / max) * 92;
+
+  // Scale bubble sizes proportionally when window shrinks or expands
+  const scale = useMemo(() => {
+    const w = canvasSize.width || 800;
+    const h = canvasSize.height || 600;
+    const diag = Math.hypot(w, h);
+    return Math.min(1.2, Math.max(0.65, diag / 1000));
+  }, [canvasSize]);
+
+  const sizeOf = (p: PackRow) => Math.round((56 + Math.sqrt(metricOf(p, metric) / max) * 78) * scale);
+
+  // Clamped position keeping bubbles fully inside the visible window / canvas frame
+  const clampedPos = (p: PackRow, i: number) => {
+    const raw = pos(p, i);
+    const s = sizeOf(p);
+    const w = canvasSize.width || 800;
+    const h = canvasSize.height || 600;
+    const padX = (s / 2 / w) * 100 + 1.5;
+    const padY = (s / 2 / h) * 100 + 2;
+    return {
+      x: clamp(raw.x, Math.min(padX, 45), Math.max(100 - padX, 55)),
+      y: clamp(raw.y, Math.min(padY, 45), Math.max(100 - padY, 55)),
+    };
+  };
 
   const persist = (next: Record<string, Pos>) => {
     api.setSetting("map.positions", next).catch(() => undefined);
@@ -117,7 +163,7 @@ export function ContextMap() {
       }
       const over = rows.find((o, i) => {
         if (o.id === p.id) return false;
-        const op = pos(o, i);
+        const op = clampedPos(o, i);
         const ox = box.left + (op.x / 100) * box.width;
         const oy = box.top + (op.y / 100) * box.height;
         return Math.hypot(cx - ox, cy - oy) < sizeOf(o) / 2;
@@ -127,8 +173,11 @@ export function ContextMap() {
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 4) return;
       moved = true;
-      const x = clamp(((ev.clientX - box.left) / box.width) * 100, 6, 94);
-      const y = clamp(((ev.clientY - box.top) / box.height) * 100, 8, 92);
+      const s = sizeOf(p);
+      const padX = (s / 2 / box.width) * 100 + 1.5;
+      const padY = (s / 2 / box.height) * 100 + 2;
+      const x = clamp(((ev.clientX - box.left) / box.width) * 100, padX, 100 - padX);
+      const y = clamp(((ev.clientY - box.top) / box.height) * 100, padY, 100 - padY);
       setPositions((cur) => ({ ...cur, [p.id]: { x, y } }));
       setDrag({ id: p.id, ...hit(ev.clientX, ev.clientY) });
     };
@@ -163,7 +212,7 @@ export function ContextMap() {
   }, [relations.data, rows]);
 
   return (
-    <div>
+    <FillPage className="flex h-full min-h-0 flex-1 flex-col">
       <PageHeader
         title="Context Map"
         subtitle="Every pack as a bubble. Drag to arrange, drop one pack on another to merge, or onto an action on the right. Shift-click to pick several."
@@ -179,7 +228,7 @@ export function ContextMap() {
           />
         }
       />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-[12.5px] text-muted">
           Bubble size
           <Segmented label="Bubble size" value={metric} onChange={setMetric} options={[{ value: "tokens", label: "Tokens" }, { value: "messages", label: "Messages" }, { value: "files", label: "Files" }]} />
@@ -193,6 +242,19 @@ export function ContextMap() {
             ))}
           </div>
         )}
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<RefreshCw size={13} />}
+          onClick={() => {
+            setPositions({});
+            api.setSetting("map.positions", {}).catch(() => undefined);
+            toast({ kind: "info", text: "Bubble positions reset to fit window." });
+          }}
+          title="Reset bubble positions to fit current window"
+        >
+          Reset layout
+        </Button>
         <div className="flex-1" />
         {sel.length > 0 && (
           <div className="flex items-center gap-2">
@@ -220,20 +282,20 @@ export function ContextMap() {
       )}
 
       {rows.length > 0 && view === "map" && (
-        <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-4">
-          <Card className="card-soft relative h-[560px] overflow-hidden" aria-label="Context Map">
+        <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
+          <Card className="card-soft relative flex-1 h-full min-h-[360px] overflow-hidden" aria-label="Context Map">
             <div ref={canvas} className="absolute inset-0" role="group" aria-label={`Packs sized by ${METRIC_LABEL[metric]}`}>
               <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full">
                 {lines.map((l, k) => {
                   const ai = rows.findIndex((r) => r.id === l.fromPack);
                   const bi = rows.findIndex((r) => r.id === l.toPack);
-                  const a = pos(rows[ai], ai);
-                  const b = pos(rows[bi], bi);
+                  const a = clampedPos(rows[ai], ai);
+                  const b = clampedPos(rows[bi], bi);
                   return <line key={k} x1={`${a.x}%`} y1={`${a.y}%`} x2={`${b.x}%`} y2={`${b.y}%`} stroke="var(--border-strong)" strokeWidth={1.5} strokeDasharray={l.kind === "split" ? "4 4" : undefined} />;
                 })}
               </svg>
               {rows.map((p, i) => {
-                const at = pos(p, i);
+                const at = clampedPos(p, i);
                 const size = sizeOf(p);
                 const isSel = selected.has(p.id);
                 const isOver = drag?.over === p.id;
@@ -283,7 +345,7 @@ export function ContextMap() {
               <span className="flex items-center gap-1"><svg width="22" height="6" aria-hidden><line x1="0" y1="3" x2="22" y2="3" stroke="var(--border-strong)" strokeWidth="1.5" strokeDasharray="4 4" /></svg> split from</span>
             </div>
           </Card>
-          <div className="flex flex-col gap-3" aria-label="Drop actions">
+          <div className="flex w-[160px] shrink-0 flex-col gap-3" aria-label="Drop actions">
             {RAIL.map((r) => (
               <div
                 key={r.id}
@@ -304,7 +366,7 @@ export function ContextMap() {
       )}
 
       {rows.length > 0 && view === "list" && (
-        <Card className="divide-y divide-line">
+        <Card className="min-h-0 flex-1 divide-y divide-line overflow-auto">
           {rows.map((p) => (
             <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
               <Checkbox label={`Select ${p.title}`} checked={selected.has(p.id)} onChange={() => toggle(p.id, true)} />
@@ -322,7 +384,7 @@ export function ContextMap() {
       )}
 
       {mergeIds && <MergeModal ids={mergeIds} packs={rows} onClose={() => setMergeIds(null)} />}
-    </div>
+    </FillPage>
   );
 }
 

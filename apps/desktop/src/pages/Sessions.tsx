@@ -31,7 +31,9 @@ function AgentSessions() {
   const [adapter, setAdapter] = useState<"all" | "claude-code" | "codex" | "gemini-cli" | "opencode" | "qwen-code">("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [listRef, pageSize] = useFitRows<HTMLDivElement>(62);
+  const [limit, setLimit] = useState<number | "auto">("auto");
+  const [listRef, fitPageSize] = useFitRows<HTMLDivElement>(60);
+  const pageSize = limit === "auto" ? fitPageSize : limit;
 
   useEffect(() => setPage(0), [q, adapter]);
   const rows = useMemo(() => {
@@ -44,6 +46,11 @@ function AgentSessions() {
   }, [data, q, adapter]);
 
   const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
+
+  const handleLimitChange = (nextLimit: number | "auto") => {
+    setLimit(nextLimit);
+    setPage(0);
+  };
 
   const capture = async (r: DiscoveredRow, thenBuild: boolean) => {
     setBusy(r.path);
@@ -101,7 +108,7 @@ function AgentSessions() {
       )}
       {rows.length > 0 && (
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div ref={listRef} className="min-h-0 flex-1 divide-y divide-line overflow-hidden">
+        <div ref={listRef} className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
           {rows.slice(pg * pageSize, pg * pageSize + pageSize).map((r) => (
             <div key={r.path} data-fit-row className="group flex items-center gap-3 px-4 py-3 hover:bg-surface-2/60">
               <ProviderDot id={r.adapter} size={9} />
@@ -126,7 +133,16 @@ function AgentSessions() {
           ))}
         </div>
         <div className="shrink-0 border-t border-line bg-surface-2/50 px-4 py-2.5">
-          <Pagination page={pg} pageSize={pageSize} total={rows.length} onPage={setPage} noun="session" />
+          <Pagination
+            page={pg}
+            pageSize={pageSize}
+            total={rows.length}
+            onPage={setPage}
+            noun="session"
+            limitOptions={["auto", 10, 20, 50, 100] as const}
+            currentLimit={limit}
+            onLimitChange={handleLimitChange}
+          />
         </div>
         </Card>
       )}
@@ -337,7 +353,7 @@ export function Sessions() {
   const tab = route.page === "sessions" ? (route.tab ?? (route.sourceId ? "library" : "agents")) : "agents";
   const sourceId = route.page === "sessions" ? route.sourceId : undefined;
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-1 flex-col">
       <PageHeader
         title="Sessions"
         subtitle="Coding-agent sessions found on this Mac, and everything you have captured."
