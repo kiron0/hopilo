@@ -84,8 +84,13 @@ function SourcesMap({ discovered, sources, loading }: { discovered: DiscoveredRo
     <Card className="card-soft flex flex-col p-5">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">Sources map</h2>
-        <button type="button" onClick={() => navigate({ page: "sessions" })} className="flex items-center text-[12px] font-medium text-accent hover:underline">
-          Open <ChevronRight size={14} />
+        <button
+          type="button"
+          onClick={() => navigate({ page: "sessions" })}
+          className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
+        >
+          <span>Open</span>
+          <ChevronRight size={13} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
         </button>
       </div>
       <div className="relative mt-2 min-h-[210px] flex-1" role="list" aria-label="Sessions by tool">
@@ -151,8 +156,13 @@ function Tile({ tone, icon, title, value, unit, caption, action, onClick, loadin
         </>
       )}
       <div className="flex-1" />
-      <button type="button" onClick={onClick} className="mt-3 inline-flex h-8 w-fit items-center gap-1 rounded-full border border-white/35 bg-white/15 px-3.5 text-[12.5px] font-medium shadow-[inset_0_1px_1px_rgb(255_255_255/0.3)] transition-colors hover:bg-white/25">
-        {action} <ArrowRight size={13} />
+      <button
+        type="button"
+        onClick={onClick}
+        className="group mt-3 inline-flex h-8 w-fit items-center gap-1.5 rounded-full border border-white/35 bg-white/15 px-3.5 text-[12.5px] font-medium shadow-[inset_0_1px_1px_rgb(255_255_255/0.3)] transition-all hover:scale-[1.02] hover:bg-white/25 active:scale-[0.98]"
+      >
+        <span>{action}</span>
+        <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
       </button>
     </div>
   );
@@ -214,7 +224,7 @@ export function Dashboard() {
           <p className="mt-2 max-w-md text-muted">
             Pick up any conversation in another AI. Hopilo turns it into one message you paste — nothing is ever sent for you.
           </p>
-          <div className="mt-6 flex flex-wrap items-center gap-4">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <button
               type="button"
               disabled={!latest || busy}
@@ -224,9 +234,9 @@ export function Dashboard() {
                 await quickHandoff(latest.adapter, latest.path);
                 setBusy(false);
               }}
-              className="flex items-center gap-2.5 rounded-full border border-line bg-surface py-1.5 pr-4 pl-1.5 shadow-item transition-transform hover:-translate-y-px active:scale-[0.98] disabled:opacity-50"
+              className="group flex h-12 items-center gap-2.5 rounded-full border border-line bg-surface py-1.5 pr-4 pl-1.5 shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:shadow-card active:scale-[0.98] disabled:opacity-50 disabled:hover:translate-y-0"
             >
-              <span className="bg-brand flex h-9 w-9 items-center justify-center rounded-full text-white shadow-brand">
+              <span className="bg-brand flex h-9 w-9 items-center justify-center rounded-full text-white shadow-brand transition-transform group-hover:scale-105">
                 <Copy size={15} />
               </span>
               <span className="text-left leading-tight">
@@ -234,8 +244,16 @@ export function Dashboard() {
                 <span className="block max-w-[180px] truncate font-mono text-[10.5px] text-faint">{latest ? latest.title : "no session yet"}</span>
               </span>
             </button>
-            <button type="button" onClick={() => navigate({ page: "sessions", tab: "agents" })} className="flex items-center gap-1 text-[13px] font-medium text-accent hover:underline">
-              Choose a different session <ArrowRight size={14} />
+            <button
+              type="button"
+              onClick={() => navigate({ page: "sessions", tab: "agents" })}
+              className="group flex h-12 items-center gap-2.5 rounded-full border border-line bg-surface/90 px-4 text-[13px] font-medium text-ink shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:shadow-card active:scale-[0.98]"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-white">
+                <MessagesSquare size={14} />
+              </span>
+              <span>Choose a different session</span>
+              <ArrowRight size={14} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
             </button>
           </div>
           <div className="mt-5 flex items-center gap-2 font-mono text-[11px] text-faint">
@@ -296,8 +314,13 @@ export function Dashboard() {
         <Card>
           <div className="flex items-center justify-between px-4 pt-4 pb-1">
             <h2 className="font-semibold">Continue a coding session</h2>
-            <button type="button" className="flex items-center text-[12px] font-medium text-accent hover:underline" onClick={() => navigate({ page: "sessions", tab: "agents" })}>
-              All <ChevronRight size={14} />
+            <button
+              type="button"
+              className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
+              onClick={() => navigate({ page: "sessions", tab: "agents" })}
+            >
+              <span>All</span>
+              <ChevronRight size={13} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
             </button>
           </div>
           <div className="divide-y divide-line">
