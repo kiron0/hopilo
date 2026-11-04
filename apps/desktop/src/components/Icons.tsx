@@ -46,7 +46,7 @@ const c = (cx: number, cy: number, r: number) => `M${cx - r} ${cy}a${r} ${r} 0 1
 const rr = (x: number, y: number, w: number, h: number, r: number) =>
   `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z`;
 
-export const HomeIcon = ({ size = 20, active, className, ...rest }: IconProps) => (
+export const OverviewIcon = ({ size = 20, active, className, ...rest }: IconProps) => (
   <svg
     width={size}
     height={size}
@@ -55,18 +55,15 @@ export const HomeIcon = ({ size = 20, active, className, ...rest }: IconProps) =
     aria-hidden="true"
     {...rest}
   >
-    <path
-      className="f"
-      d="M4.5 11 12 4.8l7.5 6.2v7.5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5z"
-    />
-    <path
-      className="s"
-      d="M3.5 11.2 12 4.2l8.5 7 M5.5 9.8v9.7a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5V9.8"
-    />
-    <path className="s" d="M10 20.4v-4.8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.8" />
-    <circle className="a" cx="17.2" cy="7.2" r="1.4" />
+    <rect className="s" x="3.5" y="3.5" width="7.5" height="7.5" rx="2.2" />
+    <rect className="s" x="13" y="3.5" width="7.5" height="7.5" rx="2.2" />
+    <circle className="a" cx="16.75" cy="7.25" r="1.8" />
+    <rect className="f" x="3.5" y="13" width="7.5" height="7.5" rx="2.2" />
+    <rect className="s" x="3.5" y="13" width="7.5" height="7.5" rx="2.2" />
+    <rect className="s" x="13" y="13" width="7.5" height="7.5" rx="2.2" />
   </svg>
 );
+export const HomeIcon = OverviewIcon;
 
 const TRAY = "M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14h-4.2a1 1 0 0 0-.9.55l-.4.9a1 1 0 0 1-.9.55h-3.2a1 1 0 0 1-.9-.55l-.4-.9A1 1 0 0 0 8.2 14z";
 export const CaptureIcon = make(["M12 4v9m0 0-3.5-3.5M12 13l3.5-3.5", TRAY], TRAY);
@@ -88,8 +85,8 @@ export const SessionsIcon = ({ size = 20, active, className, ...rest }: IconProp
       className="s"
       d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17A2.5 2.5 0 0 1 4 14.5z"
     />
-    <path className="s" d="M8 9.5h8 M8 13h5" />
-    <circle className="a" cx="16.2" cy="13" r="1.3" />
+    <path className="s" d="M8 9.5h8 M8 13.5h5" />
+    <circle className="a" cx="16.5" cy="13.5" r="1.4" />
   </svg>
 );
 export const MessagesSquare = SessionsIcon;
@@ -141,10 +138,10 @@ export const BrowserIcon = ({ size = 20, active, className, ...rest }: IconProps
     aria-hidden="true"
     {...rest}
   >
-    <circle className="f" cx="12" cy="12" r="8.5" />
-    <circle className="s" cx="12" cy="12" r="8.5" />
-    <path className="s" d="M3.5 12h17 M12 3.5c2.5 2.5 3.6 5.3 3.6 8.5s-1.1 6-3.6 8.5 M12 3.5c-2.5 2.5-3.6 5.3-3.6 8.5s1.1 6 3.6 8.5" />
-    <circle className="a" cx="16.5" cy="7.5" r="1.4" />
+    <circle className="f" cx="12" cy="12" r="9" />
+    <circle className="s" cx="12" cy="12" r="9" />
+    <path className="s" d="M3 12h18 M12 3c2.6 2.6 3.8 5.6 3.8 9S14.6 18.4 12 21 M12 3C9.4 5.6 8.2 8.6 8.2 12S9.4 18.4 12 21" />
+    <circle className="a" cx="16.5" cy="7.5" r="1.6" />
   </svg>
 );
 

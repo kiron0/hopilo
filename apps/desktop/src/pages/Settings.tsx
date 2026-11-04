@@ -152,11 +152,11 @@ export function Settings() {
           <Row label="On launch, show" hint={isMac ? "The menu-bar icon is always available." : "The system tray icon is always available."}>
             <Segmented
               label="On launch"
-              value={s.startupSurface}
+              value={s.startupSurface === "home" ? "overview" : s.startupSurface}
               onChange={(v) => saveSetting("startupSurface", v)}
               options={[
                 { value: "tray", label: isMac ? "Menu bar only" : "System tray only" },
-                { value: "home", label: "Dashboard" },
+                { value: "overview", label: "Overview" },
               ]}
             />
           </Row>

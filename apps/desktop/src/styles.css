@@ -299,31 +299,36 @@
     font-weight: 600;
     box-shadow: var(--elev-item);
   }
+  :root[data-theme='dark'] .nav-item {
+    color: #c4c4cc;
+  }
   :root[data-theme='dark'] .nav-item:hover {
     background: rgba(255, 255, 255, 0.06);
-    color: var(--text);
+    color: #ffffff;
   }
   :root[data-theme='dark'] .nav-item.on,
   :root[data-theme='dark'] .nav-item[aria-current="page"] {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.07));
-    color: var(--text);
+    color: #ffffff;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.35);
   }
   .ic {
     width: 20px;
     height: 20px;
     flex: none;
-    --fo: 0.16;
+    --fo: 0.18;
     --sw: 1.7;
     --ac: #ff5d8f;
     transition: color 0.2s var(--ease);
   }
+  symbol .f,
   .ic .f {
     fill: currentColor;
     opacity: var(--fo);
     stroke: none;
     transition: opacity 0.2s var(--ease);
   }
+  symbol .s,
   .ic .s {
     fill: none;
     stroke: currentColor;
@@ -331,29 +336,51 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
+  symbol .d,
   .ic .d {
     fill: currentColor;
     stroke: none;
   }
+  symbol .a,
   .ic .a {
     fill: var(--ac);
     stroke: none;
+    transition: fill 0.2s var(--ease), filter 0.2s var(--ease);
   }
   .nav-item .ic {
-    color: var(--muted);
+    color: #6e6d7a;
   }
   .nav-item:hover .ic {
-    color: var(--text);
+    color: #1a191e;
   }
   .nav-item.on .ic,
   .nav-item[aria-current="page"] .ic {
     color: var(--accent);
-    --fo: 0.24;
+    --fo: 0.26;
+  }
+  :root[data-theme='dark'] .nav-item .ic {
+    color: #a1a1a8;
+    --fo: 0.20;
+  }
+  :root[data-theme='dark'] .nav-item:hover .ic {
+    color: #ffffff;
+    --fo: 0.26;
   }
   :root[data-theme='dark'] .nav-item.on .ic,
   :root[data-theme='dark'] .nav-item[aria-current="page"] .ic {
     color: #b3bbff;
-    --fo: 0.28;
+    --fo: 0.32;
+    --sw: 1.8;
+  }
+  :root[data-theme='dark'] .ic .a,
+  :root[data-theme='dark'] symbol .a {
+    fill: #ff5d8f;
+    filter: drop-shadow(0 0 3px rgba(255, 93, 143, 0.5));
+  }
+  :root[data-theme='dark'] .nav-item.on .ic .a,
+  :root[data-theme='dark'] .nav-item.on symbol .a {
+    fill: #ff5d8f;
+    filter: drop-shadow(0 0 4px rgba(255, 93, 143, 0.75));
   }
 
   .cleanly-app {

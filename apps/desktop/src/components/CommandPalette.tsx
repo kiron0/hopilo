@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
-import { Globe, ClipboardPaste, LayoutDashboard, MessagesSquare, Search, Settings, X } from "./Icons";
+import { Globe, ClipboardPaste, OverviewIcon, MessagesSquare, Search, Settings, X } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
 import { captureClipboard } from "../lib/actions";
 import { type Route, useApp } from "../lib/store";
 import { IconButton, Kbd } from "./ui";
 
 const PAGES: { route: Route; label: string; icon: React.ReactNode }[] = [
-  { route: { page: "home" }, label: "Home", icon: <LayoutDashboard size={15} /> },
+  { route: { page: "overview" }, label: "Overview", icon: <OverviewIcon size={15} /> },
   { route: { page: "sessions" }, label: "Sessions", icon: <MessagesSquare size={15} /> },
   { route: { page: "browser" }, label: "Browser extension", icon: <Globe size={15} /> },
   { route: { page: "settings" }, label: "Settings", icon: <Settings size={15} /> },

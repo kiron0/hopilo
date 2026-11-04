@@ -8,7 +8,7 @@ import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
 import { IconButton, Kbd, ProviderBadge, Skeleton } from "../components/ui";
-import { CaptureIcon, HomeIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
+import { CaptureIcon, OverviewIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
 
 export function QuickPanel() {
   const ready = useBootstrap();
@@ -136,7 +136,7 @@ export function QuickPanel() {
 
       <footer className="flex shrink-0 items-center justify-between px-3 pb-2.5 text-[12.5px]">
         <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px]" onClick={() => api.showMainWindow()}>
-          <span className="text-faint"><HomeIcon size={15} /></span> Open Hopilo
+          <span className="text-faint"><OverviewIcon size={15} /></span> Open Hopilo
         </button>
         <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px] hover:text-danger" onClick={() => api.quit()}>
           <Power size={14} /> Quit
