@@ -56,7 +56,7 @@ export function Browser() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-6">
       <PageHeader
         title="Browser"
         subtitle="The Hopilo extension saves ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It talks only to this app, on this computer."

@@ -227,7 +227,7 @@ export function Home() {
   const tools = new Set(all.map((r) => r.provider)).size;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-6">
       {!settings.onboarded && (
         <Card className="flex items-start gap-3 p-4">
           <span className="bg-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white">

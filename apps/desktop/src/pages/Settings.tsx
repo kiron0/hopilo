@@ -8,17 +8,6 @@ import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
-import { PageToolbar } from "../components/PageSlots";
-
-const SECTIONS = [
-  { id: "general", title: "General" },
-  { id: "appearance", title: "Appearance" },
-  { id: "handoff", title: "Handoff" },
-  { id: "sources", title: "Sources" },
-  { id: "privacy", title: "Privacy" },
-  { id: "storage", title: "Storage" },
-  { id: "about", title: "About" },
-] as const;
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
   { value: "mist", label: "Mist" },
@@ -76,22 +65,8 @@ export function Settings() {
   }, [section]);
 
   return (
-    <div>
+    <div className="space-y-4 pb-6">
       <PageHeader title="Settings" subtitle="Changes save immediately." />
-      <PageToolbar>
-        <nav aria-label="Settings categories" className="flex flex-wrap gap-1.5">
-          {SECTIONS.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => document.getElementById(`settings-${c.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              className="h-7.5 rounded-full border border-line bg-card px-3 text-[12.5px] font-medium text-muted shadow-item transition-colors hover:text-ink"
-            >
-              {c.title}
-            </button>
-          ))}
-        </nav>
-      </PageToolbar>
       <div className="sy-stagger">
         <Group id="general" title="General" description="Startup and window behavior.">
           <Row label="Launch at login" hint="Off unless you turn it on.">

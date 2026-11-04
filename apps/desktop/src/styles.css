@@ -329,12 +329,12 @@
     background-color: var(--window);
   }
   .cleanly-titlebar {
-    height: 44px;
+    height: 58px;
     flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 24px 0 92px;
+    padding: 18px 24px 0 92px;
     user-select: none;
     position: relative;
     z-index: 10;
@@ -359,11 +359,20 @@
   .cleanly-main {
     flex: 1;
     min-width: 0;
-    padding: 24px 24px 24px 12px;
+    padding: 20px 24px 0 12px;
     display: flex;
     flex-direction: column;
     gap: 16px;
     overflow-y: auto;
+  }
+  .cleanly-main > .screen {
+    padding-bottom: 24px;
+  }
+  .cleanly-main:has(.page-fill) {
+    padding-bottom: 24px;
+  }
+  .cleanly-main:has(.page-fill) > .screen {
+    padding-bottom: 0;
   }
 
   /* Cleanly disk / library card in sidebar */
