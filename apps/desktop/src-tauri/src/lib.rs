@@ -4,6 +4,7 @@
 mod browser;
 mod commands;
 mod files;
+mod handoff;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -14,9 +15,29 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, PhysicalPosition, Rect, RunEvent, WindowEvent};
 
-/// Dashboard window size range (logical pixels); mirrors tauri.conf.json.
-const MAIN_MIN: (f64, f64) = (1040.0, 760.0);
-const MAIN_MAX: (f64, f64) = (1720.0, 1120.0);
+/// The dashboard can't be made smaller than this share of the display it is
+/// on (width and height each, so it works in portrait and landscape).
+const MAIN_MIN_SHARE: f64 = 0.8;
+
+/// Size limits for the dashboard on its current display: at least 80% of the
+/// display, at most all of it. Re-applied when the window changes display.
+fn fit_main_to_display(w: &tauri::WebviewWindow) {
+    use tauri::LogicalSize;
+    let Ok(Some(m)) = w.current_monitor().or_else(|_| w.primary_monitor()) else { return };
+    let scale = m.scale_factor();
+    let area = m.work_area().size.to_logical::<f64>(scale);
+    let min = LogicalSize::new((area.width * MAIN_MIN_SHARE).round(), (area.height * MAIN_MIN_SHARE).round());
+    let _ = w.set_min_size(Some(min));
+    let _ = w.set_max_size(Some(area));
+    if let (Ok(size), Ok(ws)) = (w.inner_size(), w.scale_factor()) {
+        let s = size.to_logical::<f64>(ws);
+        let fit = LogicalSize::new(s.width.clamp(min.width, area.width), s.height.clamp(min.height, area.height));
+        if (fit.width - s.width).abs() > 0.5 || (fit.height - s.height).abs() > 0.5 {
+            let _ = w.set_size(fit);
+            let _ = w.center();
+        }
+    }
+}
 
 /// When the Quick Panel last hid because it lost focus. A tray click that
 /// arrives right after should close it, not reopen it.
@@ -89,9 +110,10 @@ fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let latest = MenuItem::with_id(app, "latest", "Copy handoff for latest session", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Hopilo", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Hopilo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &PredefinedMenuItem::separator(app)?, &quit])?;
+    let menu = Menu::with_items(app, &[&latest, &PredefinedMenuItem::separator(app)?, &open, &quit])?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     TrayIconBuilder::with_id("hopilo")
         .icon(icon)
@@ -100,6 +122,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
+            "latest" => handoff::continue_latest_session(app),
             "open" => show_main(app),
             "quit" => app.exit(0),
             _ => {}
@@ -140,19 +163,10 @@ pub fn run() {
             app.manage(AppState { store: Mutex::new(store), discovery: Mutex::new(Default::default()) });
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
-            // Enforce the dashboard size range even when the window-state
-            // plugin restores an older, out-of-range size.
+            // Size limits follow the display (80% minimum), also after the
+            // window-state plugin restores an older size.
             if let Some(w) = app.get_webview_window("main") {
-                use tauri::LogicalSize;
-                let _ = w.set_min_size(Some(LogicalSize::new(MAIN_MIN.0, MAIN_MIN.1)));
-                let _ = w.set_max_size(Some(LogicalSize::new(MAIN_MAX.0, MAIN_MAX.1)));
-                if let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) {
-                    let s = size.to_logical::<f64>(scale);
-                    let fit = LogicalSize::new(s.width.clamp(MAIN_MIN.0, MAIN_MAX.0), s.height.clamp(MAIN_MIN.1, MAIN_MAX.1));
-                    if (fit.width - s.width).abs() > 0.5 || (fit.height - s.height).abs() > 0.5 {
-                        let _ = w.set_size(fit);
-                    }
-                }
+                fit_main_to_display(&w);
             }
 
             let first_run = !settings.contains_key("onboarded");
@@ -178,6 +192,11 @@ pub fn run() {
                 } else {
                     api.prevent_close();
                     let _ = window.hide();
+                }
+            }
+            ("main", WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. }) => {
+                if let Some(w) = window.app_handle().get_webview_window("main") {
+                    fit_main_to_display(&w);
                 }
             }
             ("quick", WindowEvent::Focused(false)) => {
@@ -207,6 +226,9 @@ pub fn run() {
             commands::delete_attachment,
             commands::build_pack,
             commands::quick_pack_from_session,
+            handoff::copy_pack,
+            handoff::quick_handoff,
+            handoff::capture_clipboard,
             commands::list_packs,
             commands::get_pack,
             commands::update_pack,

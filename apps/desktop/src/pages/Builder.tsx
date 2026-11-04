@@ -24,7 +24,7 @@ import { attachmentDraftItem } from "../lib/draftItems";
 
 export { attachmentDraftItem };
 import { FileImportModal } from "../components/FileImport";
-import { Badge, Button, Card, cx, Modal, PageHeader, ProviderDot, SectionLabel, Segmented, StatusBadge, TextArea, TextInput } from "../components/ui";
+import { Badge, Button, Card, cx, Field, SearchField, Modal, PageHeader, ProviderDot, SectionLabel, Segmented, StatusBadge, TextArea, TextInput } from "../components/ui";
 import { FillPage } from "../components/PageSlots";
 
 export function packDraftItem(p: PackRow): DraftItem {
@@ -164,8 +164,12 @@ function AddTextModal({ onClose, onAdded }: { onClose: () => void; onAdded: (d: 
       }
     >
       <div className="space-y-3">
-        <TextInput placeholder="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Title" />
-        <TextArea autoFocus rows={10} placeholder="Paste a snippet, requirements, decisions…" value={text} onChange={(e) => setText(e.target.value)} aria-label="Text" />
+        <Field label="Title" hint="Optional">
+          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
+        </Field>
+        <Field label="Text" hint="Snippets, requirements, decisions">
+          <TextArea autoFocus rows={10} value={text} onChange={(e) => setText(e.target.value)} />
+        </Field>
         {error && <div className="text-danger">{error}</div>}
         <p className="text-[12px] text-faint">Saved to your library as a manual source, so it can be reused.</p>
       </div>
@@ -302,7 +306,7 @@ export function Builder() {
               { value: "files", label: "Files" },
             ]}
           />
-          <TextInput aria-label="Filter library" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} className="mt-2.5" />
+          <SearchField label="Filter library" value={filter} onChange={setFilter} className="mt-2.5" />
           <div className="-mr-2 mt-2.5 min-h-0 flex-1 space-y-2 overflow-auto pr-2 pb-1">
             {libItems.map(({ item, status }) => (
               <LibraryCard
@@ -363,14 +367,12 @@ export function Builder() {
         <aside aria-label="Pack inspector" className="-mr-2 min-h-0 overflow-auto pr-2 pb-1">
           <SectionLabel>Pack inspector</SectionLabel>
           <Card className="space-y-4 p-4">
-            <label className="block">
-              <span className="mb-1 block text-[12px] font-medium text-muted">Title</span>
-              <TextInput placeholder="Defaults to the first source" value={draft.title} onChange={(e) => setDraft({ title: e.target.value })} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-[12px] font-medium text-muted">Note for the next AI</span>
-              <TextArea rows={4} placeholder="Goal, constraints, what to do next…" value={draft.note} onChange={(e) => setDraft({ note: e.target.value })} />
-            </label>
+            <Field label="Title" hint={draft.title ? undefined : "First source if empty"}>
+              <TextInput value={draft.title} onChange={(e) => setDraft({ title: e.target.value })} />
+            </Field>
+            <Field label="Note for the next AI" hint="Goal, constraints, next step">
+              <TextArea rows={4} value={draft.note} onChange={(e) => setDraft({ note: e.target.value })} />
+            </Field>
             <div className="space-y-1.5 text-[12.5px]">
               <div className="flex justify-between">
                 <span className="text-muted">Mode</span>

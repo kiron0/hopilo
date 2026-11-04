@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, X, XCircle } from "
 import type { CaptureStatus } from "../lib/api";
 import { provider } from "../lib/format";
 import { TARGETS as TARGET_LIST } from "../lib/providers";
-import { CheckIcon } from "./Icons";
+import { CheckIcon, SearchIcon } from "./Icons";
 import { Select, type SelectOption } from "./Select";
 import { PageHeaderSlot } from "./PageSlots";
 
@@ -192,24 +192,63 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+/** Search/filter field: the dashboard's pill search, with a clear button.
+ *  The icon and accessible label say what it is; no placeholder text. */
+export function SearchField({ value, onChange, label, className, autoFocus }: { value: string; onChange: (v: string) => void; label: string; className?: string; autoFocus?: boolean }) {
+  return (
+    <label className={cx("flex h-9 min-w-0 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item transition-colors focus-within:border-accent", className)}>
+      <SearchIcon size={14} />
+      <input
+        type="search"
+        autoFocus={autoFocus}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && value && (e.stopPropagation(), onChange(""))}
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none [&::-webkit-search-cancel-button]:hidden"
+      />
+      {value && (
+        <button type="button" aria-label="Clear" onClick={() => onChange("")} className="flex h-5 w-5 items-center justify-center rounded-full text-faint hover:bg-surface-3 hover:text-ink">
+          <X size={12} />
+        </button>
+      )}
+    </label>
+  );
+}
+
+/** Visible label above a control. */
+export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <label className={cx("block", className)}>
+      <span className="mb-1 flex items-baseline justify-between gap-2 text-[12px] font-medium text-muted">
+        {label}
+        {hint && <span className="font-normal text-faint">{hint}</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+type NoPlaceholder<T> = Omit<T, "placeholder">;
+
+export function TextInput(props: NoPlaceholder<React.InputHTMLAttributes<HTMLInputElement>>) {
   return (
     <input
       {...props}
       className={cx(
-        "h-9.5 w-full rounded-xl border border-line bg-card px-3 text-[13.5px] text-ink shadow-item placeholder:text-faint focus:border-accent focus:outline-none",
+        "h-9.5 w-full rounded-xl border border-line bg-card px-3 text-[13.5px] text-ink shadow-item focus:border-accent focus:outline-none",
         props.className,
       )}
     />
   );
 }
 
-export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function TextArea(props: NoPlaceholder<React.TextareaHTMLAttributes<HTMLTextAreaElement>>) {
   return (
     <textarea
       {...props}
       className={cx(
-        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink shadow-item placeholder:text-faint focus:border-accent focus:outline-none",
+        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink shadow-item focus:border-accent focus:outline-none",
         props.className,
       )}
     />

@@ -68,7 +68,7 @@ fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-fn with_store<T>(state: &State<AppState>, f: impl FnOnce(&mut Store) -> Result<T, String>) -> CmdResult<T> {
+pub(crate) fn with_store<T>(state: &State<AppState>, f: impl FnOnce(&mut Store) -> Result<T, String>) -> CmdResult<T> {
     let mut store = state.store.lock().map_err(|_| "library is busy, try again".to_string())?;
     f(&mut store)
 }
@@ -113,7 +113,7 @@ pub fn quit_app(app: AppHandle) {
 }
 
 /// Tell other windows the library changed so they refresh.
-fn notify(app: &AppHandle) {
+pub(crate) fn notify(app: &AppHandle) {
     let _ = app.emit("hopilo://library-changed", ());
 }
 
@@ -123,7 +123,7 @@ fn notify(app: &AppHandle) {
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredRow {
     #[serde(flatten)]
-    session: DiscoveredSession,
+    pub(crate) session: DiscoveredSession,
     imported_source_id: Option<String>,
     imported_at: Option<String>,
     /// File changed since the last capture.
@@ -526,9 +526,16 @@ pub fn build_pack(app: AppHandle, state: State<AppState>, req: BuildRequest) -> 
 #[tauri::command]
 pub async fn quick_pack_from_session(app: AppHandle, adapter: String, path: String) -> CmdResult<Pack> {
     let a2 = app.clone();
-    let pack = tauri::async_runtime::spawn_blocking(move || {
-        let (source, messages) = read_session(&adapter, &path)?;
-        let state = a2.state::<AppState>();
+    let pack = tauri::async_runtime::spawn_blocking(move || quick_pack_blocking(&a2, &adapter, &path)).await.map_err(err)??;
+    notify(&app);
+    Ok(pack)
+}
+
+/// Capture + Full pack, on the calling thread (blocking file reads).
+pub(crate) fn quick_pack_blocking(app: &AppHandle, adapter: &str, path: &str) -> CmdResult<Pack> {
+    {
+        let (source, messages) = read_session(adapter, path)?;
+        let state = app.state::<AppState>();
         with_store(&state, |s| {
             let out = s.insert_capture(&source, &messages).map_err(err)?;
             let req = BuildRequest {
@@ -542,11 +549,7 @@ pub async fn quick_pack_from_session(app: AppHandle, adapter: String, path: Stri
             let pack = assemble(s, &req)?;
             s.create_pack(pack, req.label.as_deref()).map_err(err)
         })
-    })
-    .await
-    .map_err(err)??;
-    notify(&app);
-    Ok(pack)
+    }
 }
 
 #[tauri::command]
@@ -621,7 +624,7 @@ pub enum ToolDetailOpt {
     Omit,
 }
 
-fn render_opts(t: ToolDetailOpt, level: Option<ContextLevel>) -> RenderOptions {
+pub(crate) fn render_opts(t: ToolDetailOpt, level: Option<ContextLevel>) -> RenderOptions {
     RenderOptions {
         level: level.unwrap_or_default(),
         tool_detail: match t {

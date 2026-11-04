@@ -32,8 +32,8 @@ import { useApp } from "../lib/store";
 import { packDraftItem } from "./Builder";
 import { Transcript } from "../components/Transcript";
 import { PackDetailSkeleton, PackGridSkeleton } from "../components/Skeletons";
-import { Badge, Button, Card, cx, EmptyState, ErrorNote, IconButton, Modal, PageHeader, ProviderDot, SectionLabel, Segmented, Spinner, TextInput, Toggle , TargetSelect } from "../components/ui";
-import { FillPage, PageHeaderSlot } from "../components/PageSlots";
+import { Badge, Button, Card, cx, SearchField, EmptyState, ErrorNote, IconButton, Modal, PageHeader, ProviderDot, SectionLabel, Segmented, Spinner, TextInput, Toggle , TargetSelect } from "../components/ui";
+import { FillPage, PageHeaderSlot, PageToolbar } from "../components/PageSlots";
 
 /** Very large previews are shortened on screen only; copy and export always
  *  use the full text. */
@@ -461,8 +461,8 @@ export function Packs() {
           </>
         }
       />
-      <div className="mb-4 flex items-center gap-3">
-        <TextInput aria-label="Filter packs" placeholder="Filter packs" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" />
+      <PageToolbar className="gap-3">
+        <SearchField label="Filter packs" value={q} onChange={setQ} className="w-72" />
         <label className="flex items-center gap-2 text-[12.5px] text-muted">
           <Toggle checked={showArchived} onChange={setShowArchived} label="Show archived" /> Archived
         </label>
@@ -471,7 +471,7 @@ export function Packs() {
             #{t}
           </button>
         ))}
-      </div>
+      </PageToolbar>
       {error && <ErrorNote text={error} />}
       {loading && !data && <PackGridSkeleton count={6} />}
       {data && rows.length === 0 && (
@@ -546,13 +546,16 @@ function TagEditor({ id, tags }: { id: string; tags: string[] }) {
           setValue("");
         }}
       >
-        <input
-          aria-label="Add a tag"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={tags.length ? "Add tag" : "Add a tag, e.g. backend"}
-          className="h-6 w-32 rounded-full border border-dashed border-line-strong bg-transparent px-2.5 text-[12px] placeholder:text-faint focus:border-accent focus:outline-none"
-        />
+        <label className="flex h-6 items-center gap-1 rounded-full border border-dashed border-line-strong px-2.5 text-[12px] text-faint focus-within:border-accent">
+          <span aria-hidden>#</span>
+          <input
+            aria-label="Add a tag, then press Return"
+            title="Add a tag, then press Return"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-20 bg-transparent text-ink focus:outline-none"
+          />
+        </label>
       </form>
     </div>
   );

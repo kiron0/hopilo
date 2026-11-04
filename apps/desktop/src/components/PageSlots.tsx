@@ -14,6 +14,13 @@ export function PageHeaderSlot({ children }: { children: ReactNode }) {
   return header ? createPortal(<div>{children}</div>, header) : <div className="mb-6">{children}</div>;
 }
 
+/** Filter/search row pinned under the page header; it never scrolls away. */
+export function PageToolbar({ children, className }: { children: ReactNode; className?: string }) {
+  const { header } = useContext(PageSlotsContext);
+  const bar = <div className={`page-toolbar flex flex-wrap items-center gap-2${className ? ` ${className}` : ""}`}>{children}</div>;
+  return header ? createPortal(bar, header) : <div className="mb-4">{bar}</div>;
+}
+
 /** Renders children into the Shell's fixed footer area. */
 export function PageFooter({ children }: { children: ReactNode }) {
   const { footer } = useContext(PageSlotsContext);

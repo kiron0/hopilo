@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bot, Download, Hammer, MessagesSquare, RefreshCw, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Bot, Download, Hammer, Loader2, MessagesSquare, RefreshCw, Trash2 } from "lucide-react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, errorText, type DiscoveredRow, type SourceRow } from "../lib/api";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
@@ -8,8 +8,8 @@ import { type DraftItem, useApp } from "../lib/store";
 import { CopyHandoffButton } from "./Dashboard";
 import { Transcript } from "../components/Transcript";
 import { ListSkeleton, TranscriptSkeleton } from "../components/Skeletons";
-import { Badge, Button, Card, cx, EmptyState, ErrorNote, PageHeader, ProviderDot, ProviderTag, Segmented, Skeleton, StatusBadge, TextInput } from "../components/ui";
-import { FillPage } from "../components/PageSlots";
+import { Badge, Button, Card, cx, EmptyState, ErrorNote, IconButton, PageHeader, ProviderDot, ProviderTag, SearchField, Segmented, Skeleton, StatusBadge } from "../components/ui";
+import { FillPage, PageFooter, PageToolbar } from "../components/PageSlots";
 
 export function sourceDraftItem(r: { id: string; title: string; provider: string; messageCount: number }, messageIds?: string[]): DraftItem {
   return {
@@ -63,12 +63,9 @@ function AgentSessions() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
-          <TextInput aria-label="Filter sessions" placeholder="Filter by title or project" value={q} onChange={(e) => setQ(e.target.value)} className="pl-8" />
-        </div>
+    <FillPage>
+      <PageToolbar>
+        <SearchField label="Filter sessions by title or project" value={q} onChange={setQ} className="flex-1" />
         <Segmented
           label="Agent"
           value={adapter}
@@ -82,47 +79,53 @@ function AgentSessions() {
             { value: "qwen-code", label: "Qwen Code" },
           ]}
         />
-        <Button icon={<RefreshCw size={14} />} onClick={reload} busy={loading && !!data}>
-          Rescan
-        </Button>
-      </div>
+        <IconButton label="Rescan agent folders" onClick={reload} className="h-9 w-9 rounded-full border border-line bg-card shadow-item">
+          <RefreshCw size={14} className={loading && data ? "animate-spin" : ""} />
+        </IconButton>
+      </PageToolbar>
       {error && <ErrorNote text={error} />}
       {loading && !data && <ListSkeleton rows={8} buttons={3} label="Scanning local agent folders" />}
       {data && rows.length === 0 && (
         <Card>
-          <EmptyState icon={<Bot size={20} />} title="No sessions found" body="Hopilo looks where Claude Code, Codex, Gemini CLI and OpenCode keep their sessions. They appear here after you use those tools." />
+          <EmptyState
+            icon={<Bot size={20} />}
+            title={q || adapter !== "all" ? "No matching sessions" : "No sessions found"}
+            body={q || adapter !== "all" ? "Try a different filter." : "Hopilo looks where Claude Code, Codex, Gemini CLI and OpenCode keep their sessions. They appear here after you use those tools."}
+          />
         </Card>
       )}
       {rows.length > 0 && (
-        <Card className="divide-y divide-line">
+        <Card className="min-h-0 flex-1 divide-y divide-line overflow-auto">
           {rows.map((r) => (
-            <div key={r.path} className="flex items-center gap-3 px-4 py-3">
+            <div key={r.path} className="group flex items-center gap-3 px-4 py-3 hover:bg-surface-2/60">
               <ProviderDot id={r.adapter} size={9} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium">{r.title}</span>
                   {r.importedSourceId && !r.changedSinceImport && <Badge tone="success">Captured</Badge>}
-                  {r.changedSinceImport && <Badge tone="warning">New activity since capture</Badge>}
+                  {r.changedSinceImport && <Badge tone="warning">New activity</Badge>}
                 </div>
-                <div className="mt-0.5 truncate text-[12px] text-faint" title={r.path}>
-                  {provider(r.adapter).label} · {basename(r.project) || "no project"} {r.model ? `· ${r.model}` : ""} · {plural(r.messageCount, "turn")} · {bytes(r.sizeBytes)} · {relativeTime(r.modifiedAt)}
+                <div className="mt-0.5 truncate font-mono text-[11px] text-faint" title={r.path}>
+                  {provider(r.adapter).label} · {basename(r.project) || "no project"}{r.model ? ` · ${r.model}` : ""} · {plural(r.messageCount, "turn")} · {bytes(r.sizeBytes)} · {relativeTime(r.modifiedAt)}
                 </div>
               </div>
-              <Button size="sm" variant="ghost" icon={<Hammer size={13} />} busy={busy === r.path} onClick={() => capture(r, true)}>
-                Add to Builder
-              </Button>
-              <Button size="sm" icon={<Download size={13} />} onClick={() => capture(r, false)} disabled={busy === r.path}>
-                {r.importedSourceId ? "Re-capture" : "Capture"}
-              </Button>
-              <CopyHandoffButton row={r} variant="secondary" />
+              <IconButton label="Add to Builder" disabled={busy === r.path} onClick={() => capture(r, true)}>
+                {busy === r.path ? <Loader2 size={14} className="animate-spin" /> : <Hammer size={14} />}
+              </IconButton>
+              <IconButton label={r.importedSourceId ? "Capture again" : "Capture to library"} disabled={busy === r.path} onClick={() => capture(r, false)}>
+                <Download size={14} />
+              </IconButton>
+              <CopyHandoffButton row={r} variant="primary" />
             </div>
           ))}
         </Card>
       )}
-      <p className="text-[12px] text-faint">
-        Session files are opened read-only. Hidden reasoning and injected system context are left out and counted in each capture's record.
-      </p>
-    </div>
+      <PageFooter>
+        <span className="mr-auto text-[12px] text-faint">
+          {data ? `${plural(rows.length, "session")}${rows.length !== data.length ? ` of ${data.length}` : ""} · ` : ""}Opened read-only. Hidden reasoning and injected system context are left out.
+        </span>
+      </PageFooter>
+    </FillPage>
   );
 }
 
@@ -141,7 +144,7 @@ function SourceDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) 
 
   if (loading && !data)
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 p-5">
         <div className="space-y-2">
           <Skeleton className="h-5 w-3/5" />
           <Skeleton className="h-3 w-4/5" />
@@ -153,7 +156,7 @@ function SourceDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) 
         <TranscriptSkeleton count={5} />
       </div>
     );
-  if (error) return <ErrorNote text={error} />;
+  if (error) return <div className="p-5"><ErrorNote text={error} /></div>;
   if (!data) return null;
   const { source, messages, tokenEstimate } = data;
   const row = { id, title: source.title, provider: source.provider, messageCount: messages.length };
@@ -164,7 +167,8 @@ function SourceDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) 
   };
 
   return (
-    <div className="space-y-4">
+    <>
+    <div className="shrink-0 space-y-4 border-b border-line p-5">
       <div>
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-[16px] font-semibold" data-selectable>{source.title}</h2>
@@ -228,7 +232,9 @@ function SourceDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) 
           Delete
         </Button>
       </div>
+    </div>
 
+    <div className="min-h-0 flex-1 overflow-auto p-5">
       <Transcript
         messages={messages}
         selected={selecting ? selected : undefined}
@@ -244,6 +250,7 @@ function SourceDetail({ id, onDeleted }: { id: string; onDeleted: () => void }) 
         }
       />
     </div>
+    </>
   );
 }
 
@@ -289,7 +296,7 @@ function CapturedSessions({ initial }: { initial?: string }) {
     <FillPage>
     <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-4">
       <div className="flex min-h-0 flex-col gap-2">
-        <TextInput aria-label="Filter captures" placeholder="Filter captures" value={q} onChange={(e) => setQ(e.target.value)} />
+        <SearchField label="Filter captures" value={q} onChange={setQ} />
         <Card className="min-h-0 flex-1 divide-y divide-line overflow-auto">
           {rows.map((r) => (
             <button
@@ -308,7 +315,7 @@ function CapturedSessions({ initial }: { initial?: string }) {
           ))}
         </Card>
       </div>
-      <Card className="min-w-0 overflow-auto p-5">{active ? <SourceDetail id={active} onDeleted={() => setActive(undefined)} /> : <div className="text-muted">Select a capture.</div>}</Card>
+      <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">{active ? <SourceDetail id={active} onDeleted={() => setActive(undefined)} /> : <div className="p-5 text-muted">Select a capture.</div>}</Card>
     </div>
     </FillPage>
   );

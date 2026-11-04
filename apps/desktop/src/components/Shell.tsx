@@ -114,7 +114,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <aside className="flex w-[236px] shrink-0 flex-col px-3.5">
         <div data-tauri-drag-region className="h-10 shrink-0" />
         <div data-tauri-drag-region className="flex items-center gap-2.5 px-2 pb-4">
-          <img src="/hopilo-mark.png" alt="" className="h-7 w-7 rounded-lg shadow-card" draggable={false} />
+          <img src="/hopilo-mark.svg" alt="" className="h-7 w-7 drop-shadow-[0_3px_6px_rgb(40_30_120/0.25)]" draggable={false} />
           <span data-tauri-drag-region className="font-display text-[17px] font-semibold">Hopilo</span>
         </div>
         <nav aria-label="Main" className="flex-1 overflow-auto">
@@ -139,7 +139,7 @@ export function Shell({ children }: { children: ReactNode }) {
             className="flex h-8.5 w-72 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item transition-colors hover:text-muted"
           >
             <Kbd>⌘K</Kbd>
-            <span className="flex-1 text-left font-mono text-[11.5px]">search everything</span>
+            <span className="flex-1 text-left text-[12.5px] text-muted">Search</span>
             <SearchIcon size={14} />
           </button>
         </header>

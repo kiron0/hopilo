@@ -16,7 +16,7 @@ export function Select({
   onChange,
   options,
   label,
-  placeholder = "Choose…",
+  emptyLabel = "None",
   className = "",
   size = "md",
 }: {
@@ -24,7 +24,8 @@ export function Select({
   onChange: (v: string) => void;
   options: SelectOption[];
   label: string;
-  placeholder?: string;
+  /** Shown when no option is chosen. */
+  emptyLabel?: string;
   className?: string;
   size?: "sm" | "md";
 }) {
@@ -154,7 +155,7 @@ export function Select({
         className={`flex w-full items-center gap-2 rounded-xl border border-line bg-card pr-2.5 pl-3 text-left shadow-item transition-colors hover:border-line-strong ${size === "sm" ? "h-8 text-[12.5px]" : "h-9.5 text-[13.5px]"} ${open ? "border-accent" : ""} ${className}`}
       >
         {selected?.icon}
-        <span className={`min-w-0 flex-1 truncate ${selected ? "text-ink" : "text-faint"}`}>{selected?.label ?? placeholder}</span>
+        <span className={`min-w-0 flex-1 truncate ${selected ? "text-ink" : "text-faint"}`}>{selected?.label ?? emptyLabel}</span>
         <ChevronDownIcon size={15} className={`shrink-0 text-faint transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open &&

@@ -108,6 +108,16 @@ export interface SourceRow {
   missingCount: number;
 }
 
+export interface CopyOutcome {
+  packId: string;
+  version: number;
+  title: string;
+  target: string;
+  tokenEstimate: number;
+  missing: number;
+  findings: number;
+}
+
 export interface ImportOutcome {
   sourceId: string;
   duplicateOf: string | null;
@@ -316,6 +326,13 @@ export const api = {
 
   buildPack: (req: BuildRequest) => invoke<Pack>("build_pack", { req }),
   quickPackFromSession: (adapter: string, path: string) => invoke<Pack>("quick_pack_from_session", { adapter, path }),
+  /** Render + clipboard + handoff record, all in Rust. Omitted options use the saved defaults. */
+  copyPack: (id: string, version?: number | null, opts: { markdown?: boolean; target?: string; toolDetail?: ToolDetail; level?: Level } = {}) =>
+    invoke<CopyOutcome>("copy_pack", { id, version, ...opts }),
+  /** Capture a local agent session, build a pack and copy its handoff, in one call. */
+  quickHandoff: (adapter: string, path: string) => invoke<CopyOutcome>("quick_handoff", { adapter, path }),
+  /** Read the clipboard once and save it to the library. */
+  captureClipboard: () => invoke<ImportOutcome & { chars: number }>("capture_clipboard"),
   listPacks: () => invoke<PackRow[]>("list_packs"),
   getPack: (id: string, version?: number | null) => invoke<{ pack: Pack; versions: VersionRow[] }>("get_pack", { id, version }),
   updatePack: (id: string, patch: { title?: string; favorite?: boolean; pinned?: boolean; archived?: boolean }) =>

@@ -80,7 +80,7 @@ export function QuickPanel() {
       </div>
 
       <header className="flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-3">
-        <img src="/hopilo-mark.png" alt="" className="h-7 w-7 rounded-lg shadow-card" draggable={false} />
+        <img src="/hopilo-mark.svg" alt="" className="h-7 w-7 drop-shadow-[0_3px_6px_rgb(40_30_120/0.25)]" draggable={false} />
         <span className="font-display flex-1 text-[16px] font-semibold">Hopilo</span>
         <IconButton label="Settings" onClick={() => api.showMainWindow("settings")}>
           <SettingsIcon size={17} />
@@ -94,7 +94,6 @@ export function QuickPanel() {
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="search recent"
             aria-label="Search recent"
             className="min-w-0 flex-1 bg-transparent font-mono text-[11.5px] text-ink outline-none placeholder:text-faint"
           />

@@ -9,7 +9,8 @@ import { CAPTURE_LABEL, type CaptureMethod, PROVIDERS } from "../lib/providers";
 import { useApp } from "../lib/store";
 import { ProviderBadge } from "./Dashboard";
 import { ExportImportModal, pickChatExport } from "../components/ExportImport";
-import { Badge, Button, Card, IconButton, PageHeader, SectionLabel, Segmented, TextInput } from "../components/ui";
+import { PageFooter, PageToolbar } from "../components/PageSlots";
+import { Badge, Button, Card, IconButton, PageHeader, SectionLabel, Segmented, SearchField } from "../components/ui";
 
 const METHOD_ICON: Record<CaptureMethod, React.ReactNode> = {
   auto: <ScanSearch size={12} />,
@@ -59,7 +60,7 @@ export function Agents() {
         title="AI tools"
         subtitle="Every tool you can move a conversation between. Each row shows how Hopilo gets the conversation out."
       />
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <PageToolbar className="gap-3">
         <Segmented
           label="Kind"
           value={kind}
@@ -70,8 +71,8 @@ export function Agents() {
             { value: "agent", label: "Coding agents & editors" },
           ]}
         />
-        <TextInput aria-label="Search tools" placeholder="Search tools" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-      </div>
+        <SearchField label="Search tools" value={q} onChange={setQ} className="w-64" />
+      </PageToolbar>
 
       {(["agent", "chat"] as const)
         .filter((k) => kind === "all" || kind === k)
@@ -118,9 +119,9 @@ export function Agents() {
             </section>
           );
         })}
-      <p className="mt-5 text-[12px] text-faint">
-        Capturing directly from browser tabs needs the Hopilo browser extension, planned for the next phase. Session files and exports are only read, never changed.
-      </p>
+      <PageFooter>
+        <span className="mr-auto text-[12px] text-faint">Session files and exports are only read, never changed. Browser chats are captured with the Hopilo extension.</span>
+      </PageFooter>
       {exportPath && <ExportImportModal path={exportPath} onClose={() => setExportPath(null)} />}
     </div>
   );

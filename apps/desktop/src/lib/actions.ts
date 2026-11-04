@@ -1,21 +1,20 @@
 // Shared user actions (copy, export, import) used by pages and the Quick Panel.
-import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, errorText, type Level, type ToolDetail } from "./api";
+import { api, errorText, type CopyOutcome, type Level, type ToolDetail } from "./api";
 import { useApp } from "./store";
 import { target } from "./targets";
 
 const toast = (...a: Parameters<ReturnType<typeof useApp.getState>["toast"]>) => useApp.getState().toast(...a);
 
-/** Copy the handoff prompt and log it as "copied" — never as delivered. */
+/** Copy the handoff prompt and log it as "copied" — never as delivered.
+ *  Rendering, the clipboard write and the record happen in one Rust call. */
 export async function copyHandoff(packId: string, version: number, targetId: string, toolDetail: ToolDetail, level: Level = "full") {
   try {
-    const p = await api.previewPack(packId, version, "prompt", toolDetail, level);
-    await writeText(p.text);
-    await api.recordHandoff(packId, version, targetId, "clipboard", "copied");
-    const t = target(targetId);
+    const out = await api.copyPack(packId, version, { target: targetId, toolDetail, level });
+    const t = target(out.target);
     toast({ kind: "success", text: `Copied for ${t.label}. ${t.hint}` });
-    return p;
+    reviewNudge(out);
+    return out;
   } catch (e) {
     toast({ kind: "error", text: `Copy failed: ${errorText(e)}` });
     return null;
@@ -24,13 +23,24 @@ export async function copyHandoff(packId: string, version: number, targetId: str
 
 export async function copyMarkdown(packId: string, version: number, toolDetail: ToolDetail, level: Level = "full") {
   try {
-    const p = await api.previewPack(packId, version, "markdown", toolDetail, level);
-    await writeText(p.text);
-    await api.recordHandoff(packId, version, "other", "clipboard-markdown", "copied");
+    await api.copyPack(packId, version, { markdown: true, toolDetail, level });
     toast({ kind: "success", text: "Markdown copied to the clipboard." });
   } catch (e) {
     toast({ kind: "error", text: `Copy failed: ${errorText(e)}` });
   }
+}
+
+/** After a copy, point at anything worth a look before sending. */
+function reviewNudge(out: CopyOutcome) {
+  if (!out.missing && !out.findings) return;
+  const bits = [];
+  if (out.missing) bits.push(`${out.missing} missing item(s)`);
+  if (out.findings) bits.push(`${out.findings} possible secret(s)`);
+  toast({
+    kind: "warning",
+    text: `Review before sending: ${bits.join(" and ")}.`,
+    action: { label: "Review", run: () => useApp.getState().navigate({ page: "packs", packId: out.packId }) },
+  });
 }
 
 const FORMATS: Record<string, { name: string; ext: string }> = {
@@ -55,22 +65,17 @@ export async function exportPack(packId: string, version: number, format: keyof 
   }
 }
 
-/** One-time clipboard import (CAP-04). No background clipboard monitoring. */
+/** One-time clipboard import (CAP-04), read in Rust. No background monitoring. */
 export async function captureClipboard() {
   try {
-    const text = await readText();
-    if (!text?.trim()) {
-      toast({ kind: "warning", text: "The clipboard has no text to capture." });
-      return null;
-    }
-    const out = await api.importText(text, "clipboard");
+    const out = await api.captureClipboard();
     toast({
       kind: out.duplicateOf ? "info" : "success",
-      text: out.duplicateOf ? "That text is already in your library." : `Captured ${text.length.toLocaleString()} characters from the clipboard.`,
+      text: out.duplicateOf ? "That text is already in your library." : `Captured ${out.chars.toLocaleString()} characters from the clipboard.`,
     });
     return out;
   } catch (e) {
-    toast({ kind: "error", text: `Clipboard capture failed: ${errorText(e)}` });
+    toast({ kind: "warning", text: errorText(e) });
     return null;
   }
 }
@@ -95,23 +100,13 @@ export async function importPackFile() {
 }
 
 /** Flow B in one step: capture a local agent session, build a Full pack and
- *  copy its handoff prompt. Returns the new pack. */
+ *  copy its handoff prompt with the saved defaults — one Rust call. */
 export async function quickHandoff(adapter: string, path: string) {
-  const { settings } = useApp.getState();
   try {
-    const pack = await api.quickPackFromSession(adapter, path);
-    const p = await copyHandoff(pack.packId, pack.version, settings.defaultTarget, settings.toolDetail, settings.level);
-    if (p && (p.missing.length > 0 || p.findings.length > 0)) {
-      const bits = [];
-      if (p.missing.length) bits.push(`${p.missing.length} missing item(s)`);
-      if (p.findings.length) bits.push(`${p.findings.length} possible secret(s)`);
-      toast({
-        kind: "warning",
-        text: `Review before sending: ${bits.join(" and ")}.`,
-        action: { label: "Review", run: () => useApp.getState().navigate({ page: "packs", packId: pack.packId }) },
-      });
-    }
-    return pack;
+    const out = await api.quickHandoff(adapter, path);
+    toast({ kind: "success", text: `Copied “${out.title}” for ${target(out.target).label}. ${target(out.target).hint}` });
+    reviewNudge(out);
+    return out;
   } catch (e) {
     toast({ kind: "error", text: `Handoff failed: ${errorText(e)}` });
     return null;

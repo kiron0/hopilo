@@ -4,7 +4,7 @@ import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { provider } from "../lib/providers";
 import { useApp } from "../lib/store";
-import { Button, Checkbox, Modal, Spinner, TextInput } from "./ui";
+import { Button, Checkbox, Modal, Spinner, SearchField } from "./ui";
 
 /** Ask for a ChatGPT or Claude data export (.zip or conversations.json). */
 export async function pickChatExport(): Promise<string | null> {
@@ -69,7 +69,7 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
       {data && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <TextInput placeholder={`Search ${data.conversations.length} conversations`} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search conversations" />
+            <SearchField label={`Search ${data.conversations.length} conversations`} value={q} onChange={setQ} className="flex-1" />
             <Button size="sm" variant="ghost" onClick={() => setPicked(new Set(rows.map((r) => r.id)))}>Select shown</Button>
           </div>
           <ul className="max-h-[50vh] divide-y divide-line overflow-auto rounded-2xl border border-line">

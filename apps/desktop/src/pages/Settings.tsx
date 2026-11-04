@@ -7,22 +7,36 @@ import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
-import { Badge, Button, Card, PageHeader, Segmented, TargetSelect, Toggle } from "../components/ui";
+import { Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle } from "../components/ui";
+import { PageToolbar } from "../components/PageSlots";
 import { Select } from "../components/Select";
 
-function Group({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+const SECTIONS = [
+  { id: "general", title: "General" },
+  { id: "appearance", title: "Appearance" },
+  { id: "handoff", title: "Handoff" },
+  { id: "privacy", title: "Privacy" },
+  { id: "local-ai", title: "Local AI" },
+  { id: "storage", title: "Storage" },
+  { id: "about", title: "About" },
+] as const;
+
+/** One category: a label column on the left, its settings in a full-width card. */
+function Group({ id, title, description, children }: { id: string; title: string; description: string; children: React.ReactNode }) {
   return (
-    <Card className="p-5">
-      <h2 className="font-semibold">{title}</h2>
-      <p className="mt-0.5 mb-4 text-[12.5px] text-muted">{description}</p>
-      <div className="divide-y divide-line">{children}</div>
-    </Card>
+    <section id={`settings-${id}`} aria-labelledby={`settings-${id}-title`} className="grid scroll-mt-4 grid-cols-[200px_minmax(0,1fr)] gap-6 border-b border-line py-6 first:pt-1 last:border-0">
+      <div>
+        <h2 id={`settings-${id}-title`} className="font-display text-[15px] font-semibold">{title}</h2>
+        <p className="mt-1 text-[12.5px] text-muted">{description}</p>
+      </div>
+      <Card className="divide-y divide-line px-5 py-1">{children}</Card>
+    </section>
   );
 }
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-6 py-3 first:pt-0 last:pb-0">
+    <div className="flex min-h-14 items-center justify-between gap-6 py-3">
       <div className="min-w-0">
         <div className="text-[13px] font-medium">{label}</div>
         {hint && <div className="text-[12px] text-faint">{hint}</div>}
@@ -44,11 +58,31 @@ export function Settings() {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
   }, []);
 
+  // Deep links such as the sidebar's library card open a specific section.
+  const section = useApp((st) => (st.route.page === "settings" ? st.route.section : undefined));
+  useEffect(() => {
+    if (section) requestAnimationFrame(() => document.getElementById(`settings-${section}`)?.scrollIntoView({ block: "start" }));
+  }, [section]);
+
   return (
     <div>
       <PageHeader title="Settings" subtitle="Changes save immediately." />
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Group title="General" description="Startup and window behavior.">
+      <PageToolbar>
+        <nav aria-label="Settings categories" className="flex flex-wrap gap-1.5">
+          {SECTIONS.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => document.getElementById(`settings-${c.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              className="h-7.5 rounded-full border border-line bg-card px-3 text-[12.5px] font-medium text-muted shadow-item transition-colors hover:text-ink"
+            >
+              {c.title}
+            </button>
+          ))}
+        </nav>
+      </PageToolbar>
+      <div>
+        <Group id="general" title="General" description="Startup and window behavior.">
           <Row label="Launch at login" hint="Off unless you turn it on.">
             <Toggle
               label="Launch at login"
@@ -77,7 +111,7 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group title="Appearance" description="Light, dark or follow the system.">
+        <Group id="appearance" title="Appearance" description="Light, dark or follow the system.">
           <Row label="Theme">
             <Segmented label="Theme" value={s.theme} onChange={(v) => saveSetting("theme", v)} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
           </Row>
@@ -86,7 +120,7 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group title="Handoff" description="Defaults for copy and export.">
+        <Group id="handoff" title="Handoff" description="Defaults for copy and export.">
           <Row label="Default destination">
             <TargetSelect value={s.defaultTarget} onChange={(v) => saveSetting("defaultTarget", v)} className="w-56" />
           </Row>
@@ -101,7 +135,7 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group title="Privacy" description="What Hopilo can see and send.">
+        <Group id="privacy" title="Privacy" description="What Hopilo can see and send.">
           <Row label="Network" hint="No accounts, analytics, telemetry or update checks. Optional Ollama runs on this computer only.">
             <span className="text-[12.5px] text-success">Nothing leaves your Mac</span>
           </Row>
@@ -113,7 +147,7 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group title="Local AI (optional)" description="Write short summaries with Ollama running on this computer. Nothing leaves your Mac.">
+        <Group id="local-ai" title="Local AI (optional)" description="Write short summaries with Ollama running on this computer. Nothing leaves your Mac.">
           <Row label="Ollama" hint={ollama.data?.running ? `${ollama.data.models.length} model(s) installed` : "Not running. Install from ollama.com and start it to enable summaries."}>
             {ollama.data?.running ? <Badge tone="success">Running</Badge> : <Button size="sm" onClick={ollama.reload}>Check again</Button>}
           </Row>
@@ -122,7 +156,6 @@ export function Settings() {
               <div className="w-56">
                 <Select
                   label="Ollama model"
-                  placeholder="Off"
                   value={s.ollamaModel}
                   onChange={(v) => saveSetting("ollamaModel", v)}
                   options={[{ value: "", label: "Off" }, ...ollama.data.models.map((m) => ({ value: m, label: m }))]}
@@ -132,14 +165,14 @@ export function Settings() {
           )}
         </Group>
 
-        <Group title="Storage" description="Your library lives in one folder on this Mac.">
+        <Group id="storage" title="Storage" description="Your library lives in one folder on this Mac.">
           <Row label="Data folder" hint={info.data?.dataDir}>
             <Button size="sm" icon={<FolderOpen size={13} />} disabled={!info.data} onClick={() => info.data && revealItemInDir(`${info.data.dataDir}/hopilo.db`)}>
               Show
             </Button>
           </Row>
           <Row label="Space used">
-            <span className="text-[12.5px] text-muted">{stats.data ? bytes(stats.data.storageBytes) : "…"}</span>
+            {stats.data ? <span className="text-[12.5px] text-muted">{bytes(stats.data.storageBytes)}</span> : <Skeleton className="h-3 w-14" />}
           </Row>
           <Row label="Verify library" hint="Re-checks every pack version and stored file against its fingerprint.">
             <Button
@@ -173,9 +206,9 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group title="About" description="Hopilo — Universal AI Session Handoff.">
+        <Group id="about" title="About" description="Hopilo — Universal AI Session Handoff.">
           <Row label="Version">
-            <span className="font-mono text-[12.5px] text-muted">{info.data?.version ?? "…"}</span>
+            {info.data ? <span className="font-mono text-[12.5px] text-muted">{info.data.version}</span> : <Skeleton className="h-3 w-12" />}
           </Row>
           <Row label="Pack format" hint="Context Pack schema 1.0.0 · .handoff archive v1">
             <span className="text-[12.5px] text-muted">Open, documented</span>

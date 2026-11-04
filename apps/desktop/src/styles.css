@@ -371,7 +371,11 @@
   .page-header-slot > * {
     max-width: 1180px;
     margin: 0 auto;
-    padding: 4px 28px 20px;
+    padding: 4px 28px 18px;
+  }
+  .page-header-slot > .page-toolbar {
+    padding-top: 0;
+    padding-bottom: 14px;
   }
   .page-header-slot:has(+ .page-scroll:not(.at-top)) {
     box-shadow: 0 1px 0 var(--border);

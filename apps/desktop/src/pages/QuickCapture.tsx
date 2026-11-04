@@ -7,7 +7,7 @@ import { useApp } from "../lib/store";
 import { ProviderBadge } from "./Dashboard";
 import { FileImportModal } from "../components/FileImport";
 import { ExportImportModal, pickChatExport } from "../components/ExportImport";
-import { Button, Card, cx, PageHeader, ProviderChip, SectionLabel, TextArea, TextInput } from "../components/ui";
+import { Button, Card, cx, Field, PageHeader, ProviderChip, SectionLabel, TextArea, TextInput } from "../components/ui";
 import { Select } from "../components/Select";
 
 const QUICK_PICKS = ["chatgpt", "claude", "gemini", "grok", "deepseek", "perplexity", "copilot", "mistral"];
@@ -82,7 +82,7 @@ export function QuickCapture() {
                 <Select
                   size="sm"
                   label="Other AI"
-                  placeholder="More…"
+                  emptyLabel="Other AI…"
                   value={more.some((m) => m.id === from) ? from : ""}
                   onChange={setFrom}
                   options={more.map((p) => ({ value: p.id, label: p.label, group: p.kind === "chat" ? "Chat apps" : "Coding agents & editors", icon: <ProviderChip id={p.id} size={18} /> }))}
@@ -90,14 +90,12 @@ export function QuickCapture() {
               </div>
             </div>
           </div>
-          <TextInput placeholder="Title (optional — we'll use the first line)" aria-label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-          <TextArea
-            rows={8}
-            placeholder="In the AI app, select the conversation (⌘A in the chat), copy it, and paste here. Decisions, error logs and notes work too."
-            aria-label="Conversation text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
+          <Field label="Title" hint="Optional — first line if empty">
+            <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Field label="Conversation" hint="In the chat: ⌘A, ⌘C, then paste here">
+            <TextArea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
+          </Field>
           <div className="flex items-center justify-between gap-3">
             <span className="text-[12px] text-faint">Kept exactly as pasted. Marked as a pasted source, since Hopilo can't verify it.</span>
             <Button variant="primary" icon={<Type size={14} />} disabled={!text.trim()} busy={busy} onClick={saveNote}>
