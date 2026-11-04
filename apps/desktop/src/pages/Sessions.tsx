@@ -1,5 +1,3 @@
-// Sessions: every conversation from every AI tool, in one list. A session is
-// copied or exported straight from here; there is nothing to build first.
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Plus, RefreshCw, Star, Trash2, X } from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
@@ -36,12 +34,8 @@ import { FillPage, PageFooter, PageToolbar } from "../components/PageSlots";
 
 type Filter = SessionFilter;
 
-/** Shared loader for one session, so a hover prefetch and the session page
- *  hit the same cache entry. */
 export const sessionLoader = (id: string) => () => api.getSession(id);
 
-/** Agent folders are also checked whenever a Hopilo window gets focus, so
- *  the list only asks again when it hasn't for a while. */
 const SYNC_EVERY_MS = 60_000;
 let lastSync = 0;
 
@@ -74,7 +68,6 @@ const LEVELS: { value: Level; label: string }[] = [
   { value: "minimal", label: "Minimal" },
 ];
 
-/** Everything a session row says about where it came from, in one line. */
 function meta(r: SessionRow) {
   return [
     provider(r.provider).label,
@@ -109,14 +102,11 @@ function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onC
   );
 }
 
-// ---- list ------------------------------------------------------------------
-
 function SessionList() {
   const { data, error, loading } = useLoad(() => api.listSessions());
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
-  // Search, filter, page and selection live in the app store, so opening a
-  // session and coming back returns to the same spot instantly.
+
   const { q, filter, page, selected: picked } = useApp((s) => s.listView);
   const setListView = useApp((s) => s.setListView);
   const setQ = (v: string) => setListView({ q: v, page: 0 });
@@ -216,9 +206,9 @@ function SessionList() {
                   <button
                     type="button"
                     draggable
-                    // Drop on a chat page with the Hopilo extension to insert it as a draft.
+
                     onDragStart={(e) => e.dataTransfer.setData("text/plain", `hopilo://session/${r.id}`)}
-                    // Load the session while the pointer is on its way, so it opens with no wait.
+
                     onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])}
                     onFocus={() => prefetch(sessionLoader(r.id), [r.id])}
                     onClick={() => navigate({ page: "sessions", id: r.id })}
@@ -295,8 +285,6 @@ function SessionList() {
     </FillPage>
   );
 }
-
-// ---- one session -------------------------------------------------------------
 
 function FilesTab({ files }: { files: Attachment[] }) {
   const toast = useApp((s) => s.toast);

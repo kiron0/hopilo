@@ -1,10 +1,3 @@
-//! Official account data exports from web chat apps. Users request these in
-//! the provider's settings and receive a `.zip` containing
-//! `conversations.json`. Supported: ChatGPT and Claude.ai.
-//!
-//! Parsing follows the documented/observed export shapes; unknown content
-//! types are reported as not recovered rather than dropped silently.
-
 use std::io::Read;
 use std::path::Path;
 
@@ -15,7 +8,6 @@ use serde_json::Value;
 use crate::text::title_from;
 use crate::{omitted, AdapterError, Capture, Result};
 
-/// Refuse exports larger than this once unpacked.
 const MAX_EXPORT_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,7 +28,6 @@ fn io(path: &Path, e: impl std::fmt::Display) -> AdapterError {
     AdapterError::Io { path: path.display().to_string(), source: std::io::Error::other(e.to_string()) }
 }
 
-/// Load `conversations.json` from a `.json` file or an export `.zip`.
 fn load_json(path: &Path) -> Result<Value> {
     let bytes = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
         let f = std::fs::File::open(path).map_err(|e| io(path, e))?;
@@ -120,7 +111,7 @@ fn finish(
 fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
     let conv_id = c.get("conversation_id").or_else(|| c.get("id")).and_then(Value::as_str)?.to_string();
     let mapping = c.get("mapping")?.as_object()?;
-    // The visible thread is the path from `current_node` back to the root.
+
     let mut chain = Vec::new();
     let mut cursor = c.get("current_node").and_then(Value::as_str).map(str::to_string);
     let mut guard = 0;
@@ -193,7 +184,7 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
         let role = match role {
             "user" => Role::User,
             "tool" => {
-                // Tool output shown as text: keep it as a tool result.
+
                 blocks = blocks
                     .into_iter()
                     .map(|b| match b {
@@ -325,7 +316,7 @@ mod tests {
         let (meta, cap) = &e.conversations[0];
         assert_eq!(meta.title, "Postgres index advice");
         let texts: Vec<&str> = cap.messages.iter().map(|m| m.blocks[0].plain_text()).collect();
-        // The abandoned first answer (other branch) is not included.
+
         assert_eq!(texts, vec!["Which index for `WHERE user_id = $1 ORDER BY created_at`?", "Use a composite index on `(user_id, created_at)`."]);
         assert_eq!(cap.source.model.as_deref(), Some("gpt-5"));
         assert!(cap.source.omitted.iter().any(|o| o.what.starts_with("hidden system")));

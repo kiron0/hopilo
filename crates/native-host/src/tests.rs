@@ -62,7 +62,6 @@ fn capture_is_stored_with_status_and_clean_url() {
     assert_eq!(src.kind, SourceKind::BrowserChat);
     assert_eq!(msgs[0].blocks[0].plain_text(), "Why does `npm test` fail?");
 
-    // Same conversation again: recognized as already captured.
     let again = h.handle(&capture_req("claude", "complete"));
     assert_eq!(again["result"]["duplicateOf"], sid);
 }

@@ -1,5 +1,3 @@
-// Platform detection and OS-specific vocabulary and features.
-
 export type Platform = "macos" | "windows" | "linux";
 
 export function detectPlatform(): Platform {
@@ -26,4 +24,3 @@ export const trayLabel = isMac ? "Menu bar" : "System tray";
 export const trayIconLabel = isMac ? "Menu-bar icon" : "System tray icon";
 export const fileManagerLabel = isMac ? "Finder" : isWindows ? "File Explorer" : "File Manager";
 export const autostartLabel = isMac ? "Launch at login" : isWindows ? "Start with Windows" : "Launch on startup";
-

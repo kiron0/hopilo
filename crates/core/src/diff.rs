@@ -1,7 +1,3 @@
-//! Compare two pack versions (LIB-05): which messages, sources, files and
-//! notes were added, removed or changed. Messages match by source and id,
-//! with content compared exactly.
-
 use std::collections::HashMap;
 
 use serde::Serialize;
@@ -13,7 +9,7 @@ use crate::model::{Message, Pack, Role};
 pub struct MessageChange {
     pub id: String,
     pub role: Role,
-    /// First line of the message, for display.
+
     pub preview: String,
 }
 

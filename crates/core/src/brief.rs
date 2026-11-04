@@ -1,7 +1,3 @@
-//! Condensed context levels (CTX-06 Balanced, CTX-07 Minimal) and key
-//! references. Everything here is extracted, never generated: excerpts are
-//! verbatim and every cut is marked, so no value can be invented.
-
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::sync::OnceLock;
@@ -11,21 +7,18 @@ use serde::Serialize;
 
 use crate::model::{Block, Message, Role};
 
-/// How much of the conversation a handoff carries.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContextLevel {
-    /// The whole recoverable transcript.
+
     #[default]
     Full,
-    /// Key references, every user request, earlier replies shortened, and
-    /// the most recent exchanges in full.
+
     Balanced,
-    /// Goal, latest request and reply, key references only.
+
     Minimal,
 }
 
-/// How many trailing messages Balanced keeps in full.
 pub const BALANCED_RECENT: usize = 12;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -65,7 +58,7 @@ fn command_from_input(input: &str) -> Option<String> {
             Some(serde_json::Value::String(s)) => Some(s.clone()),
             Some(serde_json::Value::Array(parts)) => {
                 let words: Vec<&str> = parts.iter().filter_map(|p| p.as_str()).collect();
-                // `["bash", "-lc", "<script>"]` wrappers: keep the script.
+
                 if words.len() == 3 && words[1] == "-lc" {
                     Some(words[2].to_string())
                 } else {
@@ -78,8 +71,6 @@ fn command_from_input(input: &str) -> Option<String> {
     }
 }
 
-/// Extract file paths, shell commands and error lines, in order of first
-/// appearance (commands and errors keep the most recent).
 pub fn key_references(messages: &[&Message]) -> KeyReferences {
     let mut refs = KeyReferences::default();
     let (mut seen_f, mut seen_c, mut seen_e) = (HashSet::new(), HashSet::new(), HashSet::new());
@@ -154,8 +145,6 @@ pub fn write_key_references(out: &mut String, refs: &KeyReferences) {
     }
 }
 
-/// The first paragraph of a message's text, cut at `limit` characters with
-/// the cut marked.
 pub fn excerpt(m: &Message, limit: usize) -> Option<String> {
     let text: String = m
         .blocks

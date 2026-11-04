@@ -11,7 +11,6 @@ import { Sessions } from "./pages/Sessions";
 import { RouteSkeleton } from "./components/Skeletons";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
-// Home and Sessions load with the app; the other screens load on first visit.
 const Browser = lazy(() => import("./pages/Browser").then((m) => ({ default: m.Browser })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 import { FileDown } from "./components/Icons";
@@ -43,7 +42,6 @@ export function App() {
     };
   }, [navigate]);
 
-  // Ask the shell to show the window only once real content has painted.
   useEffect(() => {
     if (!ready) return;
     requestAnimationFrame(() => requestAnimationFrame(() => invoke("app_ready").catch(() => undefined)));

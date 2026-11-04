@@ -29,7 +29,6 @@ const THEMES: { value: "light" | "dark" | "system"; label: string; swatchClass: 
   { value: "system", label: "System", swatchClass: "theme-system" },
 ];
 
-/** One category: a label column on the left, its settings in a full-width card. */
 function Group({ id, title, description, children }: { id: string; title: string; description: string; children: React.ReactNode }) {
   return (
     <section id={`settings-${id}`} aria-labelledby={`settings-${id}-title`} className="grid scroll-mt-4 grid-cols-[200px_minmax(0,1fr)] gap-6 border-b border-line py-6 first:pt-1 last:border-0">
@@ -66,7 +65,6 @@ export function Settings() {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
   }, []);
 
-  // Deep links such as the sidebar's library card open a specific section.
   const section = useApp((st) => (st.route.page === "settings" ? st.route.section : undefined));
   useEffect(() => {
     if (section) requestAnimationFrame(() => document.getElementById(`settings-${section}`)?.scrollIntoView({ block: "start" }));

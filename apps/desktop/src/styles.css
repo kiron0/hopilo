@@ -5,7 +5,6 @@
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-/* Light: pale lavender canvas, near-white translucent cards, ink text. */
 :root {
   --window: #ecebf2;
   --canvas: rgb(246 245 249);
@@ -39,7 +38,7 @@
   --aura-3: rgb(160 232 255 / 0.4);
   --bubble-hi: rgb(255 255 255 / 0.6);
   --elev-brand: inset 0 1px 1px rgb(255 255 255 / 0.35), 0 8px 20px -6px rgb(90 99 255 / 0.55);
-  /* How strongly provider colors tint shadows (bubbles). */
+
   --glow-mix: 60%;
   --skeleton: rgb(15 18 24 / 0.06);
   --skeleton-shine: rgb(255 255 255 / 0.7);
@@ -51,7 +50,6 @@
   color-scheme: light;
 }
 
-/* Dark: deep blue-black, the same structure with lifted surfaces. */
 :root[data-theme="dark"] {
   --window: #07080c;
   --canvas: rgb(13 14 20);
@@ -150,13 +148,11 @@
     color: inherit;
   }
 
-  /* Menu-bar panel and Drop Shelf: transparent window, rounded content. */
   body.quick-surface,
   html:has(body.quick-surface) {
     background: transparent;
   }
-  /* The panel draws its own rounded shadow: the native macOS window shadow
-     is a rectangle, which shows as square corners around the rounded panel. */
+
   body.quick-surface #root {
     padding: 10px;
   }
@@ -190,7 +186,6 @@
   }
 }
 
-/* Component classes live in a layer so Tailwind utilities can override them. */
 @layer components {
   .font-display {
     font-family: var(--font-display);
@@ -208,7 +203,6 @@
     background-image: linear-gradient(160deg, var(--grad-a), var(--grad-b));
   }
 
-  /* Card: translucent white panel, hairline border, long soft shadow. */
   .card {
     background: var(--card);
     border: 1px solid var(--border);
@@ -222,8 +216,6 @@
     border-radius: 18px;
   }
 
-  /* Color tile: deep gradient, light rim (gradient border), inner highlight,
-     colored drop shadow, and a slow glow drifting inside. */
   .tile {
     --tile-a: #5a63ff;
     --tile-b: #7b4fe0;
@@ -279,7 +271,6 @@
     --glow: rgb(255 180 205 / 0.8);
   }
 
-  /* Sidebar item: transparent until active, then a white raised pill. */
   .nav-item {
     display: flex;
     align-items: center;
@@ -319,7 +310,6 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 2px rgba(0, 0, 0, 0.35);
   }
 
-  /* Cleanly app frame and layout */
   .cleanly-app {
     position: relative;
     height: 100vh;
@@ -375,7 +365,6 @@
     padding-bottom: 0;
   }
 
-  /* Cleanly disk / library card in sidebar */
   .disk {
     padding: 16px;
     border-radius: 18px;
@@ -414,7 +403,6 @@
     color: var(--faint);
   }
 
-  /* Background layers */
   .bg-layer {
     position: absolute;
     inset: 0;
@@ -479,7 +467,7 @@
     opacity: 0.8;
   }
   :root[data-theme='dark'] .bg-grain::after {
-    /* film grain overlay in dark theme */
+
     content: '';
     position: absolute;
     inset: 0;
@@ -490,7 +478,6 @@
   }
   @keyframes slowspin { to { transform: rotate(360deg); } }
 
-  /* Backlight Glow (dark mode mist) */
   .bg-glow { overflow: hidden; }
   .bg-glow i { position: absolute; display: block; }
   .bg-glow .glow-lav {
@@ -519,7 +506,6 @@
   @keyframes horizonSlide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
   @keyframes horizonBreath { from { opacity: 0.7; } to { opacity: 1; } }
 
-  /* Cleanly Live Cards with gradient border, ambient drifting blob, diagonal glass shine */
   .lc {
     position: relative;
     overflow: hidden;
@@ -846,7 +832,6 @@
     padding: 22px 24px;
   }
 
-  /* Animated Segmented control */
   .seg {
     display: inline-flex;
     gap: 2px;
@@ -891,7 +876,6 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
   }
 
-  /* Animated Toggle switch */
   .toggle {
     position: relative;
     width: 44px;
@@ -927,7 +911,6 @@
     transform: translateX(18px);
   }
 
-  /* Swatches for background and theme selection */
   .sy-swatches {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -998,7 +981,6 @@
     background: conic-gradient(from 40deg at 60% 40%, rgba(255, 143, 200, 0.18), rgba(134, 160, 255, 0.16), rgba(255, 179, 138, 0.14), rgba(255, 143, 200, 0.18)), #19191c;
   }
 
-  /* Theme preview swatches */
   .sy-swatch.theme-light {
     background: radial-gradient(90% 80% at 85% 0%, rgba(214, 205, 255, 0.55), transparent 60%), linear-gradient(180deg, #f6f7f9, #eceef2);
   }
@@ -1015,7 +997,6 @@
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
 
-  /* Stagger animation */
   .sy-stagger > * {
     animation: rise 0.6s var(--ease) both;
   }
@@ -1030,7 +1011,6 @@
     to { opacity: 1; transform: none; filter: blur(0); }
   }
 
-  /* Background auras behind the whole window. */
   .app-aura {
     position: fixed;
     inset: 0;
@@ -1069,7 +1049,6 @@
     animation: auraA 38s ease-in-out infinite reverse;
   }
 
-  /* Menu-bar panel and Drop Shelf: the dashboard window in miniature. */
   .quick-shell {
     background: var(--window);
     color: var(--text);
@@ -1103,7 +1082,6 @@
     top: 35%;
   }
 
-  /* Page chrome: header and footer stay put, only the content scrolls. */
   .page-header-slot,
   .page-footer-slot {
     flex-shrink: 0;
@@ -1135,7 +1113,7 @@
     font-size: 11.5px;
     color: var(--muted);
   }
-  /* FillPage (e.g. Sessions): stretches to fill available height with equal bottom gap */
+
   .cleanly-main:has(.page-fill) {
     overflow-y: hidden;
   }
@@ -1155,7 +1133,6 @@
     gap: 12px;
   }
 
-  /* Skeleton placeholder with a light sweep. */
   .skeleton {
     position: relative;
     overflow: hidden;
@@ -1171,7 +1148,6 @@
     animation: sweep 1.4s ease-in-out infinite;
   }
 
-  /* Cleanly glass bubbles (Sources map & Space map) */
   .bubbles {
     position: relative;
     width: 100%;
@@ -1296,7 +1272,6 @@
     animation: home-breathe 1.8s ease-in-out infinite;
   }
 
-  /* Dark mode bubbles */
   :root[data-theme='dark'] .bubble .disc {
     background: rgba(255, 255, 255, 0.08);
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5), 0 0 30px var(--bsh, var(--shadow));

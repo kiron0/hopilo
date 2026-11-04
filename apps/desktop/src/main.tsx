@@ -5,8 +5,6 @@ import { App } from "./App";
 import { QuickPanel } from "./quick/QuickPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
-
-// Browser preview outside Tauri (dev only): sample data instead of IPC.
 if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window && (window as any).__TAURI_INTERNALS__?.invoke)) {
   const { installMockIpc } = await import("./dev/mockIpc");
   installMockIpc();

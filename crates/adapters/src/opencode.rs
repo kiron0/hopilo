@@ -1,8 +1,3 @@
-//! OpenCode sessions live in one SQLite database,
-//! `~/.local/share/opencode/opencode.db` (or `$XDG_DATA_HOME/opencode`).
-//! A session is addressed as `<db path>#<session id>`. The database is
-//! opened read-only; nothing is written to it.
-
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
@@ -31,7 +26,6 @@ fn millis_to_rfc3339(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-/// Split `<db>#<session>` into its parts.
 pub fn split_locator(path: &Path) -> Option<(PathBuf, String)> {
     let s = path.to_string_lossy();
     let (db, id) = s.rsplit_once('#')?;
@@ -96,7 +90,7 @@ impl LocalAgentAdapter for OpenCode {
                 project: dir,
                 model: model.and_then(|m| model_name(&m)),
                 modified_at: updated.map(millis_to_rfc3339).unwrap_or_default(),
-                // The database is shared by all sessions; report its size.
+
                 size_bytes: size,
                 message_count: count as usize,
             });
@@ -110,7 +104,6 @@ impl LocalAgentAdapter for OpenCode {
     }
 }
 
-/// `session.model` may be JSON (`{"providerID","modelID"}`) or plain text.
 fn model_name(raw: &str) -> Option<String> {
     match serde_json::from_str::<Value>(raw) {
         Ok(v) => v.get("modelID").and_then(Value::as_str).map(str::to_string),
@@ -169,7 +162,7 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
             };
             match part.get("type").and_then(Value::as_str).unwrap_or("") {
                 "text" => {
-                    // Synthetic parts are context OpenCode injects, not typed text.
+
                     if part.get("synthetic").and_then(Value::as_bool) == Some(true) {
                         continue;
                     }
@@ -274,7 +267,6 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
 mod tests {
     use super::*;
 
-    /// Builds a small database with OpenCode's table shapes.
     fn sample_db(dir: &Path) -> PathBuf {
         let db = dir.join(DB_NAME);
         let c = Connection::open(&db).unwrap();

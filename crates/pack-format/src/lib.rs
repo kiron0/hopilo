@@ -1,7 +1,3 @@
-//! Portable pack formats (OUT-02, OUT-03, spec 9): Markdown, JSON and the
-//! `.handoff` ZIP archive with manifest, transcript, context, attachments
-//! and SHA-256 checksums.
-
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
@@ -14,7 +10,7 @@ use zip::write::SimpleFileOptions;
 
 pub const ARCHIVE_FORMAT: &str = "hopilo.handoff";
 pub const ARCHIVE_FORMAT_VERSION: u32 = 1;
-/// Refuse archives that expand past this, to resist zip bombs.
+
 const MAX_UNPACKED_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
@@ -39,7 +35,6 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// Stable, filesystem-safe file stem from a title.
 pub fn sanitize_filename(title: &str) -> String {
     let mut s: String = title
         .chars()
@@ -54,7 +49,7 @@ pub fn sanitize_filename(title: &str) -> String {
 }
 
 pub fn export_filename(pack: &Pack, ext: &str) -> String {
-    // Version 0 is a pack composed on the fly from sessions; it has no version.
+
     match pack.version {
         0 => format!("{}.{ext}", sanitize_filename(&pack.title)),
         v => format!("{}-v{v}.{ext}", sanitize_filename(&pack.title)),
@@ -109,9 +104,6 @@ fn sanitize_attachment_name(name: &str) -> String {
     if s.is_empty() || s.starts_with('.') { format!("file{s}") } else { s }
 }
 
-/// Write a `.handoff` archive. `bytes_for` supplies original attachment bytes;
-/// attachments it cannot supply are listed in the manifest's pack JSON but not
-/// stored, and the caller should have marked them missing.
 pub fn write_handoff<W: Write + Seek>(
     pack: &Pack,
     opts: &RenderOptions,
@@ -174,12 +166,10 @@ pub fn write_handoff<W: Write + Seek>(
 pub struct ImportedHandoff {
     pub manifest: Manifest,
     pub pack: Pack,
-    /// Attachment id to original bytes, for attachments present in the archive.
+
     pub attachments: BTreeMap<String, Vec<u8>>,
 }
 
-/// Read and verify a `.handoff` archive. Every listed file must match its
-/// checksum; paths are only ever looked up by name, never extracted to disk.
 pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     let mut zip = zip::ZipArchive::new(reader)?;
     let mut total: u64 = 0;
@@ -291,7 +281,7 @@ mod tests {
         let (pack, _) = sample();
         let mut buf = Cursor::new(Vec::new());
         write_handoff(&pack, &RenderOptions::default(), &|_| None, &mut buf).unwrap();
-        // Rebuild the archive with an altered normalized.json but old checksums.
+
         buf.set_position(0);
         let mut src = zip::ZipArchive::new(buf).unwrap();
         let mut out = Cursor::new(Vec::new());

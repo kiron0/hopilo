@@ -1,6 +1,3 @@
-//! File and folder import with a preflight step (CAP-06, DND-01, ATT-01/02).
-//! Nothing is stored until the user confirms the preflight list.
-
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, Attachment};
@@ -30,7 +27,7 @@ pub struct FilePreflight {
     pub name: String,
     pub size: u64,
     pub media_type: String,
-    /// text | image | pdf | binary
+
     pub kind: String,
     pub accepted: bool,
     pub duplicate: bool,
@@ -59,9 +56,6 @@ fn classify(path: &Path) -> (String, &'static str) {
     }
 }
 
-/// Expand chosen paths: files as-is, folders recursively within limits.
-/// Symlinks inside folders are skipped so a folder import cannot reach
-/// outside the chosen tree.
 pub fn expand(paths: &[String]) -> (Vec<PathBuf>, Vec<String>) {
     let mut out = Vec::new();
     let mut notes = Vec::new();
@@ -187,7 +181,6 @@ pub fn preflight(path: &Path, store: &Store) -> FilePreflight {
     pf
 }
 
-/// Read a file into an attachment record plus its bytes.
 pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
     let pf_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
     let meta = std::fs::metadata(path).map_err(|e| format!("{pf_name}: {e}"))?;

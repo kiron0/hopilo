@@ -1,5 +1,3 @@
-// Gemini (gemini.google.com). Angular custom elements user-query and
-// model-response hold each turn.
 import type { WebAdapter } from "./common";
 
 export const gemini: WebAdapter = {

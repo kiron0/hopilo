@@ -1,7 +1,3 @@
-//! Codex CLI sessions: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (or
-//! `$CODEX_HOME/sessions`). Lines are `{timestamp, type, payload}`; older
-//! rollouts put response items at the top level without `payload`.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -43,8 +39,7 @@ impl LocalAgentAdapter for Codex {
             if !name.starts_with("rollout-") {
                 continue;
             }
-            // Discovery uses the full reader: Codex files carry the first user
-            // prompt after injected context, so a prefix scan is unreliable.
+
             let Ok(cap) = read_rollout(&path) else { continue };
             let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
             if count == 0 {
@@ -85,7 +80,7 @@ fn is_injected_user_text(t: &str) -> bool {
 fn output_text(v: Option<&Value>) -> String {
     match v {
         Some(Value::String(s)) => {
-            // function_call_output often wraps `{output, metadata}` as a string.
+
             serde_json::from_str::<Value>(s)
                 .ok()
                 .and_then(|inner| inner.get("output").and_then(Value::as_str).map(str::to_string))

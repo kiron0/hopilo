@@ -1,4 +1,3 @@
-// ChatGPT (chatgpt.com). Turns carry data-message-author-role.
 import type { WebAdapter } from "./common";
 
 export const chatgpt: WebAdapter = {

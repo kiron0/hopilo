@@ -5,7 +5,6 @@ interface LogoProps {
   className?: string;
 }
 
-// 1. ChatGPT / OpenAI Logo
 function ChatGptLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -14,7 +13,6 @@ function ChatGptLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 2. Claude / Anthropic Spark Logo
 function ClaudeLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -23,7 +21,6 @@ function ClaudeLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 3. Claude Code Logo (Claude Spark + terminal prompt)
 function ClaudeCodeLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -32,7 +29,6 @@ function ClaudeCodeLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 4. Google Gemini Star Logo (The iconic four-point star)
 function GeminiLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -41,7 +37,6 @@ function GeminiLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 5. OpenAI Codex CLI Logo (Terminal code chevron + cursor)
 function CodexLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -50,7 +45,6 @@ function CodexLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 6. OpenCode Logo
 function OpenCodeLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -59,7 +53,6 @@ function OpenCodeLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 7. Cursor Logo (Isometric Cube)
 function CursorLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -68,7 +61,6 @@ function CursorLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 8. Windsurf / Codeium Logo (Cascading waves / wind)
 function WindsurfLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -77,7 +69,6 @@ function WindsurfLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 9. DeepSeek Whale Logo
 function DeepSeekLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -86,7 +77,6 @@ function DeepSeekLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 10. Perplexity Logo (Woven infinity asterisk)
 function PerplexityLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -96,7 +86,6 @@ function PerplexityLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 11. GitHub Copilot Logo
 function CopilotLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -105,7 +94,6 @@ function CopilotLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 12. Mistral AI Logo (Geometric orange stairs)
 function MistralLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -117,7 +105,6 @@ function MistralLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 13. Qwen Logo (Alibaba Qwen diamond polyhedron)
 function QwenLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -126,7 +113,6 @@ function QwenLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 14. Grok (xAI) Logo
 function GrokLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -135,7 +121,6 @@ function GrokLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 15. Meta AI Logo (Infinity ribbon)
 function MetaLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -144,7 +129,6 @@ function MetaLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 16. Kimi Logo
 function KimiLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -153,7 +137,6 @@ function KimiLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 17. GLM / Zhipu Logo
 function GlmLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -162,7 +145,6 @@ function GlmLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 18. NotebookLM Logo
 function NotebookLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -172,7 +154,6 @@ function NotebookLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 19. Poe Logo
 function PoeLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -181,7 +162,6 @@ function PoeLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 20. Hugging Face Logo
 function HuggingFaceLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -190,7 +170,6 @@ function HuggingFaceLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 21. Antigravity Logo
 function AntigravityLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -199,7 +178,6 @@ function AntigravityLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 22. Aider Logo
 function AiderLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -208,7 +186,6 @@ function AiderLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 23. Continue Logo
 function ContinueLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -217,7 +194,6 @@ function ContinueLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 24. Zed Logo
 function ZedLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -226,7 +202,6 @@ function ZedLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 25. Clipboard
 function ClipboardLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -236,7 +211,6 @@ function ClipboardLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// 26. Note / Manual
 function NoteLogo({ size = 16, className }: LogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
@@ -246,7 +220,6 @@ function NoteLogo({ size = 16, className }: LogoProps) {
   );
 }
 
-// Map of canonical provider IDs to their logo component
 const LOGO_MAP: Record<string, (props: LogoProps) => ReactNode> = {
   chatgpt: ChatGptLogo,
   claude: ClaudeLogo,
@@ -302,7 +275,6 @@ export function ProviderLogo({
     return <Component size={size} className={className} />;
   }
 
-  // Fallback to text initial or generic sparkle
   if (fallback !== undefined) {
     return <>{fallback}</>;
   }
@@ -313,4 +285,3 @@ export function ProviderLogo({
     </svg>
   );
 }
-

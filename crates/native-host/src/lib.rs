@@ -1,11 +1,3 @@
-//! Native messaging host for the Hopilo browser extension (spec 10.4).
-//!
-//! Chrome starts this process when the extension's background worker calls
-//! `connectNative("dev.hopilo.host")` and passes the caller's origin as the
-//! first argument. Messages are length-prefixed JSON on stdin/stdout
-//! (4-byte native-endian length). Only allowlisted extension origins are
-//! served, and every payload from a web page is treated as untrusted data.
-
 use std::io::{Read, Write};
 
 use hopilo_core::brief::ContextLevel;
@@ -18,16 +10,15 @@ use serde_json::{json, Value};
 
 pub const HOST_NAME: &str = "dev.hopilo.host";
 pub const PROTOCOL: &str = "2";
-/// The ID Chrome derives from the public key pinned in the extension manifest.
+
 pub const DEFAULT_EXTENSION_ID: &str = "fgddcclgflboboacjmfdkkpgdbaolleo";
-/// Firefox identifies extensions by the gecko id in their manifest.
+
 pub const FIREFOX_EXTENSION_ID: &str = "hopilo@hopilo.dev";
 
-/// Chrome refuses host-to-extension messages over 1 MiB; stay under it.
 pub const MAX_OUTGOING: usize = 1_000_000;
-/// Extension-to-host messages may be up to 64 MiB; we accept far less.
+
 pub const MAX_INCOMING: usize = 60 * 1024 * 1024;
-/// Largest single file accepted from a captured chat (decoded bytes).
+
 const MAX_FILE: usize = 20 * 1024 * 1024;
 const MAX_MESSAGES: usize = 5_000;
 const WEB_PROVIDERS: &[&str] = &["chatgpt", "claude", "gemini", "deepseek", "grok", "perplexity"];
@@ -55,15 +46,12 @@ pub fn write_message(w: &mut impl Write, v: &Value) -> std::io::Result<()> {
     w.flush()
 }
 
-/// `chrome-extension://<id>/` must name an allowlisted extension.
 pub fn origin_allowed(origin: &str, allowed: &[String]) -> bool {
     let Some(rest) = origin.strip_prefix("chrome-extension://") else { return false };
     let id = rest.trim_end_matches('/');
     !id.is_empty() && allowed.iter().any(|a| a == id)
 }
 
-/// Chromium passes the caller origin as the first argument; Firefox passes
-/// the host manifest path and then the extension id.
 pub fn caller_allowed(args: &[String], allowed: &[String]) -> bool {
     match args {
         [origin, ..] if origin.starts_with("chrome-extension://") => origin_allowed(origin, allowed),
@@ -72,7 +60,6 @@ pub fn caller_allowed(args: &[String], allowed: &[String]) -> bool {
     }
 }
 
-/// Where the desktop app keeps its library (Tauri's app data dir).
 pub fn default_data_dir() -> Option<std::path::PathBuf> {
     if let Some(d) = std::env::var_os("HOPILO_DATA_DIR") {
         return Some(d.into());
@@ -108,7 +95,7 @@ struct CaptureMessage {
     text: String,
     #[serde(default)]
     created_at: Option<String>,
-    /// Files and images shared in this message, read by the extension.
+
     #[serde(default)]
     files: Vec<CaptureFile>,
 }
@@ -119,7 +106,7 @@ struct CaptureFile {
     name: String,
     #[serde(default)]
     media_type: String,
-    /// Base64 bytes; absent when the page showed the file but it couldn't be read.
+
     #[serde(default)]
     data: Option<String>,
 }
@@ -131,7 +118,7 @@ struct CapturePayload {
     #[serde(default)]
     url: Option<String>,
     messages: Vec<CaptureMessage>,
-    /// "complete" only when the adapter saw the whole thread.
+
     status: String,
     #[serde(default)]
     missing: Vec<String>,
@@ -152,7 +139,7 @@ fn ok(request_id: &Value, result: Value) -> Value {
 }
 
 fn clean_url(u: &str) -> Option<String> {
-    // Keep scheme, host and path; drop query strings and fragments.
+
     let u = u.split(['?', '#']).next()?.to_string();
     (u.starts_with("https://") && u.len() < 2048).then_some(u)
 }
@@ -318,7 +305,7 @@ impl Host {
             Err(e) => return err(id, "not_found", e.to_string()),
         };
         let text = render_handoff_prompt(&pack, &RenderOptions { level, ..Default::default() });
-        // JSON escaping can grow the text; leave headroom under Chrome's cap.
+
         if text.len() > MAX_OUTGOING * 3 / 4 {
             return err(id, "too_large", "This session is too long to insert directly. Try the Balanced or Minimal level, or copy it from the Hopilo app.");
         }
@@ -336,7 +323,6 @@ impl Host {
     }
 }
 
-/// Session ids from a request: `ids: [...]`, at most 20, ids only.
 fn session_ids(req: &Value) -> Vec<String> {
     req.get("ids")
         .and_then(Value::as_array)

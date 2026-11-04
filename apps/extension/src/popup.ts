@@ -1,10 +1,8 @@
-// Toolbar popup: save the open chat as a session, or insert a session as an unsent draft.
 import { PROTOCOL } from "./protocol";
 import type { CaptureReply, Draft, HostResponse, InsertReply, Level, PingReply, SessionSummary, Provider, TabRequest } from "./protocol";
 
 const NAMES: Record<Provider, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek (experimental)", grok: "Grok (experimental)", perplexity: "Perplexity (experimental)" };
 
-// Same drawing as the desktop app's SessionsIcon (apps/desktop/src/components/Icons.tsx).
 const SESSION_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path class="duo" d="M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z"/><path d="M8.5 8V6a2 2 0 0 1 2-2H18a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-1v2.2"/><path d="M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z"/></svg>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -19,7 +17,7 @@ async function tab<T>(msg: TabRequest): Promise<T | null> {
   try {
     return await chrome.tabs.sendMessage(t.id, msg);
   } catch {
-    return null; // no content script: not a supported chat page
+    return null;
   }
 }
 

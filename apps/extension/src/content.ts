@@ -1,5 +1,3 @@
-// Runs on supported AI chat pages. Captures the visible conversation on
-// request and inserts drafts into the composer. Nothing is ever submitted.
 import { adapterFor } from "./adapters";
 import { capture, insertDraft } from "./adapters/common";
 import type { CaptureReply, Draft, HostResponse, InsertReply, PingReply, TabRequest } from "./protocol";
@@ -33,10 +31,6 @@ chrome.runtime.onMessage.addListener((msg: TabRequest, sender, reply) => {
   }
   return false;
 });
-
-// ---- Drop Context Here (DND-06) ------------------------------------------
-// The Hopilo app puts `hopilo://session/<id>` on session drags. Dropping one
-// here fetches that session's draft from the app and inserts it unsent.
 
 const SESSION_REF = /^hopilo:\/\/session\/([0-9A-Za-z]{10,40})$/;
 

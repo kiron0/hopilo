@@ -1,7 +1,3 @@
-// Hopilo's own interface icons, drawn for this app: 24px grid, 1.7 stroke,
-// round caps and joins, and a soft duotone fill (`duo`) that is always faintly
-// present and deepens when the icon is active (set `active`). Every icon in
-// the dashboard and menu-bar panel comes from this file.
 import type { ReactNode, SVGProps } from "react";
 
 export type IconProps = SVGProps<SVGSVGElement> & { size?: number; active?: boolean };
@@ -32,7 +28,6 @@ function Icon({ size = 18, active, children, duo, ...rest }: IconProps & { duo?:
   );
 }
 
-/** Builds an icon from stroke paths and an optional duotone fill path. */
 function make(strokes: string | string[], duo?: string, extra?: ReactNode) {
   const ds = Array.isArray(strokes) ? strokes : [strokes];
   const C = (p: IconProps) => (
@@ -46,13 +41,10 @@ function make(strokes: string | string[], duo?: string, extra?: ReactNode) {
   return C;
 }
 
-/** Circle as a path, so circles can share the stroke/duo helpers. */
 const c = (cx: number, cy: number, r: number) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`;
-/** Rounded rectangle as a path. */
+
 const rr = (x: number, y: number, w: number, h: number, r: number) =>
   `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z`;
-
-// ---- navigation ------------------------------------------------------------
 
 const HOME = "M4 10.8 12 4.3l8 6.5v8.2a1.5 1.5 0 0 1-1.5 1.5H15v-5.2a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5.2H5.5A1.5 1.5 0 0 1 4 19z";
 export const HomeIcon = make(HOME, HOME);
@@ -105,15 +97,12 @@ export const BrowserIcon = make([WIN, "M3.5 9h17M6.5 6.8h.01M9 6.8h.01", "m10 13
 
 export const MapIcon = make([c(9, 10, 5.5), c(17, 15.5, 3.5), c(16.5, 5.5, 2)], c(9, 10, 5.5));
 
-/** Four-point spark used for Hopilo moments (welcome, empty states). */
 export const SparkIcon = ({ size = 18, ...rest }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden {...rest}>
     <path d="M12 2.5c.7 5 3 7.3 8 8-5 .7-7.3 3-8 8-.7-5-3-7.3-8-8 5-.7 7.3-3 8-8z" />
     <path d="M19 15.5c.3 2 1.2 2.9 3.2 3.2-2 .3-2.9 1.2-3.2 3.2-.3-2-1.2-2.9-3.2-3.2 2-.3 2.9-1.2 3.2-3.2z" opacity=".6" />
   </svg>
 );
-
-// ---- direction & state ------------------------------------------------------
 
 export const ChevronDownIcon = make("m7 10 5 5 5-5");
 export const ChevronRight = make("m10 6.5 5.5 5.5-5.5 5.5");
@@ -141,7 +130,7 @@ export const CircleDashed = (p: IconProps) => (
     <circle cx="12" cy="12" r="8.5" strokeDasharray="3 3.6" />
   </Icon>
 );
-/** Spinner: a three-quarter arc; spin it with `animate-spin`. */
+
 export const Loader2 = (p: IconProps) => (
   <Icon {...p}>
     <path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5" />
@@ -150,8 +139,6 @@ export const Loader2 = (p: IconProps) => (
 export const RefreshCw = make(["M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3", "M18 3v3.7h-3.7M6 21v-3.7h3.7"]);
 export const History = make(["M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9", "M4.5 4.5V9H9", "M12 8v4l3 2"], c(12, 12, 7.5));
 export const Power = make(["M12 3.5v8", "M7 6.5a7 7 0 1 0 10 0"]);
-
-// ---- documents & files -------------------------------------------------------
 
 export const FileText = make([DOC, FOLD, "M9 12.5h6M9 16h4"], DOC);
 const FilePlain = make([DOC, FOLD], DOC);
@@ -172,8 +159,6 @@ const BOARD = "M7 5h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 
 const CLIP = rr(8.5, 3.5, 7, 3, 1);
 export const ClipboardCheck = make(["M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5", CLIP, "m9 13.5 2 2 4-4"], BOARD);
 export const ClipboardPaste = make(["M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5", CLIP, "M12 10v6.5m-2.5-2.5 2.5 2.5 2.5-2.5"], BOARD);
-
-// ---- actions -----------------------------------------------------------------
 
 const COPY_FRONT = rr(8.5, 8.5, 11.5, 11.5, 2.2);
 export const Copy = make([COPY_FRONT, "M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"], COPY_FRONT);
@@ -210,8 +195,6 @@ export const GripVertical = (p: IconProps) => (
 );
 export const MousePointerClick = make(["M9.5 9.5 19.5 13.1l-4.3 1.6-1.6 4.3z", "M5 5l1.5 1.5M9.5 3.5v2M3.5 9.5h2M5.6 13.4 7 12"], "M9.5 9.5 19.5 13.1l-4.3 1.6-1.6 4.3z");
 export const ScanSearch = make(["M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2", c(11.5, 11.5, 3.5), "m14 14 2.5 2.5"], c(11.5, 11.5, 3.5));
-
-// ---- things --------------------------------------------------------------------
 
 const HEAD = rr(6, 7.5, 12, 11.5, 2.5);
 export const Bot = make([HEAD, "M12 7.5V4.5", "M9.5 12.2v1.6M14.5 12.2v1.6M3.5 12v2.5M20.5 12v2.5", "M10 16.5h4"], HEAD, <circle cx="12" cy="4" r="0.9" fill="currentColor" stroke="none" />);

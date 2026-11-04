@@ -8,9 +8,6 @@ import { Button, Checkbox, Modal, Spinner } from "./ui";
 
 const KIND_ICON = { text: FileText, image: FileImage, pdf: FileText, binary: FileIcon };
 
-/** Preflight review for dropped or chosen files (DND-01, DND-09): shows
- *  type, size and warnings; nothing is stored until the user confirms.
- *  Files join `session`, or start a new session when it is null. */
 export function FileImportModal({ paths, session, onClose }: { paths: string[]; session: string | null; onClose: () => void }) {
   const toast = useApp((s) => s.toast);
   const navigate = useApp((s) => s.navigate);

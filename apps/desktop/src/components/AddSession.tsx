@@ -1,6 +1,3 @@
-// "Add a session": everything that isn't picked up automatically. Coding-agent
-// sessions sync on their own and the browser extension saves web chats, so
-// this covers pasted text, the clipboard, chat exports, files and archives.
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ClipboardPaste, FileArchive, FilePlus2, FileUp, History } from "./Icons";

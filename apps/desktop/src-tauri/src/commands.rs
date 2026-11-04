@@ -1,11 +1,3 @@
-//! IPC commands for the dashboard and Quick Panel. Every command is local:
-//! nothing here opens a network connection.
-//!
-//! The app manages one kind of object, the session: a conversation from any
-//! AI tool with the files shared in it. Coding-agent sessions are kept in
-//! sync with their files on disk; browser chats, chat exports and pasted text
-//! are added by capture or import.
-
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,16 +14,12 @@ use crate::files::{self, FilePreflight};
 
 pub struct AppState {
     pub store: Mutex<Store>,
-    /// Discovery results per agent folder, reused while nothing in the
-    /// folder has changed (same files, sizes and modification times).
+
     pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
-    /// Set while an agent-folder sync runs, so only one runs at a time.
+
     pub syncing: AtomicBool,
 }
 
-/// How deep each agent keeps its session files below its root; the change
-/// detector looks no deeper, so unrelated subfolders (tool output, git
-/// snapshots) are never walked.
 fn scan_depth(adapter: &str) -> usize {
     match adapter {
         "opencode" => 0,
@@ -41,8 +29,6 @@ fn scan_depth(adapter: &str) -> usize {
     }
 }
 
-/// Cheap change detector for an agent folder: hashes file names, sizes and
-/// modification times without reading contents.
 fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
     use std::hash::{Hash, Hasher};
     fn walk(dir: &Path, depth: usize, h: &mut std::collections::hash_map::DefaultHasher) {
@@ -75,8 +61,6 @@ pub(crate) fn with_store<T>(state: &State<AppState>, f: impl FnOnce(&mut Store) 
     let mut store = state.store.lock().map_err(|_| "library is busy, try again".to_string())?;
     f(&mut store)
 }
-
-// ---- app ------------------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,14 +99,10 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// Tell other windows the library changed so they refresh.
 pub(crate) fn notify(app: &AppHandle) {
     let _ = app.emit("hopilo://library-changed", ());
 }
 
-// ---- coding-agent sync ---------------------------------------------------------
-
-/// Every session file the supported agents have on this computer.
 fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
     let state = app.state::<AppState>();
     let mut out = Vec::new();
@@ -149,9 +129,6 @@ fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
     out
 }
 
-/// Only files inside an adapter's own session folder may be read, so no
-/// command can be used to read arbitrary files. A `#fragment` (one session
-/// inside a database file) is kept as-is.
 fn checked_session_path(adapter: &dyn hopilo_adapters::LocalAgentAdapter, path: &str) -> CmdResult<PathBuf> {
     let (file, fragment) = match path.rsplit_once('#') {
         Some((f, frag)) => (f, Some(frag)),
@@ -172,21 +149,18 @@ fn checked_session_path(adapter: &dyn hopilo_adapters::LocalAgentAdapter, path: 
     })
 }
 
-/// Read and normalize a session file without holding the library lock.
 fn read_session(adapter_id: &str, path: &str) -> CmdResult<(Source, Vec<Message>, Vec<hopilo_core::CapturedFile>)> {
     let adapter = adapter_by_id(adapter_id).ok_or_else(|| format!("unknown adapter {adapter_id}"))?;
     let real = checked_session_path(adapter.as_ref(), path)?;
     let cap = adapter.read(&real).map_err(err)?;
     let mut source = cap.source;
-    // Keep the origin as discovered so later syncs find the same session.
+
     source.origin = Some(path.to_string());
     let messages: Vec<Message> =
         cap.messages.into_iter().map(|m| Message { source_id: source.source_id.clone(), ..m }).collect();
     Ok((source, messages, cap.files))
 }
 
-/// Store files recovered with a capture as library files (deduplicated by
-/// content).
 pub(crate) fn store_captured_files(store: &mut Store, files: &[hopilo_core::CapturedFile]) -> CmdResult<Vec<Attachment>> {
     files.iter().map(|f| store.insert_attachment(&f.attachment(), &f.bytes).map(|(a, _)| a).map_err(err)).collect()
 }
@@ -199,8 +173,6 @@ pub struct SyncResult {
     failed: usize,
 }
 
-/// Bring every coding-agent session into the library, re-reading only files
-/// that changed since the last sync. Removed sessions stay removed.
 pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
     let state = app.state::<AppState>();
     if state.syncing.swap(true, Ordering::SeqCst) {
@@ -237,8 +209,6 @@ pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
 pub async fn sync_sessions(app: AppHandle) -> CmdResult<SyncResult> {
     tauri::async_runtime::spawn_blocking(move || sync_blocking(&app)).await.map_err(err)
 }
-
-// ---- sessions ------------------------------------------------------------------
 
 #[tauri::command]
 pub fn list_sessions(state: State<AppState>) -> CmdResult<Vec<SessionRow>> {
@@ -278,8 +248,6 @@ pub fn remove_session(app: AppHandle, state: State<AppState>, id: String) -> Cmd
     notify(&app);
     Ok(())
 }
-
-// ---- adding sessions: chat exports, pasted text, archives ------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -359,7 +327,6 @@ pub fn import_text(
     Ok(out)
 }
 
-/// Import an Aider `.aider.chat.history.md` the user picked.
 #[tauri::command]
 pub fn import_aider_history(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<ImportOutcome> {
     let cap = hopilo_adapters::aider::read_history(Path::new(&path)).map_err(err)?;
@@ -368,8 +335,6 @@ pub fn import_aider_history(app: AppHandle, state: State<AppState>, path: String
     Ok(out)
 }
 
-/// Import a `.handoff` archive or `.json` export (from Hopilo on another
-/// computer) as sessions, with its files. Returns the session ids.
 #[tauri::command]
 pub fn import_handoff_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<Vec<String>> {
     let p = Path::new(&path);
@@ -393,8 +358,6 @@ pub fn import_handoff_file(app: AppHandle, state: State<AppState>, path: String)
     notify(&app);
     Ok(ids)
 }
-
-// ---- files -----------------------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -422,7 +385,6 @@ pub struct AddFilesResult {
     errors: Vec<String>,
 }
 
-/// Store files and add them to a session (or start a new session for them).
 #[tauri::command]
 pub async fn add_files(app: AppHandle, session: Option<String>, paths: Vec<String>) -> CmdResult<AddFilesResult> {
     let a2 = app.clone();
@@ -460,7 +422,6 @@ fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec
     })
 }
 
-/// Save a session file somewhere the user chose.
 #[tauri::command]
 pub fn save_file(state: State<AppState>, sha: String, path: String) -> CmdResult<String> {
     let (_, bytes) = stored_file(&state, &sha)?;
@@ -468,8 +429,6 @@ pub fn save_file(state: State<AppState>, sha: String, path: String) -> CmdResult
     Ok(path)
 }
 
-/// Open a session file in its default app (from a private copy, so the
-/// library's own file is never changed).
 #[tauri::command]
 pub fn open_file(app: AppHandle, state: State<AppState>, sha: String) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
@@ -488,8 +447,6 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> CmdResult<()> {
     std::fs::rename(&tmp, path).map_err(err)
 }
 
-// ---- history, search, stats ----------------------------------------------------
-
 #[tauri::command]
 pub fn list_handoffs(state: State<AppState>, limit: Option<i64>) -> CmdResult<Vec<HandoffRow>> {
     with_store(&state, |s| s.list_handoffs(limit.unwrap_or(50)).map_err(err))
@@ -505,13 +462,10 @@ pub fn stats(state: State<AppState>) -> CmdResult<Stats> {
     with_store(&state, |s| s.stats().map_err(err))
 }
 
-/// Full-text search over sessions (titles, messages, file names).
 #[tauri::command]
 pub fn search(state: State<AppState>, query: String) -> CmdResult<Vec<SearchHit>> {
     with_store(&state, |s| Ok(s.search(&query, 40).map_err(err)?.into_iter().filter(|h| h.kind == "source").take(20).collect()))
 }
-
-// ---- settings / storage --------------------------------------------------------------
 
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> CmdResult<HashMap<String, serde_json::Value>> {
@@ -541,8 +495,6 @@ pub fn wipe_library(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
     notify(&app);
     Ok(())
 }
-
-// ---- browser extension bridge ------------------------------------------------------
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

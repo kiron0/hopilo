@@ -1,5 +1,3 @@
-// Shared user actions (copy, export, add) used by pages and the Quick Panel.
-// The work happens in Rust; these only ask for paths and report the result.
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, errorText, type CopyOptions, type CopyOutcome } from "./api";
 import { useApp } from "./store";
@@ -7,7 +5,6 @@ import { target } from "./targets";
 
 const toast = (...a: Parameters<ReturnType<typeof useApp.getState>["toast"]>) => useApp.getState().toast(...a);
 
-/** Copy sessions for another AI and log it as "copied", never as delivered. */
 export async function copySessions(ids: string[], opts: CopyOptions = {}) {
   try {
     const out = await api.copySessions(ids, opts);
@@ -21,7 +18,6 @@ export async function copySessions(ids: string[], opts: CopyOptions = {}) {
   }
 }
 
-/** After a copy, point at anything worth a look before sending. */
 function checkNudge(out: CopyOutcome) {
   const bits = [];
   if (out.attach.length) bits.push(`attach ${out.attach.length === 1 ? out.attach[0] : `${out.attach.length} files`} yourself`);
@@ -59,7 +55,6 @@ export async function exportSessions(ids: string[], format: Format, opts: CopyOp
   }
 }
 
-/** Save the clipboard text as a session, read once in Rust. No background monitoring. */
 export async function captureClipboard() {
   try {
     const out = await api.captureClipboard();
@@ -81,7 +76,6 @@ export async function pickFiles(directory = false): Promise<string[]> {
   return Array.isArray(res) ? res : [res];
 }
 
-/** Import a .handoff or .json file exported by Hopilo. */
 export async function importHandoffFile() {
   const res = await open({ multiple: false, filters: [{ name: "Hopilo export", extensions: ["handoff", "json"] }] });
   if (!res || Array.isArray(res)) return null;
@@ -95,7 +89,6 @@ export async function importHandoffFile() {
   }
 }
 
-/** Save one session file where the user picks. */
 export async function saveFileAs(sha: string, name: string) {
   const path = await save({ defaultPath: name });
   if (!path) return;

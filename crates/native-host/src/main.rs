@@ -1,5 +1,3 @@
-//! `hopilo-native-host`: started by the browser, never by the user.
-
 use std::io::{stdin, stdout};
 
 use hopilo_database::Store;
@@ -21,7 +19,7 @@ fn main() {
         }
     };
     if !caller_allowed(&args, &allowed_ids(&store)) {
-        // Unknown callers get one refusal and nothing else.
+
         let _ = write_message(&mut out, &json!({ "ok": false, "error": { "code": "forbidden", "message": "This extension is not allowed to use Hopilo." } }));
         return;
     }

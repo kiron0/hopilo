@@ -1,7 +1,3 @@
-//! Text helpers shared by adapters.
-
-/// Remove `<system-reminder>…</system-reminder>` spans that agents inject
-/// into user turns. Returns the cleaned text and how many spans were removed.
 pub fn strip_injected(text: &str) -> (String, usize) {
     const OPEN: &str = "<system-reminder>";
     const CLOSE: &str = "</system-reminder>";
@@ -25,7 +21,6 @@ pub fn strip_injected(text: &str) -> (String, usize) {
     (out.trim().to_string(), removed)
 }
 
-/// One-line title from the first user prompt.
 pub fn title_from(text: &str) -> String {
     let (clean, _) = strip_injected(text);
     let mut s = String::new();
@@ -67,12 +62,8 @@ mod tests {
     }
 }
 
-/// Largest file an adapter will pull into the library from a local path.
 pub const MAX_RECOVERED_FILE: u64 = 25 * 1024 * 1024;
 
-/// Read a file a session points at by local path (`/abs/path` or
-/// `file:///abs/path`). Returns None for remote URLs, missing files,
-/// directories and anything over [`MAX_RECOVERED_FILE`].
 pub fn read_local_file(reference: &str) -> Option<hopilo_core::CapturedFile> {
     let raw = reference.strip_prefix("file://").unwrap_or(reference);
     if raw.is_empty() || raw.contains("://") {
@@ -110,7 +101,6 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Media type from a file name's extension.
 pub fn media_type_for(name: &str) -> &'static str {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {

@@ -1,4 +1,3 @@
-// Home: an overview of every session and the fastest way to continue one.
 import { useMemo, useState } from "react";
 import { api, type SessionRow } from "../lib/api";
 import { copySessions } from "../lib/actions";
@@ -32,7 +31,6 @@ const BUBBLE_PALETTE = [
   { c1: "#ff8fc8", c2: "#c48cff", sh: "220, 120, 200" },
 ];
 
-/** Bubble overview of where your sessions come from (sized by count). */
 function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: boolean }) {
   const navigate = useApp((s) => s.navigate);
   const setListView = useApp((s) => s.setListView);
@@ -282,7 +280,7 @@ export function Home() {
   const s = stats.data;
   const loading = sessions.loading && !sessions.data;
   const all = useMemo(() => sessions.data ?? [], [sessions.data]);
-  // Most recent activity first (the list itself puts pinned sessions first).
+
   const recent = useMemo(() => [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [all]);
   const latest = recent[0];
   const agents = all.filter((r) => r.kind === "local-agent").length;

@@ -1,4 +1,3 @@
-// Typed wrappers over the Tauri commands in src-tauri/src/commands.rs.
 import { invoke } from "@tauri-apps/api/core";
 
 export type Role = "user" | "assistant" | "system" | "tool";
@@ -65,10 +64,9 @@ export interface AppInfo {
   adapters: AdapterInfo[];
 }
 
-/** One conversation from any AI tool, with the files shared in it. */
 export interface SessionRow {
   id: string;
-  /** local-agent | browser-chat | chat-export | clipboard | manual | file | pack */
+
   kind: string;
   provider: string;
   title: string;
@@ -95,7 +93,7 @@ export interface SessionDetail {
 }
 
 export interface CopyOptions {
-  /** Plain Markdown instead of the handoff prompt. */
+
   markdown?: boolean;
   target?: string;
   toolDetail?: ToolDetail;
@@ -109,7 +107,7 @@ export interface CopyOutcome {
   tokenEstimate: number;
   missing: number;
   findings: number;
-  /** Non-text files to attach by hand at the destination. */
+
   attach: string[];
 }
 
@@ -209,22 +207,20 @@ export const api = {
   showMainWindow: (route?: string) => invoke<void>("show_main_window", { route }),
   quit: () => invoke<void>("quit_app"),
 
-  /** Bring coding-agent sessions up to date with their files (only changed files are read). */
   syncSessions: () => invoke<{ added: number; updated: number; failed: number }>("sync_sessions"),
   listSessions: () => invoke<SessionRow[]>("list_sessions"),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   updateSession: (id: string, patch: { title?: string; pinned?: boolean; tags?: string[] }) => invoke<void>("update_session", { id, patch }),
-  /** Agent sessions are hidden (their files stay on disk); anything else is deleted. */
+
   removeSession: (id: string) => invoke<void>("remove_session", { id }),
 
-  /** Render, clipboard write and history record, all in Rust. Omitted options use the saved defaults. */
   copySessions: (ids: string[], opts: CopyOptions = {}) => invoke<CopyOutcome>("copy_sessions", { ids, opts }),
   suggestExportName: (ids: string[], ext: string) => invoke<string>("suggest_export_name", { ids, ext }),
   exportSessions: (ids: string[], format: string, path: string, opts: CopyOptions = {}) => invoke<string>("export_sessions", { ids, format, path, opts }),
 
   importText: (text: string, kind: "clipboard" | "manual", title?: string, label?: string) =>
     invoke<ImportOutcome>("import_text", { text, kind, title, label }),
-  /** Read the clipboard once and save it as a session. */
+
   captureClipboard: () => invoke<ImportOutcome & { chars: number }>("capture_clipboard"),
   listChatExport: (path: string) =>
     invoke<{ provider: string; conversations: { id: string; title: string; updatedAt: string; messageCount: number }[] }>("list_chat_export", { path }),
@@ -233,7 +229,7 @@ export const api = {
   importHandoffFile: (path: string) => invoke<string[]>("import_handoff_file", { path }),
 
   preflightFiles: (paths: string[]) => invoke<{ files: FilePreflight[]; notes: string[] }>("preflight_files", { paths }),
-  /** Store files and add them to a session, or start a new one when `session` is null. */
+
   addFiles: (session: string | null, paths: string[]) => invoke<{ sessionId: string | null; added: number; errors: string[] }>("add_files", { session, paths }),
   openFile: (sha: string) => invoke<void>("open_file", { sha }),
   saveFile: (sha: string, path: string) => invoke<string>("save_file", { sha, path }),

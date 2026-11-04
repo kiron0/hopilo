@@ -6,13 +6,11 @@ import { provider } from "../lib/providers";
 import { useApp } from "../lib/store";
 import { Button, Checkbox, Modal, Spinner, SearchField } from "./ui";
 
-/** Ask for a ChatGPT or Claude data export (.zip or conversations.json). */
 export async function pickChatExport(): Promise<string | null> {
   const res = await open({ multiple: false, filters: [{ name: "Chat export", extensions: ["zip", "json"] }] });
   return !res || Array.isArray(res) ? null : res;
 }
 
-/** Choose conversations from an account data export and import them. */
 export function ExportImportModal({ path, onClose }: { path: string; onClose: () => void }) {
   const toast = useApp((s) => s.toast);
   const navigate = useApp((s) => s.navigate);

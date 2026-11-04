@@ -1,12 +1,7 @@
-// Loading placeholders shaped like the real screens, so nothing jumps when
-// data arrives. Each mirrors the grid, card sizes and row structure of the
-// component it stands in for.
 import type { Route } from "../lib/store";
 import { Card, cx, Skeleton } from "./ui";
 import { PageHeaderSlot, PageToolbar } from "./PageSlots";
 
-/** Page title, subtitle and actions, drawn in the same fixed header area
- *  as the real PageHeader. */
 function Header({ actions = 0, title = "w-48" }: { actions?: number; title?: string }) {
   return (
     <PageHeaderSlot>
@@ -25,8 +20,6 @@ function Header({ actions = 0, title = "w-48" }: { actions?: number; title?: str
   );
 }
 
-/** A row like the app's list rows: badge, two lines, trailing buttons.
- *  `check` adds the session list's leading checkbox. */
 export function RowSkeleton({ buttons = 1, badge = 30, i = 0, check = false }: { buttons?: number; badge?: number; i?: number; check?: boolean }) {
   return (
     <div className={cx("flex items-center gap-3 px-4", check ? "py-2.5" : "py-3")}>
@@ -53,7 +46,6 @@ export function ListSkeleton({ rows = 6, buttons = 1, label = "Loading" }: { row
   );
 }
 
-/** Transcript: alternating message blocks with role label and text lines. */
 export function TranscriptSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className="space-y-3" role="status" aria-label="Loading messages">
@@ -68,10 +60,6 @@ export function TranscriptSkeleton({ count = 4 }: { count?: number }) {
   );
 }
 
-
-
-
-/** The session list's card: checkbox rows and the pager bar beneath. */
 export function SessionListSkeleton({ rows = 8 }: { rows?: number }) {
   return (
     <Card className="flex min-h-0 flex-1 flex-col overflow-hidden" role="status" aria-label="Loading sessions">
@@ -88,7 +76,6 @@ export function SessionListSkeleton({ rows = 8 }: { rows?: number }) {
   );
 }
 
-/** One session: title and details, the copy toolbar, then the tabbed transcript card. */
 export function SessionPageSkeleton() {
   return (
     <div className="page-fill" role="status" aria-label="Loading session">
@@ -115,7 +102,6 @@ export function SessionPageSkeleton() {
   );
 }
 
-/** Placeholder for each lazily loaded screen, matching its layout. */
 export function RouteSkeleton({ page }: { page: Route["page"] }) {
   switch (page) {
     case "sessions":

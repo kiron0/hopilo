@@ -1,6 +1,3 @@
-//! Hopilo desktop shell: tray/menu-bar icon, Quick Panel, main window and
-//! the IPC surface over the local library.
-
 mod browser;
 mod commands;
 mod files;
@@ -15,12 +12,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, PhysicalPosition, Rect, RunEvent, WindowEvent};
 
-/// The dashboard can't be made smaller than this share of the display it is
-/// on (width and height each, so it works in portrait and landscape).
 const MAIN_MIN_SHARE: f64 = 0.8;
 
-/// Size limits for the dashboard on its current display: at least 80% of the
-/// display, at most all of it. Re-applied when the window changes display.
 fn fit_main_to_display(w: &tauri::WebviewWindow) {
     use tauri::LogicalSize;
     let Ok(Some(m)) = w.current_monitor().or_else(|_| w.primary_monitor()) else { return };
@@ -39,14 +32,10 @@ fn fit_main_to_display(w: &tauri::WebviewWindow) {
     }
 }
 
-/// When the Quick Panel last hid because it lost focus. A tray click that
-/// arrives right after should close it, not reopen it.
 struct PanelState {
     hidden_at: Mutex<Option<Instant>>,
 }
 
-/// Set at launch when the main window should open; the window is shown when
-/// the page reports it has painted (no blank or wrong-theme first frame).
 struct StartupState {
     show_main: std::sync::atomic::AtomicBool,
 }
@@ -90,7 +79,7 @@ fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
         return;
     }
     if let Some(rect) = tray_rect {
-        // Anchor under (macOS) or above (Windows/Linux taskbar) the tray icon.
+
         let scale = w.scale_factor().unwrap_or(1.0);
         let pos = rect.position.to_physical::<f64>(scale);
         let size = rect.size.to_physical::<f64>(scale);
@@ -165,13 +154,12 @@ pub fn run() {
                 discovery: Mutex::new(Default::default()),
                 syncing: std::sync::atomic::AtomicBool::new(false),
             });
-            // Keep coding-agent sessions in step with their files on disk.
+
             let sync_handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&sync_handle));
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
-            // Size limits follow the display (80% minimum), also after the
-            // window-state plugin restores an older size.
+
             if let Some(w) = app.get_webview_window("main") {
                 fit_main_to_display(&w);
             }
@@ -181,7 +169,7 @@ pub fn run() {
             let want = first_run || startup != "tray";
             app.manage(StartupState { show_main: std::sync::atomic::AtomicBool::new(want) });
             if want {
-                // Fallback: show anyway if the page never reports ready.
+
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(3));

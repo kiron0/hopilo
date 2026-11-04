@@ -1,6 +1,3 @@
-// Browser-only preview: when the UI runs outside Tauri (plain `pnpm dev` in a
-// browser), answer IPC calls with sample data so screens can be reviewed.
-// Never loaded inside the desktop app.
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
 const now = Date.now();
@@ -45,7 +42,7 @@ const MESSAGES = [
 
 export function installMockIpc() {
   mockWindows("main");
-  // `?mockDelay=1500` slows every call so loading states can be inspected.
+
   const delay = Number(new URLSearchParams(location.search).get("mockDelay") ?? 0);
   mockIPC(async (cmd) => {
     if (delay && cmd !== "get_settings" && !cmd.startsWith("plugin:")) await new Promise((r) => setTimeout(r, delay));

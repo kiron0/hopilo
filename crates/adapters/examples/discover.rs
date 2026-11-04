@@ -1,4 +1,3 @@
-//! Print a summary of locally discovered sessions (counts only, no content).
 use hopilo_adapters::all_adapters;
 
 fn main() {

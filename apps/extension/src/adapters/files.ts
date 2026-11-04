@@ -1,15 +1,12 @@
-// Files and images shared in a chat message: find them in the page, then
-// read their bytes so the capture carries the files, not just their names.
 import type { CapturedFile } from "../protocol";
 
 export interface FileRef {
   name: string;
-  /** Where the bytes can be read; absent for chips that show only a name. */
+
   url?: string;
   mediaType?: string;
 }
 
-/** Per-file and per-capture limits (decoded bytes). */
 export const MAX_FILE_BYTES = 15 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 
@@ -31,8 +28,6 @@ function chipName(el: Element): string {
   return label.replace(/\s+/g, " ").trim().split(" · ")[0].slice(0, 120);
 }
 
-/** Generic finder: images users shared, download links and file chips in a
- *  message. Avatars, icons and controls are skipped. */
 export function findFiles(message: Element): FileRef[] {
   const out: FileRef[] = [];
   const seen = new Set<string>();
@@ -64,7 +59,7 @@ export function findFiles(message: Element): FileRef[] {
   }
 
   for (const chip of Array.from(message.querySelectorAll(CHIP))) {
-    if (chip.querySelector("img, a[href]")) continue; // already covered above
+    if (chip.querySelector("img, a[href]")) continue;
     const name = chipName(chip);
     if (name) add({ name });
   }
@@ -78,9 +73,6 @@ function toBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
-/** Read a file's bytes. Page-local URLs (blob:, data:, same origin) are read
- *  here; other hosts go through the extension's background worker, which has
- *  host permission for the chat sites' file servers. */
 async function readBytes(url: string): Promise<{ data: string; mediaType: string } | null> {
   const local = url.startsWith("blob:") || url.startsWith("data:") || new URL(url, location.href).origin === location.origin;
   if (local) {
@@ -93,7 +85,7 @@ async function readBytes(url: string): Promise<{ data: string; mediaType: string
       if (buf.byteLength > MAX_FILE_BYTES) return null;
       return { data: toBase64(buf), mediaType: res.headers.get("content-type")?.split(";")[0] ?? "" };
     } catch {
-      // fall through to the background worker
+
     }
   }
   try {
@@ -104,8 +96,6 @@ async function readBytes(url: string): Promise<{ data: string; mediaType: string
   }
 }
 
-/** Resolve refs into captured files. Files that can't be read keep their
- *  name (no data), so the library records them as not recovered. */
 export async function readFiles(refs: FileRef[], budget: { left: number }): Promise<CapturedFile[]> {
   const out: CapturedFile[] = [];
   for (const ref of refs) {

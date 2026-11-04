@@ -5,9 +5,6 @@ import { Button, Card } from "./ui";
 const CHUNK_ERROR = /dynamically imported module|Importing a module script failed|Failed to fetch|ChunkLoadError/i;
 const RETRY_KEY = "hopilo.chunkRetry";
 
-/** Keeps one broken screen from blanking the whole window. A screen whose
- *  code failed to load is retried once with a reload; anything else shows a
- *  recovery card. */
 export class ErrorBoundary extends Component<{ children: ReactNode; onHome?: () => void }, { error: Error | null }> {
   state = { error: null as Error | null };
 
@@ -17,8 +14,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode; onHome?: () 
 
   componentDidCatch(error: Error) {
     if (!CHUNK_ERROR.test(error.message)) return;
-    // Reload at most once per 10 seconds, so a permanently missing file
-    // shows the recovery card instead of reloading forever.
+
     let last = 0;
     try {
       last = Number(sessionStorage.getItem(RETRY_KEY) ?? 0);

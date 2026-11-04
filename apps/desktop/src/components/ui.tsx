@@ -126,7 +126,6 @@ export function ProviderDot({ id, size = 8 }: { id: string; size?: number }) {
   return <span aria-hidden className="inline-block shrink-0 rounded-full" style={{ width: size, height: size, background: provider(id).color }} />;
 }
 
-/** Rounded tile with the provider's official logo icon, in its brand colour. */
 export function ProviderBadge({ id, size = 30 }: { id: string; size?: number }) {
   const p = provider(id);
   const logoSize = Math.max(12, Math.round(size * 0.58));
@@ -207,7 +206,6 @@ export function Toggle({ checked, onChange, label, className, disabled }: { chec
   );
 }
 
-/** Search/filter field: the dashboard's pill search, with a clear button. */
 export function SearchField({ value, onChange, label, placeholder, className, autoFocus }: { value: string; onChange: (v: string) => void; label: string; placeholder?: string; className?: string; autoFocus?: boolean }) {
   return (
     <label className={cx("flex h-9 min-w-0 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item transition-colors focus-within:border-accent", className)}>
@@ -231,7 +229,6 @@ export function SearchField({ value, onChange, label, placeholder, className, au
   );
 }
 
-/** Visible label above a control. */
 export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={cx("block", className)}>
@@ -275,7 +272,7 @@ export function Modal({ title, onClose, children, footer, wide }: { title: strin
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") return onClose();
-      // Keep Tab inside the dialog.
+
       if (e.key !== "Tab" || !ref.current) return;
       const items = Array.from(ref.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea, select, [href], [tabindex]:not([tabindex='-1'])"));
       if (!items.length) return;
@@ -451,7 +448,6 @@ export function AlertDialog({
   );
 }
 
-/** Generic loading block (skeleton lines); keeps call sites simple. */
 export function Spinner({ label = "Loading" }: { label?: string }) {
   return (
     <div role="status" aria-label={label} className="space-y-3 py-6">
@@ -476,7 +472,6 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="rounded-md border border-line bg-surface-2 px-1.5 py-px font-mono text-[10.5px] text-muted">{children}</kbd>;
 }
 
-/** Grouped picker for the place to continue (chat apps vs coding tools). */
 export function TargetSelect({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
   const options: SelectOption[] = TARGET_LIST.filter((t) => t.id !== "other")
     .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "chat" ? -1 : 1))
@@ -491,7 +486,6 @@ export function TargetSelect({ value, onChange, className }: { value: string; on
 
 export { ProviderLogo } from "./ProviderLogos";
 
-/** Small rounded provider logo, in the provider's color. */
 export function ProviderChip({ id, size = 20 }: { id: string; size?: number }) {
   const p = provider(id);
   const logoSize = Math.max(10, Math.round(size * 0.62));
@@ -507,7 +501,6 @@ export function ProviderChip({ id, size = 20 }: { id: string; size?: number }) {
   );
 }
 
-/** Themed checkbox: native input for semantics, drawn box for looks. */
 export function Checkbox({ checked, onChange, label, className, disabled }: { checked: boolean; onChange: () => void; label: string; className?: string; disabled?: boolean }) {
   return (
     <span className={cx("relative inline-flex h-[18px] w-[18px] shrink-0", className)}>
@@ -526,17 +519,12 @@ export function Checkbox({ checked, onChange, label, className, disabled }: { ch
   );
 }
 
-/** Loading placeholder with a light sweep. */
 export function Skeleton({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return <span aria-hidden className={cx("skeleton block", className)} style={style} />;
 }
 
-
-/** How many rows of `rowHeight` fit in the element; re-measured on resize.
- *  Lets a list fill its box exactly and page instead of scrolling. */
 export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 3) {
-  // A callback ref, so measuring starts whenever the list element mounts
-  // (it may appear only after data loads).
+
   const [el, ref] = useState<T | null>(null);
   const [rows, setRows] = useState(min);
   useEffect(() => {
@@ -554,7 +542,6 @@ export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 3) {
   return [ref, rows] as const;
 }
 
-/** Compact pager: range, limit options, previous/next and nearby page numbers. */
 export function Pagination({
   page,
   pageSize,

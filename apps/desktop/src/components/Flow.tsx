@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useApp } from "../lib/store";
 
-// "Cosmic wind": domain-warped fbm smoke rendered with WebGL.
-// mode 'plume' rises from the bottom of a card; mode 'mist' is the slow silk background (light theme).
 const FRAG = `
 precision highp float;
 uniform vec2 r; uniform float t; uniform float energy; uniform float mode;
@@ -207,7 +205,6 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
   );
 }
 
-/** "Backlight Glow": living light pooling behind the window in dark theme. */
 export function BacklightGlow() {
   return (
     <div className="bg-layer bg-glow" aria-hidden="true">
@@ -220,7 +217,6 @@ export function BacklightGlow() {
   );
 }
 
-/** Full-window living atmospheric background layer matching Cleanly. */
 export function BackgroundLayer() {
   const settings = useApp((s) => s.settings);
   const theme = settings.theme;
@@ -257,4 +253,3 @@ export function BackgroundLayer() {
 
   return null;
 }
-

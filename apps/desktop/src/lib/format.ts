@@ -1,5 +1,3 @@
-// Display helpers. Pure functions so they can be unit-tested.
-
 export function relativeTime(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) return "never";
   const t = new Date(iso).getTime();
@@ -40,15 +38,12 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 
 export { provider } from "./providers";
 
-/** Last path component, for compact project labels. */
 export function basename(p: string | null | undefined): string {
   if (!p) return "";
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? p;
 }
 
-/** Plain-language size verdict for a handoff (CTX-09). Deliberately generic:
- *  limits differ by app and plan, so no provider-specific numbers. */
 export function sizeVerdict(tokensEstimate: number): { tone: "success" | "neutral" | "warning"; text: string } {
   if (tokensEstimate <= 8_000) return { tone: "success", text: "Small — pastes anywhere" };
   if (tokensEstimate <= 32_000) return { tone: "neutral", text: "Medium — fits most chats" };

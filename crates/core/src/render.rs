@@ -1,7 +1,3 @@
-//! Deterministic rendering of a pack into Markdown and a destination-ready
-//! handoff prompt (CTX-04, CTX-05, CTX-14). No model is involved: output is a
-//! pure function of the pack, so literals are never altered.
-
 use std::collections::HashSet;
 use std::fmt::Write;
 
@@ -13,11 +9,11 @@ use crate::model::{Block, CaptureStatus, Message, Pack, Role, Source};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ToolDetail {
-    /// Tool calls and full outputs.
+
     Full,
-    /// Tool calls with outputs cut to `limit` characters, cut marked inline.
+
     Truncated { limit: usize },
-    /// Leave tool events out; the omission is stated in the header.
+
     Omit,
 }
 
@@ -25,12 +21,12 @@ pub enum ToolDetail {
 #[serde(rename_all = "camelCase")]
 pub struct RenderOptions {
     pub tool_detail: ToolDetail,
-    /// When set, only these message ids are rendered (Selected mode).
+
     #[serde(default)]
     pub selected: Option<HashSet<String>>,
     #[serde(default = "default_true")]
     pub include_attachments_inline: bool,
-    /// Full transcript, Balanced or Minimal (CTX-04/06/07).
+
     #[serde(default)]
     pub level: ContextLevel,
 }
@@ -50,7 +46,6 @@ impl Default for RenderOptions {
     }
 }
 
-/// Rough size estimate (chars / 4). Always labeled an estimate in the UI.
 pub fn estimate_tokens(text: &str) -> usize {
     text.chars().count().div_ceil(4)
 }
@@ -75,7 +70,7 @@ fn status_label(s: CaptureStatus) -> &'static str {
 }
 
 fn fence_for(content: &str) -> String {
-    // Use a fence longer than any backtick run inside the content.
+
     let mut longest = 0;
     let mut run = 0;
     for c in content.chars() {
@@ -167,7 +162,6 @@ fn write_source_line(out: &mut String, s: &Source) {
     }
 }
 
-/// Full transcript Markdown (`context/full.md` / `transcript.md`).
 pub fn render_markdown(pack: &Pack, opts: &RenderOptions) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# {}\n", pack.title);
@@ -307,8 +301,6 @@ fn write_minimal(out: &mut String, msgs: &[&Message]) {
     brief::write_key_references(out, &brief::key_references(msgs));
 }
 
-/// Destination-ready instruction wrapper (CTX-14). The transcript is framed
-/// as untrusted reference material, never as instructions (spec 12.1).
 pub fn render_handoff_prompt(pack: &Pack, opts: &RenderOptions) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "I'm continuing work that started in another AI session. Below is that session (\"{}\"), exported with Hopilo.\n", pack.title);
@@ -432,7 +424,7 @@ mod tests {
     #[test]
     fn balanced_keeps_requests_and_recent_messages() {
         let mut p = pack();
-        // 20 extra user/assistant turns so there is an "earlier" part.
+
         for i in 0..20 {
             p.messages.push(Message {
                 id: format!("u{i}"),

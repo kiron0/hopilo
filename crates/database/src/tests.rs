@@ -51,7 +51,6 @@ fn capture_round_trip_and_duplicate_detection() {
     let first = db.insert_capture(&s, &m).unwrap();
     assert!(first.duplicate_of.is_none());
 
-    // Same file, same content, new capture ids: detected as duplicate.
     let (s2, m2) = capture("/a.jsonl", "migrate sessions table to uuid keys");
     let again = db.insert_capture(&s2, &m2).unwrap();
     assert_eq!(again.duplicate_of.as_deref(), Some(first.source_id.as_str()));
@@ -79,7 +78,6 @@ fn versions_are_immutable_and_append_only() {
     let v2 = db.add_version(&v1.pack_id, next, Some("edited")).unwrap();
     assert_eq!(v2.version, 2);
 
-    // "Rollback" = re-save v1's content as a new version (LIB-05).
     let old = db.get_pack(&v1.pack_id, Some(1)).unwrap();
     let v3 = db.add_version(&v1.pack_id, old, Some("Rollback to v1")).unwrap();
     assert_eq!(v3.version, 3);
@@ -168,7 +166,6 @@ fn relations_tags_and_audit() {
     assert_eq!(clean.versions_checked, 2);
     assert!(clean.version_problems.is_empty());
 
-    // Tamper with a snapshot behind the store's back.
     db.conn
         .execute("UPDATE pack_versions SET snapshot_json = replace(snapshot_json, 'audit me', 'edited') WHERE pack_id = ?1", [&p.pack_id])
         .unwrap();
@@ -184,7 +181,6 @@ fn sessions_refresh_in_place_and_keep_pin_and_tags() {
     db.update_session(&first.source_id, &SessionPatch { pinned: Some(true), tags: Some(vec!["Auth".into()]), ..Default::default() })
         .unwrap();
 
-    // The agent wrote more to the same file: same session, new content.
     let (s2, mut m2) = capture("/s.jsonl", "first turn");
     m2.push(Message { id: "m2".into(), source_id: s2.source_id.clone(), role: Role::Assistant, created_at: None, blocks: vec![Block::text("reply")] });
     let again = db.upsert_session(&s2, &m2, Some("2030-01-01T00:00:00Z")).unwrap();
@@ -256,7 +252,7 @@ fn compose_combines_sessions_with_their_files_and_logs_copies() {
 fn upgrade_folds_packs_and_loose_files_into_sessions() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = Store::open(dir.path()).unwrap();
-    // An older capture and a newer one of the same file (pre-v3 behaviour).
+
     let (old, old_m) = capture("/u.jsonl", "old");
     let (new, new_m) = capture("/u.jsonl", "new");
     for (s, m) in [(&old, &old_m), (&new, &new_m)] {
@@ -269,12 +265,12 @@ fn upgrade_folds_packs_and_loose_files_into_sessions() {
             )
             .unwrap();
     }
-    // A pack made from a source the library no longer has, with a note.
+
     let (gone, gone_m) = capture("/gone.jsonl", "only in the pack");
     let mut pack = pack_from(gone, gone_m);
     pack.context.note = Some("Keep the API stable".into());
     db.create_pack(pack, None).unwrap();
-    // A file added on its own.
+
     let att = Attachment {
         id: new_id(),
         file_name: "spec.pdf".into(),

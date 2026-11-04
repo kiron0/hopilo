@@ -1,6 +1,3 @@
-//! Sensitive-data scan for the delivery preview (CTX-15, spec 12.1). Findings
-//! are warnings only: nothing is redacted without the user asking.
-
 use std::sync::OnceLock;
 
 use regex::Regex;
@@ -12,9 +9,9 @@ use crate::model::Pack;
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
     pub kind: &'static str,
-    /// Masked excerpt, safe to display.
+
     pub preview: String,
-    /// Message id, or `attachment:<id>`, or `note`.
+
     pub location: String,
 }
 

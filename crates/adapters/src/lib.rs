@@ -1,8 +1,3 @@
-//! Read-only local coding-agent session importers (CAP-02).
-//!
-//! Adapters only ever open session files for reading. They never write,
-//! rename or lock the original agent state (spec 12.1, R6).
-
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -43,17 +38,15 @@ pub struct DiscoveredSession {
     pub model: Option<String>,
     pub modified_at: String,
     pub size_bytes: u64,
-    /// Approximate count of conversational turns, from a quick scan.
+
     pub message_count: usize,
 }
 
-/// A normalized capture: one source plus its messages in original order.
 #[derive(Debug, Clone)]
 pub struct Capture {
     pub source: Source,
     pub messages: Vec<Message>,
-    /// Files and images recovered from the session; their messages carry a
-    /// matching `Block::File`. The library stores the bytes as attachments.
+
     pub files: Vec<hopilo_core::CapturedFile>,
 }
 
@@ -69,7 +62,7 @@ pub struct AdapterInfo {
 pub trait LocalAgentAdapter: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
-    /// Default directories to scan, from the agent's documented locations.
+
     fn default_roots(&self) -> Vec<PathBuf>;
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>>;
     fn read(&self, path: &Path) -> Result<Capture>;
@@ -100,7 +93,7 @@ fn home() -> Option<PathBuf> {
 }
 
 pub(crate) fn open_lines(path: &Path) -> Result<impl Iterator<Item = std::io::Result<String>>> {
-    // Read-only handle; File::open never creates or truncates.
+
     let f = File::open(path).map_err(|source| AdapterError::Io {
         path: path.display().to_string(),
         source,
@@ -121,8 +114,6 @@ pub(crate) fn file_meta(path: &Path) -> Result<(u64, String)> {
     Ok((md.len(), modified))
 }
 
-/// Collect `*.jsonl` files under `root` up to `depth` levels, skipping
-/// symlinks so discovery never leaves the agent's directory.
 pub(crate) fn jsonl_files(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(root) else { return };
     for entry in rd.flatten() {

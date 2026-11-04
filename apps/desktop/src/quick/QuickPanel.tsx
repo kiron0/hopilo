@@ -10,7 +10,6 @@ import { Toasts } from "../components/Toasts";
 import { IconButton, Kbd, ProviderBadge, Skeleton } from "../components/ui";
 import { CaptureIcon, HomeIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
 
-/** Compact menu-bar panel: recent sessions, one tap to copy. No sidebar. */
 export function QuickPanel() {
   const ready = useBootstrap();
   const settings = useApp((s) => s.settings);
@@ -18,7 +17,6 @@ export function QuickPanel() {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Refresh when the panel is shown again.
   useEffect(() => {
     const un = getCurrentWindow().onFocusChanged(({ payload }) => {
       if (payload) sessions.reload();
@@ -26,7 +24,7 @@ export function QuickPanel() {
     return () => {
       un.then((f) => f());
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   useEffect(() => {
@@ -42,8 +40,6 @@ export function QuickPanel() {
 
   if (!ready) return null;
 
-  // Rows share the dashboard sidebar's look: quiet until hovered or chosen,
-  // then a raised white pill.
   const row = "nav-item h-auto min-h-10 w-full py-1.5 text-left text-[13px] focus-visible:bg-surface focus-visible:shadow-item disabled:opacity-50";
   const copy = async (id: string) => {
     setBusy(id);
@@ -55,7 +51,7 @@ export function QuickPanel() {
     <div
       className="quick-shell relative isolate flex h-full flex-col overflow-hidden rounded-[18px] border border-line text-[13px]"
       onKeyDown={(e) => {
-        // Arrow keys move between rows, like a native menu.
+
         if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
         const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-row]:not(:disabled)"));
         const i = rows.indexOf(document.activeElement as HTMLElement);

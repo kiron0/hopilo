@@ -1,9 +1,3 @@
-//! Copy and export sessions for another AI. Rendering, the clipboard write
-//! and the history record all happen here, so the text never travels
-//! through the web view and every surface (dashboard, Quick Panel, tray
-//! menu) behaves the same. Nothing is summarized by a model: the trim levels
-//! are fixed rules in `hopilo_core::brief`.
-
 use std::path::PathBuf;
 
 use hopilo_core::brief::ContextLevel;
@@ -38,7 +32,6 @@ fn render_opts(t: ToolDetailOpt, level: ContextLevel) -> RenderOptions {
     }
 }
 
-/// Saved defaults for a copy, used when the caller passes none.
 struct Defaults {
     target: String,
     tool_detail: ToolDetailOpt,
@@ -55,7 +48,6 @@ fn defaults(state: &State<AppState>) -> Defaults {
     }
 }
 
-/// How a copy or export should look. Omitted fields use the saved defaults.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CopyOptions {
@@ -66,7 +58,6 @@ pub struct CopyOptions {
     level: Option<ContextLevel>,
 }
 
-/// What was copied, so the caller can confirm it and flag anything to check.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CopyOutcome {
@@ -74,11 +65,11 @@ pub struct CopyOutcome {
     title: String,
     target: String,
     token_estimate: usize,
-    /// Capture gaps (messages the source could not provide).
+
     missing: usize,
-    /// Possible secrets found by the sensitive-data check.
+
     findings: usize,
-    /// Files that are not text, to attach by hand at the destination.
+
     attach: Vec<String>,
 }
 
@@ -94,8 +85,6 @@ fn outcome(pack: &Pack, ids: &[String], target: String, text: &str) -> CopyOutco
     }
 }
 
-/// Render sessions, put the text on the clipboard and log it as "copied"
-/// (never as delivered: Hopilo does not send anything).
 pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) -> CmdResult<CopyOutcome> {
     if ids.is_empty() {
         return Err("Choose at least one session".into());
@@ -116,20 +105,16 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
     Ok(outcome(&pack, ids, target, &text))
 }
 
-/// Copy one or more sessions for another AI in one step.
 #[tauri::command]
 pub fn copy_sessions(app: AppHandle, ids: Vec<String>, opts: Option<CopyOptions>) -> CmdResult<CopyOutcome> {
     copy_blocking(&app, &ids, opts.unwrap_or_default())
 }
 
-/// Suggested file name for an export of these sessions.
 #[tauri::command]
 pub fn suggest_export_name(state: State<AppState>, ids: Vec<String>, ext: String) -> CmdResult<String> {
     with_store(&state, |s| Ok(hopilo_pack_format::export_filename(&s.compose(&ids).map_err(err)?, &ext)))
 }
 
-/// Write sessions to a file: `md`, `txt` (the copy text), `json`, or a
-/// `.handoff` archive that also carries the files.
 #[tauri::command]
 pub fn export_sessions(app: AppHandle, state: State<AppState>, ids: Vec<String>, format: String, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
     let opts = opts.unwrap_or_default();
@@ -163,8 +148,6 @@ pub struct ClipboardCapture {
     chars: usize,
 }
 
-/// Save the clipboard text as a session, read once on the Rust side. There
-/// is no background clipboard monitoring.
 #[tauri::command]
 pub fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
     let text = app.clipboard().read_text().unwrap_or_default();
@@ -177,8 +160,6 @@ pub fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
     Ok(ClipboardCapture { outcome, chars })
 }
 
-/// Tray menu: copy the most recently active session without opening any
-/// window. Shows the result briefly next to the menu-bar icon.
 pub fn copy_latest_session(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {

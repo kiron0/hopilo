@@ -1,5 +1,3 @@
-// Handoff destinations come from the provider registry. Opening one is a
-// convenience and never claims delivery.
 import { provider, TARGETS as ALL, type Provider } from "./providers";
 
 export type Target = Provider;

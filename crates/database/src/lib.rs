@@ -1,9 +1,3 @@
-//! Local library (LIB-01, LIB-02): SQLite metadata + FTS5 search, plus a
-//! content-addressed blob directory for original attachment bytes.
-//!
-//! Raw captures (`sources` + `messages`) are stored once and never edited.
-//! Pack versions are immutable JSON snapshots; changes always add a version.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -57,7 +51,7 @@ pub struct SourceRow {
 #[serde(rename_all = "camelCase")]
 pub struct ImportOutcome {
     pub source_id: String,
-    /// Set when identical content was already in the library (LIB-09).
+
     pub duplicate_of: Option<String>,
 }
 
@@ -88,7 +82,7 @@ pub struct RelationRow {
     pub to_pack: String,
     pub to_version: Option<i64>,
     pub to_title: Option<String>,
-    /// merged | split | duplicated
+
     pub kind: String,
     pub created_at: String,
 }
@@ -163,8 +157,7 @@ pub struct ActivityRow {
 
 fn content_hash(messages: &[Message]) -> Result<String> {
     use sha2::{Digest, Sha256};
-    // Canonical JSON of roles + blocks only, so re-importing the same session
-    // yields the same value regardless of generated ids or capture time.
+
     let mut h = Sha256::new();
     for m in messages {
         h.update(serde_json::to_vec(&(&m.role, &m.blocks))?);
@@ -188,7 +181,6 @@ fn kebab<T: Serialize>(v: &T) -> String {
     serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
 
-/// Turn free text into a safe FTS5 prefix query.
 fn fts_query(q: &str) -> Option<String> {
     let terms: Vec<String> = q
         .split_whitespace()
@@ -206,8 +198,7 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        // Before upgrading an existing library, keep a copy so a failed
-        // migration can be recovered (spec 12.3).
+
         let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if current > 0 && (current as usize) < migrations::latest() {
             let backup = root.join(format!("hopilo.db.before-v{}", current + 1));
@@ -231,11 +222,6 @@ impl Store {
         Ok(self.conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?)
     }
 
-    // ---- sources ---------------------------------------------------------
-
-    /// Save a capture as a session. A capture from an origin the library
-    /// already has (same agent file, same chat URL) refreshes that session in
-    /// place, keeping its id, pin and tags; identical content is a duplicate.
     pub fn insert_capture(&mut self, source: &Source, messages: &[Message]) -> Result<ImportOutcome> {
         self.upsert_session(source, messages, None)
     }
@@ -265,7 +251,6 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    /// Latest captured source id and time per origin path.
     pub fn imported_origins(&self) -> Result<HashMap<String, (String, String)>> {
         let mut stmt = self.conn.prepare(
             "SELECT origin, id, captured_at FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
@@ -310,14 +295,10 @@ impl Store {
         Ok(())
     }
 
-    // ---- attachments -----------------------------------------------------
-
     fn blob_path(&self, sha: &str) -> PathBuf {
         self.root.join("attachments").join(sha)
     }
 
-    /// Store original bytes content-addressed. Returns the existing record
-    /// when identical bytes were imported before.
     pub fn insert_attachment(&mut self, att: &Attachment, bytes: &[u8]) -> Result<(Attachment, bool)> {
         if let Some(existing) = self.attachment_by_sha(&att.sha256)? {
             return Ok((existing, true));
@@ -394,16 +375,11 @@ impl Store {
         tx.execute("DELETE FROM attachments WHERE id = ?1", [id])?;
         tx.execute("DELETE FROM search_index WHERE kind = 'attachment' AND ref_id = ?1", [id])?;
         tx.commit()?;
-        // Pack snapshots may still list the file; their exports then omit
-        // the bytes and say so rather than failing.
+
         let _ = std::fs::remove_file(self.blob_path(&att.sha256));
         Ok(())
     }
 
-    // ---- packs -----------------------------------------------------------
-
-    /// Create a new pack whose first version is `pack` (its id and version
-    /// are assigned here).
     pub fn create_pack(&mut self, mut pack: Pack, label: Option<&str>) -> Result<Pack> {
         pack.pack_id = new_id();
         pack.version = 1;
@@ -420,7 +396,6 @@ impl Store {
         Ok(pack)
     }
 
-    /// Append an immutable version to an existing pack.
     pub fn add_version(&mut self, pack_id: &str, mut pack: Pack, label: Option<&str>) -> Result<Pack> {
         let tx = self.conn.transaction()?;
         let latest: i64 = tx
@@ -487,8 +462,6 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    /// Load a version snapshot. `version = None` means latest. The current
-    /// pack title is applied, since renaming never rewrites snapshots.
     pub fn get_pack(&self, pack_id: &str, version: Option<u32>) -> Result<Pack> {
         let (title, latest): (String, i64) = self
             .conn
@@ -537,7 +510,7 @@ impl Store {
     pub fn delete_pack(&mut self, pack_id: &str) -> Result<()> {
         let tx = self.conn.transaction()?;
         tx.execute("DELETE FROM packs WHERE id = ?1", [pack_id])?;
-        // Lineage stays readable from the other side; titles show as missing.
+
         tx.execute("DELETE FROM search_index WHERE kind = 'pack' AND ref_id = ?1", [pack_id])?;
         event(&tx, "delete", Some(pack_id), "Deleted pack")?;
         tx.commit()?;
@@ -561,7 +534,6 @@ impl Store {
         Ok(())
     }
 
-    /// Lineage edges touching `pack_id`, or every edge when `None`.
     pub fn relations(&self, pack_id: Option<&str>) -> Result<Vec<RelationRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT r.from_pack, r.from_version, a.title, r.to_pack, r.to_version, b.title, r.kind, r.created_at
@@ -594,8 +566,6 @@ impl Store {
         Ok(())
     }
 
-    /// Re-hash every stored version and attachment blob (LIB-09, Phase 3
-    /// integrity auditing). Read-only.
     pub fn audit(&self) -> Result<AuditReport> {
         let mut report = AuditReport { database: self.integrity_check()?, ..Default::default() };
         let mut stmt = self.conn.prepare("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;
@@ -626,8 +596,6 @@ impl Store {
         }
         Ok(report)
     }
-
-    // ---- handoffs, activity, settings -------------------------------------
 
     pub fn record_handoff(&mut self, pack_id: &str, version: u32, target: &str, method: &str, status: &str) -> Result<String> {
         let id = new_id();
@@ -734,7 +702,6 @@ impl Store {
         })
     }
 
-    /// Remove every capture, pack, attachment and log entry (Settings > Storage).
     pub fn wipe(&mut self) -> Result<()> {
         let tx = self.conn.transaction()?;
         for t in ["messages", "sources", "pack_versions", "pack_version_sources", "pack_relations", "packs", "handoffs", "attachments", "activity_events", "search_index"] {

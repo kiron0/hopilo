@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
-/** Native OS file drops onto the window (Tauri delivers paths, not bytes). */
 export function useFileDrop(onDrop: (paths: string[]) => void, enabled = true) {
   const [hovering, setHovering] = useState(false);
   const handler = useRef(onDrop);

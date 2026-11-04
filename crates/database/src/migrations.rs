@@ -1,11 +1,7 @@
-//! Explicit, ordered schema migrations tracked with `PRAGMA user_version`.
-//! Each step runs in its own transaction; a failure leaves the previous
-//! schema intact.
-
 use rusqlite::Connection;
 
 const MIGRATIONS: &[&str] = &[
-    // 1: initial library
+
     r#"
     CREATE TABLE sources (
         id TEXT PRIMARY KEY,
@@ -108,7 +104,7 @@ const MIGRATIONS: &[&str] = &[
         kind UNINDEXED, ref_id UNINDEXED, title, body, tokenize = 'unicode61'
     );
     "#,
-    // 2: pack lineage (merge/split/duplicate) and pack-level tags
+
     r#"
     CREATE TABLE pack_relations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,9 +119,7 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX pack_relations_to ON pack_relations(to_pack);
     ALTER TABLE packs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
     "#,
-    // 3: sessions are the only user-facing object. One row per origin,
-    // refreshed in place; packs stay stored but are folded into sessions by
-    // `Store::upgrade_to_sessions`.
+
     r#"
     ALTER TABLE sources ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE sources ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';

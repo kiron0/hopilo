@@ -1,7 +1,3 @@
-//! Provider-neutral domain types (CTX-01). Serialized form is the portable
-//! Context Pack schema; field names are camelCase to match the JSON envelope
-//! in the product specification (section 9.3).
-
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA_VERSION: &str = "1.0.0";
@@ -15,8 +11,6 @@ pub enum Role {
     Tool,
 }
 
-/// One piece of a message. Text is kept verbatim, including Markdown code
-/// fences, so literals (paths, commands, errors) survive untouched.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Block {
@@ -34,13 +28,11 @@ pub enum Block {
         #[serde(default)]
         is_error: bool,
     },
-    /// A reference to content that was not recovered (CAP-12, ATT "Referenced
-    /// but not recovered"). Never pretend it was transferred.
+
     Missing {
         description: String,
     },
-    /// A file or image shared in the conversation and recovered with it. The
-    /// bytes live in the library's attachment store under `sha256`.
+
     #[serde(rename_all = "camelCase")]
     File {
         name: String,
@@ -66,8 +58,6 @@ impl Block {
     }
 }
 
-/// Bytes of a file recovered during capture, kept beside the messages until
-/// the library stores them as an attachment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CapturedFile {
     pub name: String,
@@ -81,13 +71,10 @@ impl CapturedFile {
         hex::encode(Sha256::digest(&self.bytes))
     }
 
-    /// The message block that points at this file.
     pub fn block(&self) -> Block {
         Block::File { name: self.name.clone(), media_type: self.media_type.clone(), sha256: self.sha256(), size: self.bytes.len() as u64 }
     }
 
-    /// Library attachment record; text-like files keep their text so it can
-    /// be inlined into handoffs.
     pub fn attachment(&self) -> Attachment {
         let texty = self.media_type.starts_with("text/")
             || matches!(self.media_type.as_str(), "application/json" | "application/xml" | "application/x-yaml" | "application/javascript");
@@ -102,8 +89,6 @@ impl CapturedFile {
         }
     }
 
-    /// Decode base64 (standard or URL-safe, with or without a `data:` URL
-    /// prefix). Returns None for anything that does not decode.
     pub fn from_base64(name: impl Into<String>, media_type: impl Into<String>, data: &str) -> Option<Self> {
         use base64::Engine;
         let mut media_type = media_type.into();
@@ -133,7 +118,6 @@ impl CapturedFile {
     }
 }
 
-/// A file extension for common media types (used to name unnamed images).
 pub fn extension_for(media_type: &str) -> &'static str {
     match media_type {
         "image/png" => "png",
@@ -180,7 +164,7 @@ impl Message {
 pub enum SourceKind {
     LocalAgent,
     BrowserChat,
-    /// A conversation from a provider's account data export.
+
     ChatExport,
     Clipboard,
     Manual,
@@ -188,7 +172,6 @@ pub enum SourceKind {
     Pack,
 }
 
-/// Capture health (CAP-12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureStatus {
@@ -204,10 +187,10 @@ pub enum CaptureStatus {
 pub struct Source {
     pub source_id: String,
     pub kind: SourceKind,
-    /// e.g. "claude-code", "codex", "clipboard", "manual".
+
     pub provider: String,
     pub title: String,
-    /// File path or other origin descriptor, when known.
+
     #[serde(default)]
     pub origin: Option<String>,
     #[serde(default)]
@@ -218,8 +201,7 @@ pub struct Source {
     pub capture_status: CaptureStatus,
     #[serde(default)]
     pub missing_items: Vec<String>,
-    /// Counts of items deliberately not carried over (hidden reasoning,
-    /// injected system context...), for the transfer record.
+
     #[serde(default)]
     pub omitted: Vec<OmittedCount>,
 }
@@ -241,7 +223,7 @@ pub struct Attachment {
     pub sha256: String,
     #[serde(default)]
     pub origin_path: Option<String>,
-    /// Extracted text for text-like files; None for binaries.
+
     #[serde(default)]
     pub text: Option<String>,
 }
@@ -259,7 +241,7 @@ pub struct ContextBrief {
     pub current_state: Option<String>,
     #[serde(default)]
     pub next_steps: Vec<String>,
-    /// Free-form user note added in the Builder.
+
     #[serde(default)]
     pub note: Option<String>,
 }
@@ -275,7 +257,7 @@ pub enum Mode {
 #[serde(rename_all = "camelCase")]
 pub struct Integrity {
     pub algorithm: String,
-    /// sha256 over the canonical JSON of messages + attachments hashes.
+
     #[serde(default)]
     pub content_hash: Option<String>,
 }
@@ -286,7 +268,6 @@ impl Default for Integrity {
     }
 }
 
-/// An immutable Context Pack snapshot (one version).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pack {

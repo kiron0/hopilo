@@ -1,9 +1,3 @@
-//! Gemini CLI sessions: `~/.gemini/tmp/<project>/chats/session-*.jsonl` (or
-//! `$GEMINI_CLI_HOME`). The first line is a header; later lines are messages
-//! keyed by `id` (a repeated id replaces the earlier one) or `{"$set": …}`
-//! patches, where `$set.messages` is a full snapshot of the message list.
-//! Older versions wrote one `session-*.json` object with a `messages` array.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -13,8 +7,6 @@ use serde_json::Value;
 use crate::text::title_from;
 use crate::{file_meta, home, jsonl_files, omitted, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
 
-/// Gemini CLI and its fork Qwen Code share this session format; only the
-/// folder and the label differ.
 pub struct GeminiCli {
     id: &'static str,
     name: &'static str,
@@ -31,7 +23,6 @@ impl GeminiCli {
     }
 }
 
-/// `projects.json` maps project paths to the folder names used under `tmp/`.
 fn project_paths(base: &Path) -> HashMap<String, String> {
     let Ok(text) = std::fs::read_to_string(base.join("projects.json")) else { return HashMap::new() };
     let Ok(v) = serde_json::from_str::<Value>(&text) else { return HashMap::new() };
@@ -90,7 +81,6 @@ impl LocalAgentAdapter for GeminiCli {
     }
 }
 
-/// Legacy `chats/session-*.json` files.
 fn json_session_files(root: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(root) else { return };
     for e in rd.flatten() {
@@ -107,7 +97,7 @@ fn json_session_files(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_core::CapturedFile>) -> (Vec<Block>, bool) {
-    // Returns blocks and whether the message was only function responses.
+
     match content {
         Value::String(s) if !s.trim().is_empty() => (vec![Block::text(s.trim_end())], false),
         Value::Array(parts) => {
@@ -349,7 +339,7 @@ mod tests {
             }
             b => panic!("unexpected {b:?}"),
         }
-        // The edited reply (same id written twice) keeps only the last text.
+
         assert_eq!(cap.messages[3].blocks[0].plain_text(), "Run `pnpm install` and commit `pnpm-lock.yaml`.");
         assert!(cap.source.omitted.iter().any(|o| o.what.starts_with("hidden reasoning") && o.count == 1));
     }

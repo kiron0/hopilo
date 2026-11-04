@@ -1,11 +1,3 @@
-//! Sessions: the one object Hopilo manages. A session is a conversation from
-//! any AI tool (coding agent, browser chat, chat export, pasted text) with the
-//! files shared in it. It is stored once per origin and refreshed in place, so
-//! it keeps tracking the original conversation.
-//!
-//! Handing off never needs a saved pack: `compose` builds one in memory from
-//! one or more sessions, only for rendering a copy or an export.
-
 use std::collections::HashSet;
 
 use hopilo_core::{
@@ -28,7 +20,7 @@ pub struct SessionRow {
     pub origin: Option<String>,
     pub project: Option<String>,
     pub model: Option<String>,
-    /// Last activity in the conversation (agent file time or capture time).
+
     pub updated_at: String,
     pub capture_status: String,
     pub message_count: i64,
@@ -48,7 +40,6 @@ pub struct SessionPatch {
     pub tags: Option<Vec<String>>,
 }
 
-/// Origin bookkeeping for the agent-folder sync.
 pub struct OriginState {
     pub id: String,
     pub updated_at: String,
@@ -96,8 +87,7 @@ fn file_block(a: &Attachment) -> Block {
 }
 
 impl Store {
-    /// Insert a session, or refresh the one with the same origin in place.
-    /// `updated_at` is the conversation's own last-activity time when known.
+
     pub fn upsert_session(&mut self, source: &Source, messages: &[Message], updated_at: Option<&str>) -> Result<ImportOutcome> {
         let hash = content_hash(messages)?;
         let existing: Option<(String, String, bool)> = match &source.origin {
@@ -173,7 +163,6 @@ impl Store {
         Ok(ImportOutcome { source_id: id, duplicate_of: None })
     }
 
-    /// Every visible session, pinned first, then most recent activity.
     pub fn list_sessions(&self) -> Result<Vec<SessionRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 0
@@ -190,7 +179,6 @@ impl Store {
             .ok_or_else(|| DbError::NotFound(format!("session {id}")))
     }
 
-    /// Origin path to session state, for deciding what the agent sync reads.
     pub fn session_origins(&self) -> Result<std::collections::HashMap<String, OriginState>> {
         let mut stmt = self.conn.prepare(
             "SELECT origin, id, COALESCE(updated_at, captured_at), hidden FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
@@ -199,7 +187,6 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    /// Files shared in a session, in the order they appear.
     pub fn session_files(&self, messages: &[Message]) -> Vec<Attachment> {
         let mut seen = HashSet::new();
         messages
@@ -230,9 +217,6 @@ impl Store {
         Ok(())
     }
 
-    /// Remove a session from the list. A coding-agent session stays hidden
-    /// (its file is still on disk, so the sync must not bring it back);
-    /// anything else is deleted. Original session files are never touched.
     pub fn remove_session(&mut self, id: &str) -> Result<()> {
         let row = self.session_row(id)?;
         if row.kind == "local-agent" && row.origin.is_some() {
@@ -247,8 +231,6 @@ impl Store {
         }
     }
 
-    /// Build an in-memory pack from sessions, for rendering only. Files shared
-    /// in the sessions travel with it.
     pub fn compose(&self, ids: &[String]) -> Result<Pack> {
         let mut sources = Vec::new();
         let mut messages = Vec::new();
@@ -285,7 +267,6 @@ impl Store {
         })
     }
 
-    /// Log a copy, insert or export of sessions. Never recorded as delivered.
     pub fn record_copy(&mut self, ids: &[String], target: &str, method: &str, status: &str) -> Result<()> {
         let now = now_rfc3339();
         let tx = self.conn.transaction()?;
@@ -301,8 +282,6 @@ impl Store {
         Ok(())
     }
 
-    /// Add stored files to a session as a new message, or start a new
-    /// session holding them. Returns the session id.
     pub fn add_files(&mut self, session: Option<&str>, files: &[Attachment]) -> Result<String> {
         if files.is_empty() {
             return Err(DbError::NotFound("files".into()));
@@ -328,7 +307,6 @@ impl Store {
         }
     }
 
-    /// Rewrite a session's messages, keeping its row (pin, tags, origin).
     fn replace_messages(&mut self, source: &Source, messages: &[Message]) -> Result<()> {
         let id = &source.source_id;
         let text = messages_text(messages);
@@ -350,10 +328,6 @@ impl Store {
         Ok(())
     }
 
-    /// Turn a pack (an old saved pack, or an imported `.handoff`/`.json`) into
-    /// sessions. Its conversations become sessions (reusing ones already in
-    /// the library); a note and files added outside any conversation become
-    /// one extra session named after the pack. Returns the session ids.
     pub fn adopt_pack(&mut self, pack: &Pack) -> Result<Vec<String>> {
         let mut ids = Vec::new();
         for s in &pack.sources {
@@ -385,10 +359,6 @@ impl Store {
         Ok(ids)
     }
 
-    /// One-time move to the sessions-only library (schema v3): keep the
-    /// newest capture per origin, fill in file counts, fold every saved pack
-    /// into sessions, and give files that belong to no session one of their
-    /// own. Pack tables are left as they were.
     pub(crate) fn upgrade_to_sessions(&mut self) -> Result<()> {
         self.conn.execute_batch(
             "DELETE FROM search_index WHERE kind = 'source' AND ref_id IN (

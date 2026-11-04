@@ -9,8 +9,6 @@ export interface SelectOption {
   icon?: ReactNode;
 }
 
-/** Themed single-select listbox: keyboard (arrows, Home/End, type-ahead,
- *  Enter, Escape), grouped options, optional icons. */
 export function Select({
   value,
   onChange,
@@ -24,7 +22,7 @@ export function Select({
   onChange: (v: string) => void;
   options: SelectOption[];
   label: string;
-  /** Shown when no option is chosen. */
+
   emptyLabel?: string;
   className?: string;
   size?: "sm" | "md";
@@ -40,9 +38,6 @@ export function Select({
   const selectedIndex = options.findIndex((o) => o.value === value);
   const selected = options[selectedIndex];
 
-  // Keep the list fully inside the window: open upward when there is more
-  // room above, cap its height to the space available, and clamp it
-  // horizontally so it never runs off an edge.
   const place = useCallback(() => {
     const r = triggerRef.current?.getBoundingClientRect();
     if (!r) return;
@@ -71,7 +66,6 @@ export function Select({
     close();
   };
 
-  // Scroll only the list itself (scrollIntoView would also scroll the page).
   useLayoutEffect(() => {
     const list = listRef.current;
     const el = list?.querySelector<HTMLElement>(`[data-index="${active}"]`);
@@ -86,7 +80,7 @@ export function Select({
       const t = e.target as Node;
       if (!listRef.current?.contains(t) && !triggerRef.current?.contains(t)) close(false);
     };
-    // Follow the trigger when the page scrolls; close once it leaves view.
+
     const onScroll = (e: Event) => {
       if (listRef.current?.contains(e.target as Node)) return;
       const r = triggerRef.current?.getBoundingClientRect();

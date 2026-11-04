@@ -1,6 +1,3 @@
-// Experimental adapters. These follow page structures observed at one point
-// in time and are not verified against the live sites; the popup labels
-// them as experimental, and an empty or odd capture is reported as partial.
 import type { WebAdapter } from "./common";
 
 const firstOf = <T extends Element>(doc: Document, selectors: string[]) => {
@@ -13,8 +10,6 @@ const firstOf = <T extends Element>(doc: Document, selectors: string[]) => {
 
 const stripTitle = (title: string, name: string) => title.replace(new RegExp(`\\s*[-|]\\s*${name}\\s*$`, "i"), "").replace(new RegExp(`^${name}$`, "i"), "");
 
-/** DeepSeek (chat.deepseek.com): replies render in .ds-markdown; user turns
- *  are the message bubbles without it. */
 export const deepseek: WebAdapter = {
   id: "deepseek",
   version: "0-experimental",
@@ -35,8 +30,6 @@ export const deepseek: WebAdapter = {
   },
 };
 
-/** Grok (grok.com): each turn is a .message-bubble; the user's are aligned
- *  to the end of the row. */
 export const grok: WebAdapter = {
   id: "grok",
   version: "0-experimental",
@@ -58,8 +51,6 @@ export const grok: WebAdapter = {
   },
 };
 
-/** Perplexity (perplexity.ai): questions are headings in the thread, answers
- *  render in .prose blocks. */
 export const perplexity: WebAdapter = {
   id: "perplexity",
   version: "0-experimental",

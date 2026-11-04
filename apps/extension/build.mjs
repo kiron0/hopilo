@@ -1,5 +1,3 @@
-// Builds each extension entry as a self-contained IIFE (content scripts and
-// MV3 workers cannot share chunks), then copies static files.
 import { build } from "vite";
 import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -24,8 +22,6 @@ for (const name of ["background", "content", "popup"]) {
 cpSync(resolve(root, "public"), out, { recursive: true });
 console.log("extension built to", out);
 
-// Firefox: same scripts; MV3 there uses background scripts (no service
-// worker), a gecko id instead of a pinned key, and Firefox 128+.
 const ff = resolve(root, "dist-firefox");
 rmSync(ff, { recursive: true, force: true });
 cpSync(out, ff, { recursive: true });

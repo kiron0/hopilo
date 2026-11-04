@@ -1,5 +1,3 @@
-// Shared helpers for provider adapters: DOM to Markdown, loading older
-// messages, and inserting a draft into a composer without sending it.
 import type { CapturedMessage, CapturePayload, Provider } from "../protocol";
 import { findFiles, MAX_TOTAL_BYTES, readFiles } from "./files";
 
@@ -7,9 +5,9 @@ export interface WebAdapter {
   id: Provider;
   version: string;
   hosts: string[];
-  /** Message elements in document order, with their role. */
+
   messages(doc: Document): { role: "user" | "assistant"; el: Element }[];
-  /** The element whose text is the message body. */
+
   body(el: Element, role: "user" | "assistant"): Element;
   composer(doc: Document): HTMLElement | null;
   title(doc: Document): string;
@@ -30,8 +28,6 @@ function codeLanguage(pre: Element): string {
   return m ? m[1] : "";
 }
 
-/** Convert rendered chat HTML into Markdown that keeps code, lists, links
- *  and tables. Copy buttons and other controls are dropped. */
 export function toMarkdown(root: Element): string {
   const out: string[] = [];
   const walk = (node: Node, listDepth: number): string => {
@@ -73,7 +69,7 @@ export function toMarkdown(root: Element): string {
         const parent = el.parentElement?.tagName.toUpperCase();
         const index = parent === "OL" ? `${Array.from(el.parentElement!.children).indexOf(el) + 1}.` : "-";
         const indent = "  ".repeat(Math.max(0, listDepth - 1));
-        // Nested lists and paragraphs inside an item stay attached to it.
+
         return `\n${indent}${index} ${kids().trim().replace(/\n{2,}/g, "\n")}`;
       }
       case "UL":
@@ -115,8 +111,6 @@ export function scrollParent(el: Element | null): HTMLElement | null {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Scroll to the top until no more older messages load (CAP-09). Returns
- *  false if the time limit was hit while messages were still appearing. */
 export async function loadOlder(adapter: WebAdapter, doc: Document, timeoutMs = 20000): Promise<boolean> {
   const first = adapter.messages(doc)[0]?.el ?? null;
   const box = scrollParent(first);
@@ -171,13 +165,11 @@ export async function capture(adapter: WebAdapter, doc: Document, opts: { includ
   };
 }
 
-/** Put text into the composer as an unsent draft (OUT-04). Never presses
- *  Enter or clicks send. Returns true only if the text is visibly there. */
 export function insertDraft(target: HTMLElement, text: string): boolean {
   target.focus();
   if (target.tagName === "TEXTAREA" || target.tagName === "INPUT") {
     const field = target as HTMLTextAreaElement;
-    // Use the prototype's setter so React-controlled inputs see the change.
+
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")?.set;
     const next = field.value ? `${field.value}\n\n${text}` : text;
     if (setter) setter.call(field, next);
@@ -185,8 +177,7 @@ export function insertDraft(target: HTMLElement, text: string): boolean {
     field.dispatchEvent(new (field.ownerDocument.defaultView?.Event ?? Event)("input", { bubbles: true }));
     return field.value.includes(text.slice(0, 40));
   }
-  // Rich editors (ProseMirror, Quill): place the caret at the end, then use
-  // the editor's own text-insertion path so its state stays consistent.
+
   const sel = target.ownerDocument.getSelection();
   if (sel) {
     const range = target.ownerDocument.createRange();

@@ -1,7 +1,3 @@
-//! Claude Code sessions: `~/.claude/projects/<project-slug>/<session-id>.jsonl`
-//! (or `$CLAUDE_CONFIG_DIR/projects`). One JSON object per line; `user` and
-//! `assistant` lines carry an Anthropic Messages API `message`.
-
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{
@@ -150,8 +146,7 @@ struct Tally {
 fn read_session(path: &Path) -> Result<Capture> {
     let source_id = new_id();
     let mut messages: Vec<Message> = Vec::new();
-    // Claude Code writes one line per assistant content block; lines sharing
-    // a `message.id` belong to one turn.
+
     let mut last_assistant_id: Option<String> = None;
     let mut tool_names: std::collections::HashMap<String, String> = Default::default();
     let mut t = Tally::default();
@@ -313,7 +308,7 @@ fn read_session(path: &Path) -> Result<Capture> {
     if !saw_any {
         return Err(AdapterError::Unrecognized(path.display().to_string()));
     }
-    // Drop assistant turns that were only hidden reasoning.
+
     messages.retain(|m| !m.blocks.is_empty());
 
     let mut missing = Vec::new();
@@ -349,8 +344,6 @@ fn read_session(path: &Path) -> Result<Capture> {
     Ok(Capture { source, messages, files: t.files })
 }
 
-/// Recover an Anthropic-format `image`/`document` content block: base64 data
-/// or inline text. URL and file-id sources can't be fetched offline.
 fn recover_block_file(b: &Value, kind: &str, n: usize) -> Option<hopilo_core::CapturedFile> {
     let src = b.get("source")?;
     let named = b.get("title").or_else(|| b.get("name")).and_then(Value::as_str).map(str::to_string);
@@ -388,7 +381,7 @@ mod tests {
         assert_eq!(cap.source.title, "Fix the failing login test");
         assert_eq!(cap.source.project.as_deref(), Some("/work/demo-app"));
         assert_eq!(cap.source.model.as_deref(), Some("claude-opus-4-5"));
-        // user, assistant (merged text + tool_use), tool result, assistant
+
         let roles: Vec<Role> = cap.messages.iter().map(|m| m.role).collect();
         assert_eq!(roles, vec![Role::User, Role::Assistant, Role::Tool, Role::Assistant]);
         assert_eq!(cap.messages[1].blocks.len(), 2);
@@ -400,7 +393,7 @@ mod tests {
             }
             b => panic!("unexpected {b:?}"),
         }
-        // reminder stripped, thinking omitted, meta skipped
+
         assert!(!cap.messages[0].blocks[0].plain_text().contains("system-reminder"));
         let what: Vec<&str> = cap.source.omitted.iter().map(|o| o.what.as_str()).collect();
         assert!(what.contains(&"hidden reasoning (thinking) blocks"));

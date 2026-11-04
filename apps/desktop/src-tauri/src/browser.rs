@@ -1,8 +1,3 @@
-//! Browser connection: register the native messaging host with Chromium
-//! browsers so the Hopilo extension can reach the local library (spec 10.4).
-//! Registration only writes a small JSON manifest into each browser's
-//! `NativeMessagingHosts` folder, and only when the user asks.
-
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -15,9 +10,9 @@ pub use hopilo_native_host::{DEFAULT_EXTENSION_ID as EXTENSION_ID, FIREFOX_EXTEN
 pub struct BrowserTarget {
     pub id: &'static str,
     pub name: &'static str,
-    /// The browser's profile folder exists on this computer.
+
     pub installed: bool,
-    /// Our host manifest is present and points at this app's host binary.
+
     pub registered: bool,
     pub manifest_path: String,
 }
@@ -26,7 +21,6 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-/// (id, display name, profile folder) for each supported browser.
 fn known_browsers() -> Vec<(&'static str, &'static str, PathBuf)> {
     let Some(h) = home() else { return vec![] };
     if cfg!(target_os = "macos") {
@@ -52,18 +46,17 @@ fn known_browsers() -> Vec<(&'static str, &'static str, PathBuf)> {
             ("firefox", "Firefox", h.join(".mozilla")),
         ]
     } else {
-        // Windows registers hosts in the registry; not supported yet.
+
         vec![]
     }
 }
 
 fn manifest_path(id: &str, profile: &Path) -> PathBuf {
-    // Firefox uses a differently named folder (lowercase with dashes on Linux).
+
     let folder = if id == "firefox" && cfg!(target_os = "linux") { "native-messaging-hosts" } else { "NativeMessagingHosts" };
     profile.join(folder).join(format!("{HOST_NAME}.json"))
 }
 
-/// The host executable shipped next to the app binary.
 pub fn host_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let name = if cfg!(windows) { "hopilo-native-host.exe" } else { "hopilo-native-host" };
@@ -120,7 +113,6 @@ pub fn register(ids: &[String]) -> Result<Vec<String>, String> {
     Ok(done)
 }
 
-/// Remove only manifests that Hopilo wrote (same host name).
 pub fn unregister(ids: &[String]) -> Result<Vec<String>, String> {
     let mut done = Vec::new();
     for (id, name, profile) in known_browsers() {
@@ -136,13 +128,11 @@ pub fn unregister(ids: &[String]) -> Result<Vec<String>, String> {
     Ok(done)
 }
 
-/// Where the unpacked extension lives in a development checkout.
 pub fn extension_dir() -> Option<PathBuf> {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../extension/dist");
     std::fs::canonicalize(p).ok()
 }
 
-/// The Firefox build of the extension (load via about:debugging).
 pub fn firefox_extension_dir() -> Option<PathBuf> {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../extension/dist-firefox");
     std::fs::canonicalize(p).ok()

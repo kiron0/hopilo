@@ -1,8 +1,3 @@
-//! Aider chat history: `.aider.chat.history.md` in each project folder.
-//! Aider has no central session store, so this is imported from a file the
-//! user picks. In the file, `#### ` lines are the user's prompts, `> ` lines
-//! are Aider's own status output, and everything else is the model's reply.
-
 use std::path::Path;
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
@@ -63,7 +58,7 @@ pub fn read_history(path: &Path) -> Result<Capture> {
                     continue;
                 }
                 if matches!(current, Some((Role::User, _))) && line.trim().is_empty() {
-                    // Blank line after a prompt: the reply starts next.
+
                     flush(&mut current, &mut messages, &started);
                     current = Some((Role::Assistant, vec![]));
                     continue;
