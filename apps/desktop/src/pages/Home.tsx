@@ -136,11 +136,73 @@ function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: bo
   );
 }
 
-function Tile({ tone, icon, title, value, unit, caption, action, onClick, loading }: { tone: string; icon: React.ReactNode; title: string; value: string; unit: string; caption: string; action: string; onClick: () => void; loading?: boolean }) {
+const PARTICLES = [
+  { left: "4%", top: "45%", width: 11, height: 11, filter: "blur(2.5px)", "--fd": "2.4s" },
+  { left: "18%", top: "62%", width: 8, height: 8, filter: "blur(1.5px)", "--fd": "3s", "--fdl": "-0.6s" },
+  { left: "32%", top: "38%", width: 13, height: 13, filter: "blur(3.5px)", "--fd": "2.7s", "--fdl": "-1.2s" },
+  { left: "52%", top: "58%", width: 7, height: 7, filter: "blur(1px)", "--fd": "2.2s", "--fdl": "-0.3s" },
+  { left: "72%", top: "42%", width: 9, height: 9, filter: "blur(2px)", "--fd": "2.6s", "--fdl": "-0.9s" },
+  { left: "86%", top: "65%", width: 12, height: 12, filter: "blur(3.5px)", "--fd": "2.9s", "--fdl": "-2.1s" },
+] as const;
+
+const EMBERS = [
+  { left: "18%", "--ed": "3.2s", "--edl": "0s" },
+  { left: "36%", "--ed": "2.6s", "--edl": "-1.1s" },
+  { left: "55%", "--ed": "3.6s", "--edl": "-2s" },
+  { left: "72%", "--ed": "2.9s", "--edl": "-0.6s" },
+  { left: "88%", "--ed": "3.4s", "--edl": "-1.7s" },
+] as const;
+
+interface TileProps {
+  tone: "c-blue" | "c-violet" | "c-green" | "c-crimson";
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+  unit: string;
+  caption: string;
+  action: string;
+  onClick: () => void;
+  loading?: boolean;
+  delay?: number;
+  glowStyle?: React.CSSProperties;
+  effect?: "shine" | "particles" | "embers";
+}
+
+function Tile({
+  tone,
+  icon,
+  title,
+  value,
+  unit,
+  caption,
+  action,
+  onClick,
+  loading,
+  delay = 0.24,
+  glowStyle,
+  effect = "shine",
+}: TileProps) {
   return (
-    <article className={cx("lc rise min-h-[175px]", tone)}>
-      <span className="glow" />
-      <span className="shine" />
+    <article
+      className={cx("lc rise min-h-[175px]", tone)}
+      style={{ animationDelay: `${delay}s` }}
+    >
+      <span className="glow" style={glowStyle} />
+      {effect === "shine" && <span className="shine" />}
+      {effect === "particles" && (
+        <div className="parts" aria-hidden="true">
+          {PARTICLES.map((s, i) => (
+            <i key={i} style={s as React.CSSProperties} />
+          ))}
+        </div>
+      )}
+      {effect === "embers" && (
+        <>
+          {EMBERS.map((s, i) => (
+            <i key={i} className="ember" style={s as React.CSSProperties} />
+          ))}
+        </>
+      )}
       <div className="lc-top">
         <span className="glass-ico">{icon}</span>
         <b>{title}</b>
@@ -160,7 +222,7 @@ function Tile({ tone, icon, title, value, unit, caption, action, onClick, loadin
         <button
           type="button"
           onClick={onClick}
-          className="pill group"
+          className="pill group cursor-pointer"
         >
           <span>{action}</span>
           <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
@@ -302,8 +364,34 @@ export function Home() {
       </section>
 
       <section aria-label="At a glance" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Tile tone="c-blue" icon={<Bot size={15} />} title="Coding agents" loading={loading} value={String(agents)} unit="sessions" caption="Kept in step with their files" action="Browse" onClick={() => navigate({ page: "sessions", filter: "agents" })} />
-        <Tile tone="c-violet" icon={<Globe size={15} />} title="Web chats" loading={loading} value={String(web)} unit="saved" caption={s ? `${s.capturesToday} new today` : ""} action="Open" onClick={() => navigate({ page: "sessions", filter: "web" })} />
+        <Tile
+          tone="c-blue"
+          icon={<Bot size={15} />}
+          title="Coding agents"
+          loading={loading}
+          value={String(agents)}
+          unit="sessions"
+          caption="Kept in step with their files"
+          action="Browse"
+          onClick={() => navigate({ page: "sessions", filter: "agents" })}
+          delay={0.24}
+          glowStyle={{ left: 60, top: -60, "--bd": "6.5s" } as React.CSSProperties}
+          effect="shine"
+        />
+        <Tile
+          tone="c-violet"
+          icon={<Globe size={15} />}
+          title="Web chats"
+          loading={loading}
+          value={String(web)}
+          unit="saved"
+          caption={s ? `${s.capturesToday} new today` : ""}
+          action="Open"
+          onClick={() => navigate({ page: "sessions", filter: "web" })}
+          delay={0.3}
+          glowStyle={{ left: 0, top: 80, "--bd": "7s" } as React.CSSProperties}
+          effect="particles"
+        />
         <Tile
           tone="c-green"
           icon={<Send size={15} />}
@@ -314,8 +402,23 @@ export function Home() {
           caption={s?.lastHandoff ? `Last for ${target(s.lastHandoff.target).label} · ${relativeTime(s.lastHandoff.createdAt)}` : "None yet"}
           action="Copy one"
           onClick={() => navigate({ page: "sessions", filter: "all" })}
+          delay={0.36}
+          glowStyle={{ left: 20, top: 70, "--bd": "6s" } as React.CSSProperties}
+          effect="shine"
         />
-        <Tile tone="c-crimson" icon={<ShieldCheck size={15} />} title="Privacy" value="0" unit="uploads" caption="Nothing leaves this Mac" action="Details" onClick={() => navigate({ page: "settings", section: "privacy" })} />
+        <Tile
+          tone="c-crimson"
+          icon={<ShieldCheck size={15} />}
+          title="Privacy"
+          value="0"
+          unit="uploads"
+          caption="Nothing leaves this Mac"
+          action="Details"
+          onClick={() => navigate({ page: "settings", section: "privacy" })}
+          delay={0.42}
+          glowStyle={{ left: 40, top: -70, "--bd": "5s" } as React.CSSProperties}
+          effect="embers"
+        />
       </section>
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">

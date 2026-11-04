@@ -604,30 +604,89 @@
     transform: skewX(-18deg);
     animation: shine 4.5s ease-in-out infinite;
     pointer-events: none;
+    z-index: 1;
   }
+  @keyframes shine {
+    0% { left: -40%; }
+    55%, 100% { left: 130%; }
+  }
+
+  .ember {
+    position: absolute;
+    bottom: -8px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #ffd0d8;
+    box-shadow: 0 0 10px #ff8aa0;
+    animation: ember var(--ed, 3s) linear var(--edl, 0s) infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @keyframes ember {
+    0% { transform: translateY(0) scale(0.6); opacity: 0; }
+    15% { opacity: 1; }
+    100% { transform: translate(12px, -190px) scale(1.1); opacity: 0; }
+  }
+  :root[data-theme='dark'] .ember {
+    background: #ff9aa8;
+    box-shadow: 0 0 12px #ff4d6d;
+  }
+
+  .parts {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .parts i {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+    animation: float var(--fd, 2.6s) ease-in-out var(--fdl, 0s) infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0); opacity: 0.35; }
+    50% { transform: translate(6px, -12px); opacity: 0.95; }
+  }
+  :root[data-theme='dark'] .parts i {
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 8px rgba(180, 200, 255, 0.6);
+  }
+
   .c-blue {
     --bg: linear-gradient(165deg, #1b4cd6 0%, #0d288a 100%);
     --blob: radial-gradient(closest-side, rgba(170, 210, 255, 0.85), rgba(70, 140, 255, 0.35) 55%, transparent);
     --sh: rgba(20, 60, 180, 0.3);
     --gl: rgba(27, 76, 214, 0.24);
+    --tc: #e4f5ff;
+    --sc: #c9e8ff;
   }
   .c-violet {
     --bg: linear-gradient(165deg, #6a6ef0 0%, #4045c8 100%);
     --blob: radial-gradient(closest-side, rgba(215, 230, 255, 0.85), rgba(150, 170, 255, 0.3) 55%, transparent);
     --sh: rgba(70, 75, 210, 0.3);
     --gl: rgba(106, 110, 240, 0.24);
+    --tc: #f0f1ff;
+    --sc: #e0e2ff;
   }
   .c-green {
     --bg: linear-gradient(165deg, #168a5c 0%, #0c5237 100%);
     --blob: radial-gradient(closest-side, rgba(180, 255, 215, 0.7), rgba(50, 200, 130, 0.3) 55%, transparent);
     --sh: rgba(20, 130, 80, 0.3);
     --gl: rgba(22, 138, 92, 0.22);
+    --tc: #efff8a;
+    --sc: #d2e87a;
   }
   .c-crimson {
     --bg: linear-gradient(165deg, #c4253a 0%, #8f1430 100%);
     --blob: radial-gradient(closest-side, rgba(255, 180, 205, 0.95), rgba(255, 70, 120, 0.4) 55%, transparent);
     --sh: rgba(160, 25, 50, 0.3);
     --gl: rgba(196, 37, 58, 0.22);
+    --tc: #ffd9df;
+    --sc: #ffc0cb;
   }
 
   :root[data-theme='dark'] .c-blue {
@@ -635,24 +694,32 @@
     --blob: radial-gradient(closest-side, rgba(170, 240, 255, 0.75), rgba(70, 180, 255, 0.3) 55%, transparent);
     --sh: rgba(0, 0, 0, 0.45);
     --gl: rgba(26, 134, 196, 0.24);
+    --tc: #fff;
+    --sc: #eef8ff;
   }
   :root[data-theme='dark'] .c-violet {
     --bg: linear-gradient(165deg, #5458e2 0%, #3a3fc0 100%);
     --blob: radial-gradient(closest-side, rgba(215, 230, 255, 0.6), rgba(150, 170, 255, 0.24) 55%, transparent);
     --sh: rgba(0, 0, 0, 0.45);
     --gl: rgba(84, 88, 226, 0.24);
+    --tc: #fff;
+    --sc: #f4f4ff;
   }
   :root[data-theme='dark'] .c-green {
     --bg: linear-gradient(165deg, #0e6e44 0%, #08492c 100%);
     --blob: radial-gradient(closest-side, rgba(160, 245, 205, 0.6), rgba(40, 180, 120, 0.22) 55%, transparent);
     --sh: rgba(0, 0, 0, 0.45);
     --gl: rgba(14, 110, 68, 0.22);
+    --tc: #efff8a;
+    --sc: #e4f3a0;
   }
   :root[data-theme='dark'] .c-crimson {
     --bg: linear-gradient(165deg, #961b2d 0%, #680d1d 100%);
     --blob: radial-gradient(closest-side, rgba(255, 180, 205, 0.75), rgba(255, 70, 120, 0.3) 55%, transparent);
     --sh: rgba(0, 0, 0, 0.45);
     --gl: rgba(196, 37, 58, 0.22);
+    --tc: #fff0f2;
+    --sc: #ffe3e8;
   }
 
   .hero-plume {
@@ -677,10 +744,10 @@
     z-index: 1;
   }
   .lc-top b {
-    font-size: 14px;
+    font-size: 14.5px;
     font-weight: 600;
     letter-spacing: -0.01em;
-    color: #fff;
+    color: var(--tc, #fff);
   }
   .glass-ico {
     width: 32px;
@@ -715,12 +782,12 @@
     font-style: normal;
     font-size: 13px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--tc, rgba(255, 255, 255, 0.85));
   }
   .lc-sub {
     position: relative;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--sc, rgba(255, 255, 255, 0.8));
     margin-top: 4px;
     white-space: nowrap;
     overflow: hidden;
@@ -1275,12 +1342,13 @@
     50% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
   @keyframes drift {
-    0%,
-    100% {
-      transform: translate(0, 0) scale(1);
+    0%, 100% {
+      transform: translate(-18px, 0) scale(1);
+      opacity: 0.85;
     }
     50% {
-      transform: translate(-14px, 10px) scale(1.08);
+      transform: translate(24px, 12px) scale(1.18);
+      opacity: 1;
     }
   }
   @keyframes auraA {
