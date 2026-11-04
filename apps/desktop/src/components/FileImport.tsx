@@ -49,14 +49,14 @@ export function FileImportModal({ paths, session, onClose }: { paths: string[]; 
       title={session ? "Add files to this session" : "Add files as a new session"}
       onClose={onClose}
       wide
-      footer={
+      footer={(close) => (
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button variant="primary" busy={busy} disabled={!files || accepted.length === 0} onClick={run}>
             Add {accepted.length} file{accepted.length === 1 ? "" : "s"}
           </Button>
         </>
-      }
+      )}
     >
       {error && <div className="mb-3 text-danger">{error}</div>}
       {!files && !error && <Spinner label="Checking files" />}

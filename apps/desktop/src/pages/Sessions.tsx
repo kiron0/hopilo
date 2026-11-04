@@ -21,6 +21,7 @@ import {
   ErrorNote,
   IconButton,
   Modal,
+  useModalClose,
   PageHeader,
   Pagination,
   ProviderBadge,
@@ -80,24 +81,31 @@ function meta(r: SessionRow) {
     .join(" · ");
 }
 
+function ExportModalBody({ ids, level }: { ids: string[]; level: Level }) {
+  const close = useModalClose();
+  return (
+    <div className="grid grid-cols-2 gap-2.5">
+      {(Object.keys(FORMATS) as Format[]).map((f) => (
+        <button
+          key={f}
+          type="button"
+          onClick={async () => {
+            if (await exportSessions(ids, f, { level })) close?.();
+          }}
+          className="card card-sm p-3.5 text-left transition-all hover:-translate-y-px hover:shadow-pop"
+        >
+          <span className="block text-[13px] font-semibold">{FORMATS[f].name}</span>
+          <span className="mt-0.5 block font-mono text-[11px] text-faint">.{FORMATS[f].ext} · {FORMATS[f].hint}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onClose: () => void }) {
   return (
     <Modal title={ids.length > 1 ? `Export ${ids.length} sessions` : "Export session"} onClose={onClose}>
-      <div className="grid grid-cols-2 gap-2.5">
-        {(Object.keys(FORMATS) as Format[]).map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={async () => {
-              if (await exportSessions(ids, f, { level })) onClose();
-            }}
-            className="card card-sm p-3.5 text-left transition-all hover:-translate-y-px hover:shadow-pop"
-          >
-            <span className="block text-[13px] font-semibold">{FORMATS[f].name}</span>
-            <span className="mt-0.5 block font-mono text-[11px] text-faint">.{FORMATS[f].ext} · {FORMATS[f].hint}</span>
-          </button>
-        ))}
-      </div>
+      <ExportModalBody ids={ids} level={level} />
     </Modal>
   );
 }

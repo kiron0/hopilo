@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from "react";
+import { type ButtonHTMLAttributes, createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CaptureStatus } from "../lib/api";
 import { provider } from "../lib/format";
@@ -265,13 +265,60 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
   );
 }
 
-export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+export const ModalCloseContext = createContext<(() => void) | null>(null);
+export function useModalClose() {
+  return useContext(ModalCloseContext);
+}
+
+export function Modal({
+  open = true,
+  title,
+  onClose,
+  children,
+  footer,
+  wide,
+}: {
+  open?: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode | ((close: () => void) => ReactNode);
+  wide?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const [closing, setClosing] = useState(false);
+  const [active, setActive] = useState(open);
+
   useEffect(() => {
+    if (open) {
+      setActive(true);
+      setClosing(false);
+    } else if (active && !closing) {
+      setClosing(true);
+      const timer = setTimeout(() => {
+        setActive(false);
+        setClosing(false);
+      }, 130);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  const requestClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(() => {
+      onClose();
+      setActive(false);
+      setClosing(false);
+    }, 130);
+  }, [closing, onClose]);
+
+  useEffect(() => {
+    if (!active) return;
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return onClose();
+      if (e.key === "Escape") return requestClose();
 
       if (e.key !== "Tab" || !ref.current) return;
       const items = Array.from(ref.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea, select, [href], [tabindex]:not([tabindex='-1'])"));
@@ -291,31 +338,46 @@ export function Modal({ title, onClose, children, footer, wide }: { title: strin
       window.removeEventListener("keydown", onKey);
       prev?.focus();
     };
-  }, [onClose]);
+  }, [active, requestClose]);
 
-  if (typeof document === "undefined") return null;
+  if (!active || typeof document === "undefined") return null;
+
+  const renderedFooter = typeof footer === "function" ? footer(requestClose) : footer;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-[6px]" onMouseDown={onClose}>
-      <div
-        ref={ref}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={cx("animate-pop flex max-h-full w-full flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none", wide ? "max-w-3xl" : "max-w-lg")}
-      >
-        <div className="flex items-center justify-between px-6 pt-5 pb-2">
-          <h2 className="font-semibold">{title}</h2>
-          <IconButton label="Close" onClick={onClose}>
-            <X size={16} />
-          </IconButton>
+    <ModalCloseContext.Provider value={requestClose}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+        <div
+          className={cx(
+            "fixed inset-0 bg-black/40 backdrop-blur-sm",
+            closing ? "modal-backdrop-out" : "modal-backdrop-in"
+          )}
+          onMouseDown={requestClose}
+        />
+        <div
+          ref={ref}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          onMouseDown={(e) => e.stopPropagation()}
+          className={cx(
+            "relative z-10 flex max-h-full w-full flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none",
+            closing ? "modal-dialog-out" : "modal-dialog-in",
+            wide ? "max-w-3xl" : "max-w-lg"
+          )}
+        >
+          <div className="flex items-center justify-between px-6 pt-5 pb-2">
+            <h2 className="font-semibold">{title}</h2>
+            <IconButton label="Close" onClick={requestClose}>
+              <X size={16} />
+            </IconButton>
+          </div>
+          <div className="min-h-0 overflow-auto px-6 py-2">{children}</div>
+          {renderedFooter && <div className="flex justify-end gap-2 px-6 pt-2 pb-5">{renderedFooter}</div>}
         </div>
-        <div className="min-h-0 overflow-auto px-6 py-2">{children}</div>
-        {footer && <div className="flex justify-end gap-2 px-6 pt-2 pb-5">{footer}</div>}
       </div>
-    </div>,
+    </ModalCloseContext.Provider>,
     document.body
   );
 }
@@ -347,13 +409,41 @@ export function AlertDialog({
 }: AlertDialogProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [active, setActive] = useState(open);
 
   useEffect(() => {
-    if (!open) return;
+    if (open) {
+      setActive(true);
+      setClosing(false);
+    } else if (active && !closing) {
+      setClosing(true);
+      const timer = setTimeout(() => {
+        setActive(false);
+        setClosing(false);
+      }, 130);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  const isSpinning = busy || loading;
+
+  const requestClose = useCallback(() => {
+    if (isSpinning || closing) return;
+    setClosing(true);
+    setTimeout(() => {
+      onClose();
+      setActive(false);
+      setClosing(false);
+    }, 130);
+  }, [isSpinning, closing, onClose]);
+
+  useEffect(() => {
+    if (!active) return;
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy && !loading) return onClose();
+      if (e.key === "Escape" && !isSpinning) return requestClose();
       if (e.key !== "Tab" || !ref.current) return;
       const items = Array.from(
         ref.current.querySelectorAll<HTMLElement>(
@@ -376,9 +466,9 @@ export function AlertDialog({
       window.removeEventListener("keydown", onKey);
       prev?.focus();
     };
-  }, [open, onClose, busy, loading]);
+  }, [active, requestClose, isSpinning]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!active || typeof document === "undefined") return null;
 
   const handleConfirm = async () => {
     try {
@@ -389,15 +479,17 @@ export function AlertDialog({
     }
   };
 
-  const isSpinning = busy || loading;
-
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-[6px]"
-      onMouseDown={() => {
-        if (!isSpinning) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      <div
+        className={cx(
+          "fixed inset-0 bg-black/40 backdrop-blur-sm",
+          closing ? "modal-backdrop-out" : "modal-backdrop-in"
+        )}
+        onMouseDown={() => {
+          if (!isSpinning) requestClose();
+        }}
+      />
       <div
         ref={ref}
         tabIndex={-1}
@@ -405,7 +497,10 @@ export function AlertDialog({
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className="animate-pop flex max-h-full w-full max-w-md flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden"
+        className={cx(
+          "relative z-10 flex max-h-full w-full max-w-md flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden",
+          closing ? "modal-dialog-out" : "modal-dialog-in"
+        )}
       >
         <div className="flex items-center justify-between px-6 pt-5 pb-1">
           <div className="flex items-center gap-2.5">
@@ -420,7 +515,7 @@ export function AlertDialog({
             ) : null}
             <h2 className="font-semibold text-[15px]">{title}</h2>
           </div>
-          <IconButton label="Close" onClick={onClose} disabled={isSpinning}>
+          <IconButton label="Close" onClick={requestClose} disabled={isSpinning}>
             <X size={16} />
           </IconButton>
         </div>
@@ -430,7 +525,7 @@ export function AlertDialog({
         </div>
 
         <div className="flex justify-end gap-2.5 px-6 pt-2 pb-5">
-          <Button variant="secondary" onClick={onClose} disabled={isSpinning}>
+          <Button variant="secondary" onClick={requestClose} disabled={isSpinning}>
             {cancelLabel}
           </Button>
           <Button

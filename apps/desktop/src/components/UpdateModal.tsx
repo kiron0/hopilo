@@ -12,7 +12,27 @@ export function UpdateModal({
   onClose: () => void;
 }) {
   return (
-    <Modal title="Update Available" onClose={onClose}>
+    <Modal
+      title="Update Available"
+      onClose={onClose}
+      footer={(close) => (
+        <div className="flex w-full items-center justify-end gap-2.5">
+          <Button variant="secondary" onClick={close}>
+            Later
+          </Button>
+          <Button
+            variant="primary"
+            icon={<ExternalLink size={13} />}
+            onClick={() => {
+              openExternal(update.downloadUrl || update.releaseUrl);
+              close();
+            }}
+          >
+            Download from GitHub
+          </Button>
+        </div>
+      )}
+    >
       <div className="space-y-4">
         <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface-2/60 p-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
@@ -42,22 +62,6 @@ export function UpdateModal({
             </div>
           </div>
         )}
-
-        <div className="flex items-center justify-end gap-2.5 pt-1">
-          <Button variant="secondary" onClick={onClose}>
-            Later
-          </Button>
-          <Button
-            variant="primary"
-            icon={<ExternalLink size={13} />}
-            onClick={() => {
-              openExternal(update.downloadUrl || update.releaseUrl);
-              onClose();
-            }}
-          >
-            Download from GitHub
-          </Button>
-        </div>
       </div>
     </Modal>
   );

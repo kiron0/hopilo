@@ -72,15 +72,15 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
       title="Add a session"
       onClose={onClose}
       wide
-      footer={
+      footer={(close) => (
         <>
           <span className="mr-auto text-[12px] text-faint">Coding-agent sessions appear on their own. Web chats: use the browser extension.</span>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button variant="primary" disabled={!text.trim()} busy={busy} onClick={savePaste}>
             Save {from ? `${provider(from).label} chat` : "pasted chat"}
           </Button>
         </>
-      }
+      )}
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Where is it from?">

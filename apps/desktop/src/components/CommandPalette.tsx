@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import { Globe, ClipboardPaste, OverviewIcon, MessagesSquare, Search, Settings, X } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
 import { captureClipboard } from "../lib/actions";
 import { type Route, useApp } from "../lib/store";
-import { IconButton, Kbd } from "./ui";
+import { cx, IconButton, Kbd } from "./ui";
 
 const PAGES: { route: Route; label: string; icon: React.ReactNode }[] = [
   { route: { page: "overview" }, label: "Overview", icon: <OverviewIcon size={15} /> },
@@ -20,6 +20,32 @@ export function CommandPalette() {
   const navigate = useApp((s) => s.navigate);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [closing, setClosing] = useState(false);
+  const [active, setActive] = useState(open);
+
+  useEffect(() => {
+    if (open) {
+      setActive(true);
+      setClosing(false);
+    } else if (active && !closing) {
+      setClosing(true);
+      const timer = setTimeout(() => {
+        setActive(false);
+        setClosing(false);
+      }, 130);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  const requestClose = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    setTimeout(() => {
+      setOpen(false);
+      setActive(false);
+      setClosing(false);
+    }, 130);
+  }, [closing, setOpen]);
 
   useEffect(() => {
     if (!open) setQ("");
@@ -31,10 +57,10 @@ export function CommandPalette() {
     return () => clearTimeout(t);
   }, [q]);
 
-  if (!open || typeof document === "undefined") return null;
+  if (!active || typeof document === "undefined") return null;
   const go = (r: Route) => {
     navigate(r);
-    setOpen(false);
+    requestClose();
   };
   const openHit = (h: SearchHit) => go({ page: "sessions", id: h.refId });
 
@@ -42,16 +68,23 @@ export function CommandPalette() {
     "flex h-9.5 cursor-pointer items-center gap-2.5 rounded-xl px-3 text-[13px] text-muted transition-colors data-[selected=true]:bg-accent-soft data-[selected=true]:text-ink hover:bg-surface-2";
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6 pt-[12vh] backdrop-blur-[6px]"
-      onMouseDown={() => setOpen(false)}
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-6 pt-[12vh]">
+      <div
+        className={cx(
+          "fixed inset-0 bg-black/40 backdrop-blur-sm",
+          closing ? "modal-backdrop-out" : "modal-backdrop-in"
+        )}
+        onMouseDown={requestClose}
+      />
       <Command
         label="Search & Commands"
         shouldFilter={true}
         onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        className="animate-pop flex w-full max-w-xl flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden"
+        onKeyDown={(e) => e.key === "Escape" && requestClose()}
+        className={cx(
+          "relative z-10 flex w-full max-w-xl flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden",
+          closing ? "modal-dialog-out" : "modal-dialog-in"
+        )}
       >
         <div className="flex items-center gap-3 border-b border-line px-5 py-3">
           <Search size={18} className="text-faint shrink-0" />
@@ -63,7 +96,7 @@ export function CommandPalette() {
             placeholder="Search sessions, tools, or type a command…"
             className="h-9 flex-1 bg-transparent text-[14.5px] text-ink outline-none placeholder:text-faint"
           />
-          <IconButton label="Close" onClick={() => setOpen(false)}>
+          <IconButton label="Close" onClick={requestClose}>
             <X size={16} />
           </IconButton>
         </div>

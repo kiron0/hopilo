@@ -32,9 +32,9 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
       title={data ? `Import from your ${label} export` : "Import chat export"}
       onClose={onClose}
       wide
-      footer={
+      footer={(close) => (
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button
             variant="primary"
             busy={busy}
@@ -60,7 +60,7 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
             Import {picked.size || ""} conversation{picked.size === 1 ? "" : "s"}
           </Button>
         </>
-      }
+      )}
     >
       {error && <div className="mb-3 text-danger">{error}</div>}
       {!data && !error && <Spinner label="Reading export" />}
