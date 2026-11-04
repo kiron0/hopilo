@@ -1,20 +1,21 @@
-"""Generate Hopilo's placeholder app icon and monochrome tray glyph.
+"""Generate Hopilo's app icon, menu-bar (tray) glyph and small marks.
 
-Original artwork drawn from the spec's direction (rounded square,
-blue-to-violet gradient, two message bubbles joined by transfer arrows).
-Replace with the production icon when it is ready.
+One shape language everywhere: a quiet back bubble and a solid front bubble
+carrying a hand-off arrow, on the app's indigo-to-violet brand gradient
+(--grad-a #5a63ff, --grad-b #7b4fe0). The tray glyph is the same silhouette
+as a monochrome template image.
+
+Usage: python3 make_icons.py [out_dir]
 """
 import math
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter
 
-OUT = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
-S = 2048  # supersampled canvas
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-
-def lerp(a, b, t):
-    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(len(a)))
+OUT = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent)
+S = 4096  # supersampled canvas for the 1024 icon
+U = S / 1024
 
 
 def hexrgb(h):
@@ -22,87 +23,134 @@ def hexrgb(h):
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 
-STOPS = [(0.0, hexrgb("48D7FA")), (0.35, hexrgb("1178E8")), (0.7, hexrgb("3349CC")), (1.0, hexrgb("7837DD"))]
+def squircle(size, box, n=5.0, steps=1440):
+    """Superellipse mask (the continuous-corner macOS shape)."""
+    x0, y0, x1, y1 = box
+    cx, cy, a, b = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2
+    pts = []
+    for i in range(steps):
+        t = 2 * math.pi * i / steps
+        c, s = math.cos(t), math.sin(t)
+        pts.append((cx + a * math.copysign(abs(c) ** (2 / n), c), cy + b * math.copysign(abs(s) ** (2 / n), s)))
+    m = Image.new("L", size, 0)
+    ImageDraw.Draw(m).polygon(pts, fill=255)
+    return m
 
 
-def grad(t):
-    for (t0, c0), (t1, c1) in zip(STOPS, STOPS[1:]):
-        if t <= t1:
-            return lerp(c0, c1, (t - t0) / (t1 - t0))
-    return STOPS[-1][1]
+def linear_gradient(size, stops, angle_deg):
+    """Gradient along angle (CSS-style: 180deg = top to bottom)."""
+    w, h = size
+    small = 256
+    g = Image.new("RGB", (small, small))
+    px = g.load()
+    a = math.radians(angle_deg)
+    dx, dy = math.sin(a), -math.cos(a)
+    span = abs(dx) + abs(dy)
+    for y in range(small):
+        for x in range(small):
+            u, v = x / (small - 1) - 0.5, y / (small - 1) - 0.5
+            t = min(1, max(0, (u * dx + v * dy) / span + 0.5))
+            for (t0, c0), (t1, c1) in zip(stops, stops[1:]):
+                if t <= t1:
+                    k = (t - t0) / (t1 - t0) if t1 > t0 else 0
+                    px[x, y] = tuple(int(c0[i] + (c1[i] - c0[i]) * k) for i in range(3))
+                    break
+    return g.resize((w, h), Image.BICUBIC)
 
 
-def bubble(draw, box, tail, fill, r):
-    draw.rounded_rectangle(box, radius=r, fill=fill)
-    draw.polygon(tail, fill=fill)
+def bubble_mask(size, box, radius, tail):
+    m = Image.new("L", size, 0)
+    d = ImageDraw.Draw(m)
+    d.rounded_rectangle(box, radius=radius, fill=255)
+    d.polygon(tail, fill=255)
+    return m
 
 
-def arrow_arc(draw, center, radius, start, end, width, fill, head_at_end=True):
-    bbox = [center[0] - radius, center[1] - radius, center[0] + radius, center[1] + radius]
-    draw.arc(bbox, start, end, fill=fill, width=width)
-    ang = math.radians(end if head_at_end else start)
-    px, py = center[0] + radius * math.cos(ang), center[1] + radius * math.sin(ang)
-    # tangent direction (clockwise for PIL arcs)
-    d = 1 if head_at_end else -1
-    tx, ty = -math.sin(ang) * d, math.cos(ang) * d
-    nx, ny = math.cos(ang), math.sin(ang)
-    L, W = width * 2.2, width * 1.6
-    tip = (px + tx * L, py + ty * L)
-    a = (px + nx * W, py + ny * W)
-    b = (px - nx * W, py - ny * W)
-    draw.polygon([tip, a, b], fill=fill)
+def arrow_mask(size, cx, cy, length, width, head):
+    """Rounded right arrow centered at (cx, cy)."""
+    m = Image.new("L", size, 0)
+    d = ImageDraw.Draw(m)
+    x0, x1 = cx - length / 2, cx + length / 2
+    r = width / 2
+    d.line([(x0, cy), (x1, cy)], fill=255, width=int(width))
+    d.ellipse([x0 - r, cy - r, x0 + r, cy + r], fill=255)
+    for sgn in (-1, 1):
+        hx, hy = x1 - head, cy + sgn * head
+        d.line([(hx, hy), (x1, cy)], fill=255, width=int(width))
+        d.ellipse([hx - r, hy - r, hx + r, hy + r], fill=255)
+    d.ellipse([x1 - r, cy - r, x1 + r, cy + r], fill=255)
+    return m
+
+
+def glyph_masks(size, unit, ox=0.0, oy=0.0):
+    """Back bubble, front bubble and arrow masks on a 1024-unit grid."""
+    u = unit
+
+    def P(x, y):
+        return (ox + x * u, oy + y * u)
+
+    back = bubble_mask(size, [*P(262, 292), *P(612, 552)], 96 * u, [P(318, 520), P(296, 628), P(410, 548)])
+    front = bubble_mask(size, [*P(412, 452), *P(762, 712)], 96 * u, [P(706, 680), P(728, 788), P(614, 708)])
+    cx, cy = P(587, 582)
+    arrow = arrow_mask(size, cx, cy, 168 * u, 34 * u, 56 * u)
+    return back, front, arrow
 
 
 def app_icon():
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    inset, rad = int(S * 0.098), int(S * 0.18)
-    box = [inset, inset, S - inset, S - inset]
-    g = Image.new("RGBA", (S, S))
-    gp = g.load()
-    for y in range(S):
-        for x in range(0, S, 4):
-            c = grad(min(1, max(0, (x * 0.45 + y * 0.55) / S)))
-            for k in range(4):
-                gp[x + k, y] = c + (255,)
-    mask = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(box, radius=rad, fill=255)
-    img.paste(g, (0, 0), mask)
+    size = (S, S)
+    inset = 100 * U
+    plate = squircle(size, [inset, inset, S - inset, S - inset])
 
-    # soft top gloss
-    gloss = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(gloss).ellipse([inset - S * 0.2, inset - S * 0.55, S - inset + S * 0.2, S * 0.48], fill=70)
-    gloss = gloss.filter(ImageFilter.GaussianBlur(S * 0.03))
-    white = Image.new("RGBA", (S, S), (255, 255, 255, 255))
-    combined = Image.composite(white, img, Image.eval(gloss, lambda v: v))
-    img = Image.composite(combined, img, mask)
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    # Soft drop shadow under the plate (macOS icon grid style).
+    sh = ImageChops.offset(plate, 0, int(14 * U)).filter(ImageFilter.GaussianBlur(22 * U)).point(lambda v: int(v * 0.30))
+    img = Image.composite(Image.new("RGBA", size, (14, 12, 40, 255)), img, sh)
+    img.putalpha(sh)
 
-    d = ImageDraw.Draw(img)
-    u = S / 1024
-    # left bubble (solid white)
-    bubble(d, [300 * u, 330 * u, 600 * u, 540 * u], [(360 * u, 530 * u), (330 * u, 610 * u), (430 * u, 535 * u)], (255, 255, 255, 245), 70 * u)
-    for i, w in enumerate([200, 150]):
-        d.rounded_rectangle([350 * u, (390 + i * 55) * u, (350 + w) * u, (412 + i * 55) * u], radius=11 * u, fill=hexrgb("1178E8") + (255,))
-    # right bubble (translucent)
-    bubble(d, [430 * u, 500 * u, 730 * u, 710 * u], [(670 * u, 700 * u), (700 * u, 780 * u), (600 * u, 705 * u)], (255, 255, 255, 170), 70 * u)
-    for i, w in enumerate([200, 130]):
-        d.rounded_rectangle([480 * u, (560 + i * 55) * u, (480 + w) * u, (582 + i * 55) * u], radius=11 * u, fill=hexrgb("3349CC") + (230,))
-    # transfer arrows
-    arrow_arc(d, (512 * u, 520 * u), 300 * u, 200, 285, int(26 * u), (255, 255, 255, 235))
-    arrow_arc(d, (512 * u, 520 * u), 300 * u, 20, 105, int(26 * u), (255, 255, 255, 235))
+    bg = linear_gradient(size, [(0, hexrgb("6F78FF")), (0.45, hexrgb("5A63FF")), (1, hexrgb("7B4FE0"))], 160).convert("RGBA")
+    # Gentle light from the top-left.
+    glow = Image.new("L", size, 0)
+    ImageDraw.Draw(glow).ellipse([-0.15 * S, -0.35 * S, 0.85 * S, 0.55 * S], fill=46)
+    glow = glow.filter(ImageFilter.GaussianBlur(120 * U))
+    bg = Image.composite(Image.new("RGBA", size, (255, 255, 255, 255)), bg, glow)
+    img.paste(bg, (0, 0), plate)
+
+    # Hairline inner rim, brighter at the top.
+    inner = squircle(size, [inset + 6 * U, inset + 6 * U, S - inset - 6 * U, S - inset - 6 * U])
+    rim = ImageChops.subtract(plate, inner)
+    fade = linear_gradient(size, [(0, (110, 110, 110)), (1, (20, 20, 20))], 180).convert("L")
+    rim = ImageChops.multiply(rim, fade)
+    img = Image.composite(Image.new("RGBA", size, (255, 255, 255, 255)), img, rim)
+
+    back, front, arrow = glyph_masks(size, U, -12 * U, -26 * U)  # optically centered
+    white = Image.new("RGBA", size, (255, 255, 255, 255))
+    img = Image.composite(white, img, back.point(lambda v: int(v * 0.38)))
+    fs = ImageChops.offset(front, 0, int(16 * U)).filter(ImageFilter.GaussianBlur(26 * U)).point(lambda v: int(v * 0.28))
+    img = Image.composite(Image.new("RGBA", size, (30, 20, 110, 255)), img, fs)
+    img = Image.composite(white, img, front)
+    ag = linear_gradient(size, [(0, hexrgb("5A63FF")), (1, hexrgb("7B4FE0"))], 120).convert("RGBA")
+    img = Image.composite(ag, img, arrow)
     return img.resize((1024, 1024), Image.LANCZOS)
 
 
 def tray_glyph(px):
-    s = px * 8
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    u = s / 64
-    k = (0, 0, 0, 255)
-    lw = int(5 * u)
-    d.rounded_rectangle([6 * u, 10 * u, 38 * u, 32 * u], radius=8 * u, outline=k, width=lw)
-    d.polygon([(12 * u, 31 * u), (10 * u, 40 * u), (20 * u, 31 * u)], fill=k)
-    d.rounded_rectangle([26 * u, 30 * u, 58 * u, 52 * u], radius=8 * u, fill=k)
-    d.polygon([(52 * u, 51 * u), (54 * u, 60 * u), (44 * u, 51 * u)], fill=k)
+    """Monochrome template: outlined back bubble, solid front bubble with the
+    arrow knocked out, fitted to the image with a small margin."""
+    s = 512
+    size = (s, s)
+    unit = (s * 0.92) / 526  # glyph spans x 262..788, y 292..788
+    ox = (s - 526 * unit) / 2 - 262 * unit
+    oy = (s - 496 * unit) / 2 - 292 * unit
+    back, front, arrow = glyph_masks(size, unit, ox, oy)
+    stroke = int(58 * unit)
+    back_in = back.filter(ImageFilter.MinFilter(2 * (stroke // 2) + 1))
+    ring = ImageChops.subtract(back, back_in)
+    gap = front.filter(ImageFilter.MaxFilter(2 * (int(44 * unit) // 2) + 1))
+    ring = ImageChops.subtract(ring, gap)
+    solid = ImageChops.subtract(front, arrow)
+    alpha = ImageChops.lighter(ring, solid)
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    img.putalpha(alpha)
     return img.resize((px, px), Image.LANCZOS)
 
 

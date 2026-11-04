@@ -25,6 +25,7 @@ import { attachmentDraftItem } from "../lib/draftItems";
 export { attachmentDraftItem };
 import { FileImportModal } from "../components/FileImport";
 import { Badge, Button, Card, cx, Modal, PageHeader, ProviderDot, SectionLabel, Segmented, StatusBadge, TextArea, TextInput } from "../components/ui";
+import { FillPage } from "../components/PageSlots";
 
 export function packDraftItem(p: PackRow): DraftItem {
   return {
@@ -287,8 +288,9 @@ export function Builder() {
         }
       />
 
-      <div className="grid grid-cols-[264px_minmax(0,1fr)_232px] gap-5">
-        <section aria-label="Library">
+      <FillPage>
+      <div className="grid min-h-0 flex-1 grid-cols-[264px_minmax(0,1fr)_232px] gap-5">
+        <section aria-label="Library" className="flex min-h-0 flex-col">
           <SectionLabel>Library</SectionLabel>
           <Segmented
             label="Library type"
@@ -301,7 +303,7 @@ export function Builder() {
             ]}
           />
           <TextInput aria-label="Filter library" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} className="mt-2.5" />
-          <div className="mt-2.5 max-h-[460px] space-y-2 overflow-auto pr-1">
+          <div className="-mr-2 mt-2.5 min-h-0 flex-1 space-y-2 overflow-auto pr-2 pb-1">
             {libItems.map(({ item, status }) => (
               <LibraryCard
                 key={item.key}
@@ -332,7 +334,7 @@ export function Builder() {
           </div>
         </section>
 
-        <section aria-label="Pack contents">
+        <section aria-label="Pack contents" className="-mx-1 min-h-0 min-w-0 overflow-auto px-1 pb-1">
           <SectionLabel>Sources · in handoff order</SectionLabel>
           <Canvas items={draft.items} warnings={warnings} />
           <div className="mt-3 flex flex-wrap gap-2">
@@ -358,7 +360,7 @@ export function Builder() {
           </div>
         </section>
 
-        <aside aria-label="Pack inspector">
+        <aside aria-label="Pack inspector" className="-mr-2 min-h-0 overflow-auto pr-2 pb-1">
           <SectionLabel>Pack inspector</SectionLabel>
           <Card className="space-y-4 p-4">
             <label className="block">
@@ -409,6 +411,7 @@ export function Builder() {
           </Card>
         </aside>
       </div>
+      </FillPage>
 
       <DragOverlay dropAnimation={null}>
         {dragging && (

@@ -4,88 +4,131 @@
     <meta charset="UTF-8" />
     <title>Hopilo</title>
     <style>
+      /* Mirrors the desktop app's design tokens (apps/desktop/src/styles.css). */
+      @font-face { font-family: "Onest"; src: url(fonts/onest-latin-wght-normal.woff2) format("woff2"); font-weight: 100 900; font-display: block; }
+      @font-face { font-family: "Unbounded"; src: url(fonts/unbounded-latin-wght-normal.woff2) format("woff2"); font-weight: 200 900; font-display: block; }
+      @font-face { font-family: "JetBrains Mono"; src: url(fonts/jetbrains-mono-latin-wght-normal.woff2) format("woff2"); font-weight: 100 800; font-display: block; }
       :root {
-        --bg: #f6f5f9; --card: #fff; --border: #e2e5ea; --text: #0f1218; --muted: #3c4250; --faint: #6f7686;
-        --accent: #5a63ff; --accent-soft: #ecedff; --ok: #12875a; --ok-soft: #e1f5ec; --warn: #a35900; --warn-soft: #fdf1df;
-        --err: #c4253a; --err-soft: #fde6ea; --shadow: 0 1px 2px rgb(15 18 24/.08), 0 6px 18px rgb(15 18 24/.06);
-        color-scheme: light dark;
+        --window: #ecebf2; --canvas: rgb(246 245 249 / 0.8); --surface: #fff; --card: rgb(255 255 255 / 0.84); --surface-2: #f7f7fa; --surface-3: #eeeef3;
+        --border: #e2e5ea; --border-strong: #cfd3db; --text: #0f1218; --muted: #3c4250; --faint: #7d8494;
+        --accent: #5a63ff; --accent-soft: #ecedff; --grad-a: #5a63ff; --grad-b: #7b4fe0;
+        --ok: #12875a; --ok-soft: #e1f5ec; --warn: #a35900; --warn-soft: #fdf1df; --err: #c4253a; --err-soft: #fde6ea;
+        --elev-card: 0 24px 60px rgb(15 18 24 / 0.06);
+        --elev-item: 0 1px 2px rgb(15 18 24 / 0.08), 0 6px 18px rgb(15 18 24 / 0.06);
+        --elev-brand: inset 0 1px 1px rgb(255 255 255 / 0.35), 0 8px 20px -6px rgb(90 99 255 / 0.55);
+        --aura-1: rgb(255 182 214 / 0.55); --aura-2: rgb(176 188 255 / 0.55); --aura-3: rgb(160 232 255 / 0.4);
+        --sans: "Onest", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        --display: "Unbounded", "Onest", system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #0d0e14; --card: #1b1e29; --border: rgb(255 255 255/.11); --text: #eef0f6; --muted: #b4b9c8; --faint: #9097aa;
-          --accent: #8c93ff; --accent-soft: #262a57; --ok: #44d39b; --ok-soft: #0f2a20; --warn: #f2b45d; --warn-soft: #2e2312;
-          --err: #ff7d90; --err-soft: #35161d; --shadow: inset 0 1px 0 rgb(255 255 255/.06), 0 6px 18px rgb(0 0 0/.3);
+          --window: #07080c; --canvas: rgb(13 14 20 / 0.8); --surface: #1b1e29; --card: rgb(29 32 44 / 0.92); --surface-2: #20232f; --surface-3: #2a2e3b;
+          --border: rgb(255 255 255 / 0.11); --border-strong: rgb(255 255 255 / 0.2); --text: #eef0f6; --muted: #b4b9c8; --faint: #9097aa;
+          --accent: #8c93ff; --accent-soft: #262a57;
+          --ok: #44d39b; --ok-soft: #0f2a20; --warn: #f2b45d; --warn-soft: #2e2312; --err: #ff7d90; --err-soft: #35161d;
+          --elev-card: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 28px -12px rgb(0 0 0 / 0.55);
+          --elev-item: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.35), 0 4px 10px -4px rgb(0 0 0 / 0.4);
+          --elev-brand: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 14px -6px rgb(0 0 0 / 0.55);
+          --aura-1: rgb(190 70 140 / 0.22); --aura-2: rgb(90 99 255 / 0.24); --aura-3: rgb(40 140 200 / 0.14);
+          color-scheme: dark;
         }
       }
       * { box-sizing: border-box; }
-      body { margin: 0; width: 340px; background: var(--bg); color: var(--text); font: 13.5px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
-      header { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; }
-      header img { width: 22px; height: 22px; border-radius: 6px; }
-      header b { flex: 1; font-size: 15px; }
-      .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); }
+      html, body { margin: 0; }
+      body {
+        position: relative; isolation: isolate; overflow: hidden; width: 360px; max-height: 600px; display: flex; flex-direction: column;
+        background: var(--window); color: var(--text); font: 13px/1.5 var(--sans); -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums;
+      }
+      .aura { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+      .aura span { position: absolute; border-radius: 9999px; filter: blur(60px); }
+      .aura span:nth-child(1) { width: 320px; height: 320px; left: -120px; top: -120px; background: var(--aura-2); }
+      .aura span:nth-child(2) { width: 260px; height: 260px; left: 20px; bottom: -140px; background: var(--aura-1); }
+      .aura span:nth-child(3) { width: 280px; height: 280px; right: -150px; top: 35%; background: var(--aura-3); }
+      header { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 14px 16px 12px; }
+      header img { width: 28px; height: 28px; border-radius: 8px; box-shadow: var(--elev-card); }
+      header b { flex: 1; font: 600 16px/1 var(--display); letter-spacing: -0.025em; }
+      .conn { display: flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 99px; background: var(--card);
+        box-shadow: var(--elev-item); font: 10.5px/1.4 var(--mono); color: var(--faint); }
       #conn { width: 7px; height: 7px; border-radius: 99px; background: var(--faint); }
       #conn[data-state="on"] { background: var(--ok); }
       #conn[data-state="off"] { background: var(--err); }
-      section { margin: 0 12px 12px; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
-      h2 { margin: 0 0 4px; font-size: 13.5px; }
+      .scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 8px; }
+      .content { margin-bottom: 8px; padding: 6px; border: 1px solid var(--border); border-radius: 16px; background: var(--canvas); box-shadow: var(--elev-card); }
+      section { padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--elev-item); }
+      section + section { margin-top: 6px; }
+      h2 { margin: 0 0 6px; font: 500 10.5px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
       p { margin: 0; color: var(--muted); font-size: 12.5px; }
+      b { font-weight: 600; }
       button { font: inherit; cursor: pointer; }
-      .primary { width: 100%; margin-top: 10px; height: 36px; border: 0; border-radius: 99px; color: #fff; font-weight: 600;
-        background: linear-gradient(160deg, #5a63ff, #7b4fe0); box-shadow: inset 0 1px 1px rgb(255 255 255/.35), 0 8px 20px -6px rgb(90 99 255/.6); }
-      @media (prefers-color-scheme: dark) { .primary { box-shadow: inset 0 1px 1px rgb(255 255 255/.25), 0 6px 14px rgb(0 0 0/.45); } }
-      .primary:disabled { opacity: .45; cursor: default; }
+      .primary { display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 12px; height: 36px; border: 0; border-radius: 99px;
+        color: #fff; font-weight: 500; background: linear-gradient(160deg, var(--grad-a), var(--grad-b)); box-shadow: var(--elev-brand); transition: filter 160ms ease, transform 160ms ease; }
+      .primary:hover { filter: brightness(1.1); }
+      .primary:active { transform: scale(0.98); }
+      .primary:disabled { opacity: 0.45; cursor: default; filter: none; transform: none; }
       .primary:focus-visible, .pack:focus-visible, .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-      ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 190px; overflow: auto; }
-      .pack { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text); }
-      .pack:hover { background: var(--accent-soft); }
-      .pack .t { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .pack .m { display: block; font-size: 12px; color: var(--faint); }
+      ul { list-style: none; margin: 8px -6px 0; padding: 0; max-height: 196px; overflow: auto; }
+      li + li { margin-top: 2px; }
+      .pack { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--muted);
+        transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+      .pack:hover { background: color-mix(in oklab, var(--surface) 55%, transparent); color: var(--text); }
+      .pack[aria-current="true"] { background: var(--surface); color: var(--text); box-shadow: var(--elev-item); }
+      .pack .t { display: block; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pack .m { display: block; font: 10.5px/1.5 var(--mono); color: var(--faint); }
       .empty { padding: 8px 10px; color: var(--faint); }
-      .seg { display: flex; margin-top: 10px; padding: 3px; border-radius: 99px; background: var(--bg); border: 1px solid var(--border); }
-      .seg label { flex: 1; text-align: center; padding: 5px 0; border-radius: 99px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+      .seg { display: flex; margin-top: 10px; padding: 2px; border-radius: 99px; background: color-mix(in oklab, var(--surface-3) 70%, transparent); border: 1px solid var(--border); }
+      .seg label { flex: 1; text-align: center; height: 28px; line-height: 28px; border-radius: 99px; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; }
+      .seg label:hover { color: var(--text); }
       .seg input { position: absolute; opacity: 0; pointer-events: none; }
-      .seg label:has(input:checked) { background: var(--card); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
-      #status { margin: 0 12px 12px; padding: 10px 12px; border-radius: 14px; font-size: 12.5px; background: var(--accent-soft); }
+      .seg label:has(input:checked) { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--elev-item); }
+      #status { flex-shrink: 0; margin: 0 8px 8px; padding: 10px 12px; border-radius: 14px; font-size: 12.5px; background: var(--accent-soft); color: var(--accent); }
       #status[data-tone="ok"] { background: var(--ok-soft); color: var(--ok); }
       #status[data-tone="warn"] { background: var(--warn-soft); color: var(--warn); }
       #status[data-tone="err"] { background: var(--err-soft); color: var(--err); }
-      code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-      .note { margin: 0 16px 14px; font-size: 12px; color: var(--faint); }
+      code { font-family: var(--mono); font-size: 12px; }
+      footer { flex-shrink: 0; padding: 2px 16px 12px; font-size: 11.5px; color: var(--faint); }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
+    <div class="aura" aria-hidden="true"><span></span><span></span><span></span></div>
     <header>
-      <img src="icons/32.png" alt="" />
+      <img src="icons/128.png" alt="" />
       <b>Hopilo</b>
       <span class="conn"><span id="conn"></span><span id="conn-label">Connecting…</span></span>
     </header>
     <div id="status" role="status" hidden></div>
-    <section id="setup" hidden>
-      <h2>Connect to the Hopilo app</h2>
-      <p>Open Hopilo › AI tools › <b>Browser</b> and click <b>Connect</b>, then reopen this panel. The extension talks only to the app on this computer.</p>
-    </section>
-    <div id="main">
-      <section>
-        <h2>Capture this chat</h2>
-        <p id="site">Checking this page…</p>
-        <button id="capture" class="primary" type="button" disabled>Save conversation to Hopilo</button>
-      </section>
-      <section>
-        <h2>Continue with a pack</h2>
-        <p>Pick a pack to put into this chat's message box as a draft.</p>
-        <ul id="packs"></ul>
-        <div id="insert-panel" hidden>
-          <p style="margin-top: 10px">Selected: <b id="pick-title"></b></p>
-          <div class="seg" role="radiogroup" aria-label="How much to include">
-            <label><input type="radio" name="level" value="minimal" />Minimal</label>
-            <label><input type="radio" name="level" value="balanced" checked />Balanced</label>
-            <label><input type="radio" name="level" value="full" />Full</label>
-          </div>
-          <button id="insert" class="primary" type="button">Insert as draft</button>
+    <div class="scroll">
+      <div class="content">
+        <section id="setup" hidden>
+          <h2>Connect to the Hopilo app</h2>
+          <p>Open Hopilo › AI tools › <b>Browser</b> and click <b>Connect</b>, then reopen this panel. The extension talks only to the app on this computer.</p>
+        </section>
+        <div id="main">
+          <section>
+            <h2>Capture this chat</h2>
+            <p id="site">Checking this page…</p>
+            <button id="capture" class="primary" type="button" disabled>Save conversation to Hopilo</button>
+          </section>
+          <section>
+            <h2>Continue with a pack</h2>
+            <p>Pick a pack to put into this chat's message box as a draft.</p>
+            <ul id="packs"></ul>
+            <div id="insert-panel" hidden>
+              <p style="margin-top: 10px">Selected: <b id="pick-title"></b></p>
+              <div class="seg" role="radiogroup" aria-label="How much to include">
+                <label><input type="radio" name="level" value="minimal" />Minimal</label>
+                <label><input type="radio" name="level" value="balanced" checked />Balanced</label>
+                <label><input type="radio" name="level" value="full" />Full</label>
+              </div>
+              <button id="insert" class="primary" type="button">Insert as draft</button>
+            </div>
+          </section>
         </div>
-      </section>
-      <p class="note">Hopilo never presses send. You review every draft first.</p>
+      </div>
     </div>
+    <footer>Hopilo never presses send. You review every draft first.</footer>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -28,7 +28,12 @@ export function DropShelf() {
   const pack = data?.pack;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[14px] border border-line bg-canvas text-[13px]">
+    <div className="quick-shell relative isolate flex h-full flex-col overflow-hidden rounded-[18px] border border-line text-[13px]">
+      <div aria-hidden className="app-aura app-aura-contained">
+        <span />
+        <span />
+        <span />
+      </div>
       <header data-tauri-drag-region className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11.5px] text-faint">
         <span data-tauri-drag-region className="label-mono flex-1">Drop Shelf</span>
         <button type="button" aria-label="Close Drop Shelf" onClick={() => api.closeDropShelf()} className="flex h-5 w-5 items-center justify-center rounded-md hover:bg-surface-3 hover:text-ink">
@@ -44,7 +49,7 @@ export function DropShelf() {
               e.dataTransfer.setData("text/plain", `hopilo://pack/${pack.packId}@${pack.version}`);
               e.dataTransfer.effectAllowed = "copy";
             }}
-            className="flex cursor-grab items-center gap-2.5 rounded-2xl border border-line bg-surface px-3 py-2.5 shadow-item active:cursor-grabbing"
+            className="card card-sm flex cursor-grab items-center gap-2.5 px-3 py-2.5 shadow-item active:cursor-grabbing"
             title="Drag onto a ChatGPT, Claude or Gemini tab that has the Hopilo extension"
           >
             <GripVertical size={14} className="shrink-0 text-faint" />
@@ -62,7 +67,7 @@ export function DropShelf() {
               aria-label={`Copy for ${target(settings.defaultTarget).label}`}
               title={`Copy for ${target(settings.defaultTarget).label}`}
               onClick={() => copyHandoff(pack.packId, pack.version, settings.defaultTarget, settings.toolDetail, level)}
-              className="bg-brand flex h-8 w-8 items-center justify-center rounded-full text-white shadow-[inset_0_1px_1px_rgb(255_255_255/0.35)]"
+              className="bg-brand flex h-8 w-8 items-center justify-center rounded-full text-white shadow-brand hover:brightness-110"
             >
               <Copy size={14} />
             </button>

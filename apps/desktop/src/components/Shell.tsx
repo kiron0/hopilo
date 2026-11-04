@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { BuildIcon, CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SessionsIcon, SettingsIcon, ToolsIcon, BrowserIcon, MapIcon } from "./Icons";
 import { api } from "../lib/api";
 import { bytes } from "../lib/format";
@@ -7,6 +7,7 @@ import { type Route, useApp } from "../lib/store";
 import { Kbd, Skeleton } from "./ui";
 import { CommandPalette } from "./CommandPalette";
 import { Toasts } from "./Toasts";
+import { PageSlotsContext } from "./PageSlots";
 
 type NavIcon = (p: { size?: number; active?: boolean }) => ReactNode;
 type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string };
@@ -67,6 +68,9 @@ export function Shell({ children }: { children: ReactNode }) {
   const navigate = useApp((s) => s.navigate);
   const draftCount = useApp((s) => s.draft.items.length);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
+  const slots = useMemo(() => ({ header: headerSlot, footer: footerSlot }), [headerSlot, footerSlot]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -87,7 +91,7 @@ export function Shell({ children }: { children: ReactNode }) {
     const active = route.page === it.page;
     return (
       <li key={it.page}>
-        <button type="button" aria-current={active ? "page" : undefined} onClick={() => navigate({ page: it.page } as Route)} className="nav-item w-full text-left">
+        <button type="button" aria-current={active ? "page" : undefined} onClick={() => navigate({ page: it.page } as Route)} className="nav-item h-9 w-full text-left">
           <span className={active ? "text-accent" : "text-faint"}>
             <it.icon size={18} active={active} />
           </span>
@@ -108,16 +112,16 @@ export function Shell({ children }: { children: ReactNode }) {
         <span />
       </div>
       <aside className="flex w-[236px] shrink-0 flex-col px-3.5">
-        <div data-tauri-drag-region className="h-11 shrink-0" />
-        <div data-tauri-drag-region className="flex items-center gap-2.5 px-2 pb-5">
+        <div data-tauri-drag-region className="h-10 shrink-0" />
+        <div data-tauri-drag-region className="flex items-center gap-2.5 px-2 pb-4">
           <img src="/hopilo-mark.png" alt="" className="h-7 w-7 rounded-lg shadow-card" draggable={false} />
           <span data-tauri-drag-region className="font-display text-[17px] font-semibold">Hopilo</span>
         </div>
         <nav aria-label="Main" className="flex-1 overflow-auto">
           {GROUPS.map((g, i) => (
-            <div key={i} className="mb-4">
+            <div key={i} className="mb-3">
               {g.title && <div className="label-mono mb-1.5 px-3 text-faint">{g.title}</div>}
-              <ul className="space-y-1">{g.items.map(link)}</ul>
+              <ul className="space-y-0.5">{g.items.map(link)}</ul>
             </div>
           ))}
         </nav>
@@ -139,9 +143,18 @@ export function Shell({ children }: { children: ReactNode }) {
             <SearchIcon size={14} />
           </button>
         </header>
-        <main className="min-h-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-[1180px] px-7 pt-1 pb-12">{children}</div>
+        {/* Fixed page header, scrolling content, fixed page footer. */}
+        <div ref={setHeaderSlot} className="page-header-slot" />
+        <main
+          key={route.page}
+          className="page-scroll at-top min-h-0 flex-1 overflow-auto"
+          onScroll={(e) => e.currentTarget.classList.toggle("at-top", e.currentTarget.scrollTop < 2)}
+        >
+          <div className="page-inner mx-auto max-w-[1180px] px-7 pt-1 pb-12">
+            <PageSlotsContext.Provider value={slots}>{children}</PageSlotsContext.Provider>
+          </div>
         </main>
+        <div ref={setFooterSlot} className="page-footer-slot" />
       </div>
       <CommandPalette />
       <Toasts />

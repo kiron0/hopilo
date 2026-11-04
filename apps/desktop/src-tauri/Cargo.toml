@@ -9,6 +9,12 @@ description = "Hopilo — Universal AI Session Handoff"
 name = "hopilo_desktop_lib"
 crate-type = ["rlib"]
 
+# The binary name is what macOS shows in the menu bar and Dock while running
+# unbundled (tauri dev), so it carries the product name.
+[[bin]]
+name = "Hopilo"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

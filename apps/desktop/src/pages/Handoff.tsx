@@ -9,6 +9,7 @@ import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { clip, PreviewWarnings } from "./Packs";
 import { Badge, Button, Card, cx, EmptyState, PageHeader, SectionLabel, Segmented , ProviderChip, TargetSelect } from "../components/ui";
+import { FillPage } from "../components/PageSlots";
 import { Select } from "../components/Select";
 
 const STATUS_TONE: Record<string, "accent" | "success" | "neutral"> = { copied: "accent", exported: "accent", sent: "success" };
@@ -47,9 +48,10 @@ export function Handoff() {
   return (
     <div>
       <PageHeader title="Handoff" subtitle="Review exactly what will be shared, then copy or export it. Hopilo never sends messages for you." />
-      <div className="grid grid-cols-[minmax(0,1fr)_320px] gap-5">
-        <section className="min-w-0 space-y-4">
-          <Card className="grid grid-cols-2 gap-4 p-4">
+      <FillPage>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px] gap-5">
+        <section className="flex min-h-0 min-w-0 flex-col gap-4">
+          <Card className="grid shrink-0 grid-cols-2 gap-4 p-4">
             <div>
               <span className="mb-1 block text-[12px] font-medium text-muted">Context Pack</span>
               <Select
@@ -76,13 +78,13 @@ export function Handoff() {
               )}
             </div>
           </Card>
-          <Card className="overflow-hidden">
-            <div className="border-b border-line bg-surface-2 px-4 py-2 text-[12px] text-muted">Draft preview — exactly what will be copied</div>
-            <pre data-selectable className="max-h-[480px] overflow-auto px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">{clip(preview.data?.text ?? "")}</pre>
+          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-line bg-surface-2 px-4 py-2 text-[12px] text-muted">Draft preview — exactly what will be copied</div>
+            <pre data-selectable className="min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">{clip(preview.data?.text ?? "")}</pre>
           </Card>
         </section>
 
-        <aside className="space-y-5">
+        <aside className="-mr-2 min-h-0 space-y-5 overflow-auto pr-2 pb-1">
           <section>
             <SectionLabel>Deliver</SectionLabel>
             <Card className="space-y-2.5 p-4">
@@ -145,6 +147,7 @@ export function Handoff() {
           </section>
         </aside>
       </div>
+      </FillPage>
     </div>
   );
 }

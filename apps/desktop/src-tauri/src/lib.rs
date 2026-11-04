@@ -14,6 +14,10 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, PhysicalPosition, Rect, RunEvent, WindowEvent};
 
+/// Dashboard window size range (logical pixels); mirrors tauri.conf.json.
+const MAIN_MIN: (f64, f64) = (1040.0, 760.0);
+const MAIN_MAX: (f64, f64) = (1720.0, 1120.0);
+
 /// When the Quick Panel last hid because it lost focus. A tray click that
 /// arrives right after should close it, not reopen it.
 struct PanelState {
@@ -136,6 +140,20 @@ pub fn run() {
             app.manage(AppState { store: Mutex::new(store), discovery: Mutex::new(Default::default()) });
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
+            // Enforce the dashboard size range even when the window-state
+            // plugin restores an older, out-of-range size.
+            if let Some(w) = app.get_webview_window("main") {
+                use tauri::LogicalSize;
+                let _ = w.set_min_size(Some(LogicalSize::new(MAIN_MIN.0, MAIN_MIN.1)));
+                let _ = w.set_max_size(Some(LogicalSize::new(MAIN_MAX.0, MAIN_MAX.1)));
+                if let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) {
+                    let s = size.to_logical::<f64>(scale);
+                    let fit = LogicalSize::new(s.width.clamp(MAIN_MIN.0, MAIN_MAX.0), s.height.clamp(MAIN_MIN.1, MAIN_MAX.1));
+                    if (fit.width - s.width).abs() > 0.5 || (fit.height - s.height).abs() > 0.5 {
+                        let _ = w.set_size(fit);
+                    }
+                }
+            }
 
             let first_run = !settings.contains_key("onboarded");
             let startup = settings.get("startupSurface").and_then(|v| v.as_str()).unwrap_or("tray");

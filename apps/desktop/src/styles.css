@@ -332,6 +332,80 @@
     animation: auraA 38s ease-in-out infinite reverse;
   }
 
+  /* Menu-bar panel and Drop Shelf: the dashboard window in miniature. */
+  .quick-shell {
+    background: var(--window);
+    color: var(--text);
+  }
+  .app-aura.app-aura-contained {
+    position: absolute;
+  }
+  .app-aura-contained > span:nth-child(1) {
+    width: 320px;
+    height: 320px;
+    left: -120px;
+    top: -120px;
+  }
+  .app-aura-contained > span:nth-child(2) {
+    width: 260px;
+    height: 260px;
+    left: 20px;
+    bottom: -140px;
+  }
+  .app-aura-contained > span:nth-child(3) {
+    width: 280px;
+    height: 280px;
+    right: -150px;
+    top: 35%;
+  }
+
+  /* Page chrome: header and footer stay put, only the content scrolls. */
+  .page-header-slot,
+  .page-footer-slot {
+    flex-shrink: 0;
+  }
+  .page-header-slot:empty,
+  .page-footer-slot:empty {
+    display: none;
+  }
+  .page-header-slot > * {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 4px 28px 20px;
+  }
+  .page-header-slot:has(+ .page-scroll:not(.at-top)) {
+    box-shadow: 0 1px 0 var(--border);
+  }
+  .page-footer-slot {
+    border-top: 1px solid var(--border);
+  }
+  .page-footer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 12px 28px;
+  }
+  /* Box pages: the page itself does not scroll; its boxes do. */
+  .page-scroll:has(.page-fill) {
+    overflow: hidden;
+  }
+  .page-scroll:has(.page-fill) > .page-inner {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding-bottom: 20px;
+  }
+  .page-scroll:has(.page-fill) > .page-inner > *,
+  .page-fill {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
   /* Skeleton placeholder with a light sweep. */
   .skeleton {
     position: relative;

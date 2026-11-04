@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ClipboardPaste, Copy, LayoutDashboard, Loader2, Power, Search, Settings, SquarePlus } from "lucide-react";
+import { Copy, Loader2, Power } from "lucide-react";
 import { api, type DiscoveredRow, type PackRow } from "../lib/api";
 import { captureClipboard, copyHandoff, quickHandoff } from "../lib/actions";
 import { basename, provider, relativeTime } from "../lib/format";
@@ -8,7 +8,8 @@ import { useBootstrap, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
-import { cx, Kbd, Skeleton } from "../components/ui";
+import { Button, IconButton, Kbd, Skeleton } from "../components/ui";
+import { CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SettingsIcon } from "../components/Icons";
 import { ProviderBadge } from "../pages/Dashboard";
 
 /** Compact menu-bar panel: capture, recent items, one-tap copy. No sidebar. */
@@ -48,7 +49,9 @@ export function QuickPanel() {
 
   if (!ready) return null;
 
-  const row = "flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-1.5 text-left transition-[background-color,box-shadow] hover:bg-surface hover:shadow-item focus-visible:bg-surface";
+  // Rows share the dashboard sidebar's look: quiet until hovered or chosen,
+  // then a raised white pill.
+  const row = "nav-item h-auto min-h-10 w-full py-1.5 text-left text-[13px] focus-visible:bg-surface focus-visible:shadow-item disabled:opacity-50";
   const runSession = async (s: DiscoveredRow) => {
     setBusy(s.path);
     await quickHandoff(s.adapter, s.path);
@@ -57,7 +60,7 @@ export function QuickPanel() {
 
   return (
     <div
-      className="flex h-full flex-col overflow-hidden rounded-[14px] border border-line bg-canvas text-[13px]"
+      className="quick-shell relative isolate flex h-full flex-col overflow-hidden rounded-[18px] border border-line text-[13px]"
       onKeyDown={(e) => {
         // Arrow keys move between rows, like a native menu.
         if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -70,97 +73,108 @@ export function QuickPanel() {
         }
       }}
     >
-      <header className="flex items-center gap-2 px-3 pt-3 pb-1">
-        <img src="/hopilo-mark.png" alt="" className="h-5 w-5 rounded" draggable={false} />
-        <span className="font-display flex-1 text-[14px] font-semibold">Hopilo</span>
-        <button type="button" aria-label="Settings" className="rounded-lg p-1 text-muted hover:bg-surface hover:text-ink" onClick={() => api.showMainWindow("settings")}>
-          <Settings size={15} />
-        </button>
+      <div aria-hidden className="app-aura app-aura-contained">
+        <span />
+        <span />
+        <span />
+      </div>
+
+      <header className="flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-3">
+        <img src="/hopilo-mark.png" alt="" className="h-7 w-7 rounded-lg shadow-card" draggable={false} />
+        <span className="font-display flex-1 text-[16px] font-semibold">Hopilo</span>
+        <IconButton label="Settings" onClick={() => api.showMainWindow("settings")}>
+          <SettingsIcon size={17} />
+        </IconButton>
       </header>
 
-      <div className="px-3 pt-2.5">
-        <div className="relative">
-          <Search size={13} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-faint" />
+      <div className="shrink-0 px-3 pb-2.5">
+        <label className="flex h-8.5 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item focus-within:border-accent">
+          <SearchIcon size={14} />
           <input
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search recent"
+            placeholder="search recent"
             aria-label="Search recent"
-            className="h-8 w-full rounded-[10px] border border-line bg-surface pr-2 pl-8 text-[12.5px] shadow-item outline-none focus:border-accent"
+            className="min-w-0 flex-1 bg-transparent font-mono text-[11.5px] text-ink outline-none placeholder:text-faint"
           />
-        </div>
+          <Kbd>esc</Kbd>
+        </label>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-        <div className="px-2.5 pt-1 pb-1 label-mono text-faint">Capture</div>
-        <button type="button" data-row className={row} onClick={() => captureClipboard()}>
-          <ClipboardPaste size={15} className="text-muted" /> <span className="flex-1">Capture clipboard</span>
-        </button>
-        <button type="button" data-row className={row} onClick={() => api.showMainWindow("capture")}>
-          <SquarePlus size={15} className="text-muted" /> <span className="flex-1">Import file / text…</span>
-        </button>
+      <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-line bg-canvas/80 shadow-card">
+        <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
+          <div className="label-mono px-3 pt-1 pb-1.5 text-faint">Capture</div>
+          <button type="button" data-row className={row} onClick={() => captureClipboard()}>
+            <span className="text-faint"><CaptureIcon size={17} /></span> <span className="flex-1">Capture clipboard</span>
+          </button>
+          <button type="button" data-row className={row} onClick={() => api.showMainWindow("capture")}>
+            <span className="text-faint"><FilesIcon size={17} /></span> <span className="flex-1">Import file or text…</span>
+          </button>
 
-        <div className="px-2.5 pt-3 pb-1 label-mono text-faint">Continue agent session</div>
-        {sessions.loading && !sessions.data &&
-          [0, 1, 2].map((i) => (
-            <div key={i} aria-hidden className="flex items-center gap-2.5 px-2.5 py-1.5">
-              <Skeleton className="h-[22px] w-[22px] rounded-[7px]" />
-              <div className="flex-1 space-y-1">
-                <Skeleton className="h-3" style={{ width: `${75 - i * 12}%` }} />
-                <Skeleton className="h-2.5 w-2/5" />
+          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Continue agent session</div>
+          {sessions.loading && !sessions.data &&
+            [0, 1, 2].map((i) => (
+              <div key={i} aria-hidden className="flex items-center gap-2.5 px-3 py-2">
+                <Skeleton className="h-[22px] w-[22px] rounded-[7px]" />
+                <div className="flex-1 space-y-1">
+                  <Skeleton className="h-3" style={{ width: `${75 - i * 12}%` }} />
+                  <Skeleton className="h-2.5 w-2/5" />
+                </div>
               </div>
-            </div>
+            ))}
+          {recentSessions.map((s) => (
+            <button key={s.path} type="button" data-row className={row} disabled={!!busy} onClick={() => runSession(s)} title={`Copy a handoff for ${target(settings.defaultTarget).label}`}>
+              <ProviderBadge id={s.adapter} size={22} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-ink">{s.title}</span>
+                <span className="block truncate font-mono text-[10.5px] text-faint">{basename(s.project) || provider(s.adapter).label} · {relativeTime(s.modifiedAt)}</span>
+              </span>
+              {busy === s.path ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
+            </button>
           ))}
-        {recentSessions.map((s) => (
-          <button key={s.path} type="button" data-row className={row} disabled={!!busy} onClick={() => runSession(s)} title={`Copy a handoff for ${target(settings.defaultTarget).label}`}>
-            <ProviderBadge id={s.adapter} size={22} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{s.title}</span>
-              <span className="block truncate text-[11px] text-faint">{basename(s.project) || provider(s.adapter).label} · {relativeTime(s.modifiedAt)}</span>
-            </span>
-            {busy === s.path ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
-          </button>
-        ))}
-        {sessions.data && recentSessions.length === 0 && <div className="px-2.5 py-1 text-faint">No sessions found.</div>}
+          {sessions.data && recentSessions.length === 0 && <div className="px-3 py-1.5 text-faint">No sessions found.</div>}
 
-        <div className="px-2.5 pt-3 pb-1 label-mono text-faint">Recent packs</div>
-        {recentPacks.map((p) => (
-          <button key={p.id} type="button" data-row aria-pressed={sel?.id === p.id} className={cx(row, sel?.id === p.id && "bg-surface font-medium shadow-item")} onClick={() => setSelected(p)}>
-            <span className={cx("h-2 w-2 shrink-0 rounded-full border", sel?.id === p.id ? "border-accent bg-accent" : "border-line-strong")} />
-            <span className="min-w-0 flex-1 truncate">{p.title}</span>
-            <span className="text-[11px] text-faint">v{p.latestVersion}</span>
-          </button>
-        ))}
-        {packs.data && recentPacks.length === 0 && <div className="px-2.5 py-1 text-faint">No packs yet.</div>}
+          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Recent packs</div>
+          {recentPacks.map((p) => (
+            <button key={p.id} type="button" data-row aria-current={sel?.id === p.id ? "page" : undefined} className={row} onClick={() => setSelected(p)}>
+              <span className={sel?.id === p.id ? "text-accent" : "text-faint"}>
+                <PacksIcon size={17} active={sel?.id === p.id} />
+              </span>
+              <span className="min-w-0 flex-1 truncate">{p.title}</span>
+              <span className="font-mono text-[10.5px] text-faint">v{p.latestVersion}</span>
+            </button>
+          ))}
+          {packs.data && recentPacks.length === 0 && <div className="px-3 py-1.5 text-faint">No packs yet.</div>}
+        </div>
+
+        {sel && (
+          <div className="shrink-0 border-t border-line px-3 py-3">
+            <div className="mb-2 truncate text-[12px] text-muted">
+              Selected: <span className="font-medium text-ink">{sel.title}</span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="primary"
+                className="flex-1"
+                icon={<Copy size={14} />}
+                onClick={() => copyHandoff(sel.id, sel.latestVersion, settings.defaultTarget, settings.toolDetail, settings.level)}
+              >
+                Copy for {target(settings.defaultTarget).label}
+              </Button>
+              <Button icon={<SendIcon size={14} />} onClick={() => api.showMainWindow("handoff")}>
+                Review
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {sel && (
-        <div className="border-t border-line px-3 py-2.5">
-          <div className="mb-2 truncate text-[12px] text-muted">
-            Selected: <span className="text-ink">{sel.title}</span>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => copyHandoff(sel.id, sel.latestVersion, settings.defaultTarget, settings.toolDetail, settings.level)}
-              className="bg-brand flex h-8.5 flex-1 items-center justify-center gap-1.5 rounded-full font-medium text-white shadow-brand hover:brightness-110"
-            >
-              <Copy size={14} /> Copy for {target(settings.defaultTarget).label}
-            </button>
-            <button type="button" onClick={() => api.showMainWindow("handoff")} className="h-8.5 rounded-full border border-line bg-surface px-3.5 shadow-item hover:border-line-strong">
-              Review
-            </button>
-          </div>
-        </div>
-      )}
-
-      <footer className="flex items-center justify-between border-t border-line px-3 py-2 text-[12.5px]">
-        <button type="button" className="flex items-center gap-1.5 text-muted hover:text-ink" onClick={() => api.showMainWindow()}>
-          <LayoutDashboard size={14} /> Open Dashboard
+      <footer className="flex shrink-0 items-center justify-between px-3 pb-2.5 text-[12.5px]">
+        <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px]" onClick={() => api.showMainWindow()}>
+          <span className="text-faint"><HomeIcon size={15} /></span> Open Dashboard
         </button>
-        <span className="text-faint"><Kbd>esc</Kbd></span>
-        <button type="button" className="flex items-center gap-1.5 text-muted hover:text-danger" onClick={() => api.quit()}>
+        <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px] hover:text-danger" onClick={() => api.quit()}>
           <Power size={14} /> Quit
         </button>
       </footer>

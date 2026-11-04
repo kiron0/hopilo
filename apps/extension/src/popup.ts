@@ -68,6 +68,7 @@ async function init() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "pack";
+    b.dataset.id = p.id;
     b.innerHTML = `<span class="t"></span><span class="m"></span>`;
     b.querySelector(".t")!.textContent = p.title;
     b.querySelector(".m")!.textContent = `v${p.version} · ${p.messageCount} msgs · ${tokens(p.tokenEstimate)} tokens`;
@@ -79,6 +80,7 @@ async function init() {
 
 function choose(p: PackSummary) {
   picked = p;
+  for (const el of document.querySelectorAll<HTMLButtonElement>(".pack")) el.setAttribute("aria-current", String(el.dataset.id === p.id));
   $("pick-title").textContent = p.title;
   $("insert-panel").hidden = false;
   $("insert").textContent = page?.composer && page.provider ? `Insert into ${NAMES[page.provider]} as draft` : "Copy draft";

@@ -33,6 +33,7 @@ import { packDraftItem } from "./Builder";
 import { Transcript } from "../components/Transcript";
 import { PackDetailSkeleton, PackGridSkeleton } from "../components/Skeletons";
 import { Badge, Button, Card, cx, EmptyState, ErrorNote, IconButton, Modal, PageHeader, ProviderDot, SectionLabel, Segmented, Spinner, TextInput, Toggle , TargetSelect } from "../components/ui";
+import { FillPage, PageHeaderSlot } from "../components/PageSlots";
 
 /** Very large previews are shortened on screen only; copy and export always
  *  use the full text. */
@@ -131,11 +132,12 @@ function PackDetail({ id, initialVersion }: { id: string; initialVersion?: numbe
   const isLatest = pack.version === latest;
 
   return (
-    <div>
+    <FillPage>
+      <PageHeaderSlot>
       <button type="button" onClick={() => navigate({ page: "packs" })} className="mb-3 flex items-center gap-1 text-[12.5px] text-muted hover:text-ink">
         <ArrowLeft size={14} /> All packs
       </button>
-      <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           {renaming !== null ? (
             <form
@@ -227,9 +229,10 @@ function PackDetail({ id, initialVersion }: { id: string; initialVersion?: numbe
           </IconButton>
         </div>
       </div>
+      </PageHeaderSlot>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_300px] gap-5">
-        <section aria-label="Preview" className="min-w-0">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] gap-5">
+        <section aria-label="Preview" className="flex min-h-0 min-w-0 flex-col">
           <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
             <Segmented
               label="How much to include"
@@ -264,21 +267,21 @@ function PackDetail({ id, initialVersion }: { id: string; initialVersion?: numbe
               />
             </div>
           </div>
-          <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-[12px] text-muted">
+          <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-[12px] text-muted">
               <span className="flex items-center gap-2">
                 {preview.data ? `${tokens(preview.data.tokenEstimate)} tokens (estimate) · ${plural(preview.data.messageCount, "message")}` : "Rendering…"}
                 {preview.data && <Badge tone={sizeVerdict(preview.data.tokenEstimate).tone}>{sizeVerdict(preview.data.tokenEstimate).text}</Badge>}
               </span>
               {!isLatest && <Badge tone="warning">Viewing an older version</Badge>}
             </div>
-            <pre data-selectable className="max-h-[560px] overflow-auto px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
+            <pre data-selectable className="min-h-0 flex-1 overflow-auto px-4 py-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap">
               {preview.error ? preview.error : clip(preview.data?.text ?? "")}
             </pre>
           </Card>
         </section>
 
-        <aside className="space-y-5">
+        <aside className="-mr-2 min-h-0 space-y-5 overflow-auto pr-2 pb-1">
           <section aria-label="Hand off">
             <SectionLabel>Hand off</SectionLabel>
             <Card className="space-y-3 p-4">
@@ -425,7 +428,7 @@ function PackDetail({ id, initialVersion }: { id: string; initialVersion?: numbe
           <pre data-selectable className="max-h-[50vh] overflow-auto font-sans text-[13px] whitespace-pre-wrap">{summary}</pre>
         </Modal>
       )}
-    </div>
+    </FillPage>
   );
 }
 

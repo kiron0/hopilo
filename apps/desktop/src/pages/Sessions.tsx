@@ -9,6 +9,7 @@ import { CopyHandoffButton } from "./Dashboard";
 import { Transcript } from "../components/Transcript";
 import { ListSkeleton, TranscriptSkeleton } from "../components/Skeletons";
 import { Badge, Button, Card, cx, EmptyState, ErrorNote, PageHeader, ProviderDot, ProviderTag, Segmented, Skeleton, StatusBadge, TextInput } from "../components/ui";
+import { FillPage } from "../components/PageSlots";
 
 export function sourceDraftItem(r: { id: string; title: string; provider: string; messageCount: number }, messageIds?: string[]): DraftItem {
   return {
@@ -285,10 +286,11 @@ function CapturedSessions({ initial }: { initial?: string }) {
     );
 
   return (
-    <div className="grid min-h-[520px] grid-cols-[300px_minmax(0,1fr)] gap-4">
-      <div className="flex flex-col gap-2">
+    <FillPage>
+    <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-4">
+      <div className="flex min-h-0 flex-col gap-2">
         <TextInput aria-label="Filter captures" placeholder="Filter captures" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Card className="flex-1 divide-y divide-line overflow-auto">
+        <Card className="min-h-0 flex-1 divide-y divide-line overflow-auto">
           {rows.map((r) => (
             <button
               key={r.id}
@@ -308,6 +310,7 @@ function CapturedSessions({ initial }: { initial?: string }) {
       </div>
       <Card className="min-w-0 overflow-auto p-5">{active ? <SourceDetail id={active} onDeleted={() => setActive(undefined)} /> : <div className="text-muted">Select a capture.</div>}</Card>
     </div>
+    </FillPage>
   );
 }
 
