@@ -119,8 +119,8 @@ function SessionList() {
   const [adding, setAdding] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [limitChoice, setLimitChoice] = useState<number | "auto">("auto");
-  const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(62);
-  const pageSize = limitChoice === "auto" ? autoPageSize : limitChoice;
+  const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(62, 10);
+  const pageSize = Math.max(10, limitChoice === "auto" ? autoPageSize : limitChoice);
 
   const onLimitChange = (lim: number | "auto") => {
     setLimitChoice(lim);

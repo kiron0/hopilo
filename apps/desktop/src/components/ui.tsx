@@ -523,8 +523,7 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
   return <span aria-hidden className={cx("skeleton block", className)} style={style} />;
 }
 
-export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 3) {
-
+export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 10) {
   const [el, ref] = useState<T | null>(null);
   const [rows, setRows] = useState(min);
   useEffect(() => {
