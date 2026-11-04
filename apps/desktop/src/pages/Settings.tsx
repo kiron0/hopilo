@@ -312,7 +312,7 @@ export function Settings() {
                 <img
                   src="/hopilo-mark.svg"
                   alt="Hopilo"
-                  className="h-12 w-12 shrink-0 rounded-2xl drop-shadow-[0_4px_10px_rgb(40_30_120/0.2)]"
+                  className="h-12 w-12 shrink-0 drop-shadow-[0_4px_10px_rgb(40_30_120/0.2)]"
                   draggable={false}
                 />
                 <div className="min-w-0">
