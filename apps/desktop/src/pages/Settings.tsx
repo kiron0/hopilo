@@ -6,6 +6,14 @@ import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
+import {
+  isMac,
+  isWindows,
+  platformName,
+  deviceNoun,
+  fileManagerLabel,
+  autostartLabel,
+} from "../lib/platform";
 import { AlertDialog, Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
@@ -69,10 +77,22 @@ export function Settings() {
       <PageHeader title="Settings" subtitle="Changes save immediately." />
       <div className="sy-stagger">
         <Group id="general" title="General" description="Startup and window behavior.">
-          <Row label="Launch at login" hint="Off unless you turn it on.">
+          <Row
+            label={autostartLabel}
+            hint={
+              autostart === null
+                ? "Not supported in this environment."
+                : isMac
+                ? "Off unless you turn it on."
+                : isWindows
+                ? "Start Hopilo automatically when Windows boots."
+                : "Start Hopilo automatically on desktop login."
+            }
+          >
             <Toggle
-              label="Launch at login"
+              label={autostartLabel}
               checked={!!autostart}
+              disabled={autostart === null}
               onChange={async (v) => {
                 try {
                   await (v ? enable() : disable());
@@ -83,14 +103,38 @@ export function Settings() {
               }}
             />
           </Row>
-          <Row label="On launch, show" hint="The menu-bar icon is always available.">
-            <Segmented label="On launch" value={s.startupSurface} onChange={(v) => saveSetting("startupSurface", v)} options={[{ value: "tray", label: "Menu bar only" }, { value: "home", label: "Dashboard" }]} />
+          <Row label="On launch, show" hint={isMac ? "The menu-bar icon is always available." : "The system tray icon is always available."}>
+            <Segmented
+              label="On launch"
+              value={s.startupSurface}
+              onChange={(v) => saveSetting("startupSurface", v)}
+              options={[
+                { value: "tray", label: isMac ? "Menu bar only" : "System tray only" },
+                { value: "home", label: "Dashboard" },
+              ]}
+            />
           </Row>
-          <Row label="Closing the window" hint="Hide keeps Hopilo in the menu bar.">
-            <Segmented label="Close button" value={s.closeButton} onChange={(v) => saveSetting("closeButton", v)} options={[{ value: "hide", label: "Hide" }, { value: "quit", label: "Quit" }]} />
+          <Row label="Closing the window" hint={isMac ? "Hide keeps Hopilo in the menu bar." : "Hide keeps Hopilo running in the system tray."}>
+            <Segmented
+              label="Close button"
+              value={s.closeButton}
+              onChange={(v) => saveSetting("closeButton", v)}
+              options={[
+                { value: "hide", label: "Hide" },
+                { value: "quit", label: "Quit" },
+              ]}
+            />
           </Row>
-          <Row label="Menu-bar icon click">
-            <Segmented label="Tray click" value={s.trayClick} onChange={(v) => saveSetting("trayClick", v)} options={[{ value: "panel", label: "Quick Panel" }, { value: "dashboard", label: "Dashboard" }]} />
+          <Row label={isMac ? "Menu-bar icon click" : "System tray icon click"}>
+            <Segmented
+              label="Tray click"
+              value={s.trayClick}
+              onChange={(v) => saveSetting("trayClick", v)}
+              options={[
+                { value: "panel", label: "Quick Panel" },
+                { value: "dashboard", label: "Dashboard" },
+              ]}
+            />
           </Row>
         </Group>
 
@@ -118,7 +162,7 @@ export function Settings() {
           <div className="py-3 border-t border-line">
             <div>
               <div className="text-[13px] font-medium">Theme</div>
-              <div className="text-[12px] text-faint">{s.theme === "system" ? "Follows your macOS appearance" : `Always ${s.theme}`}</div>
+              <div className="text-[12px] text-faint">{s.theme === "system" ? `Follows your ${platformName} appearance` : `Always ${s.theme}`}</div>
             </div>
             <div className="grid grid-cols-3 gap-2.5 mt-3" aria-label="Theme swatches">
               {THEMES.map((th) => (
@@ -155,7 +199,7 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="sources" title="Sources" description="Coding agents Hopilo reads on this Mac. Their files are only read, never changed.">
+        <Group id="sources" title="Sources" description={`Coding agents Hopilo reads on this ${deviceNoun}. Their files are only read, never changed.`}>
           {info.data?.adapters.map((a) => (
             <Row key={a.id} label={a.displayName} hint={a.roots.join(" · ")}>
               {a.available ? <Badge tone="success">Found</Badge> : <span className="text-[12.5px] text-faint">Not installed</span>}
@@ -168,7 +212,7 @@ export function Settings() {
 
         <Group id="privacy" title="Privacy" description="What Hopilo can see and send.">
           <Row label="Network" hint="No accounts, analytics, telemetry, AI calls or update checks.">
-            <span className="text-[12.5px] text-success">Nothing leaves your Mac</span>
+            <span className="text-[12.5px] text-success">{`Nothing leaves your ${deviceNoun}`}</span>
           </Row>
           <Row label="Clipboard" hint="Read only when you choose Clipboard in Add.">
             <span className="text-[12.5px] text-muted">On request</span>
@@ -178,10 +222,10 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="storage" title="Storage" description="Your library lives in one folder on this Mac.">
+        <Group id="storage" title="Storage" description={`Your library lives in one folder on this ${deviceNoun}.`}>
           <Row label="Data folder" hint={info.data?.dataDir}>
             <Button size="sm" icon={<FolderOpen size={13} />} disabled={!info.data} onClick={() => info.data && revealItemInDir(`${info.data.dataDir}/hopilo.db`)}>
-              Show
+              {`Show in ${fileManagerLabel}`}
             </Button>
           </Row>
           <Row label="Space used">

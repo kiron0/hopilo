@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useLoad } from "../lib/hooks";
 import { type Route, useApp } from "../lib/store";
+import { deviceNoun, modKey } from "../lib/platform";
 import { Kbd, Skeleton } from "./ui";
 import { CommandPalette } from "./CommandPalette";
 import { Toasts } from "./Toasts";
@@ -37,7 +38,7 @@ function LibraryCard() {
         <span className="used" style={{ width: s ? `${Math.min(100, 8 + s.providerCount * 12)}%` : "8%" }} />
       </div>
       {s ? <div className="disk-note mt-2 text-[11.5px] text-muted">{`${s.sourceCount} sessions · ${s.providerCount} tools`}</div> : <Skeleton className="mt-2 h-2.5 w-2/3" />}
-      <div className="disk-note text-[11px] text-faint">Stays on this Mac</div>
+      <div className="disk-note text-[11px] text-faint">{`Stays on this ${deviceNoun}`}</div>
     </button>
   );
 }
@@ -97,7 +98,7 @@ export function Shell({ children }: { children: ReactNode }) {
           onClick={() => setPaletteOpen(true)}
           className="flex h-8.5 w-72 items-center gap-2 rounded-full border border-line bg-card/90 px-3 text-faint shadow-item transition-all hover:bg-card hover:text-muted hover:shadow-card active:scale-[0.99]"
         >
-          <Kbd>⌘K</Kbd>
+          <Kbd>{modKey}K</Kbd>
           <span className="flex-1 text-left text-[12.5px] text-muted">Search sessions & actions…</span>
           <SearchIcon size={14} />
         </button>

@@ -4,6 +4,7 @@ import type { CaptureStatus } from "../lib/api";
 import { provider } from "../lib/format";
 import { TARGETS as TARGET_LIST } from "../lib/providers";
 import { CheckIcon, SearchIcon, AlertTriangle, CheckCircle2, CircleDashed, Loader2, X, XCircle, ArrowLeft, ArrowRight } from "./Icons";
+import { ProviderLogo } from "./ProviderLogos";
 import { Select, type SelectOption } from "./Select";
 import { PageHeaderSlot } from "./PageSlots";
 
@@ -125,16 +126,18 @@ export function ProviderDot({ id, size = 8 }: { id: string; size?: number }) {
   return <span aria-hidden className="inline-block shrink-0 rounded-full" style={{ width: size, height: size, background: provider(id).color }} />;
 }
 
-/** Rounded tile with the provider's initial, in its brand colour. */
+/** Rounded tile with the provider's official logo icon, in its brand colour. */
 export function ProviderBadge({ id, size = 30 }: { id: string; size?: number }) {
   const p = provider(id);
+  const logoSize = Math.max(12, Math.round(size * 0.58));
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[10px] font-display text-[11px] font-semibold text-white shadow-card"
+      className="flex shrink-0 items-center justify-center rounded-[9px] font-display text-[11px] font-semibold text-white shadow-card overflow-hidden"
       style={{ width: size, height: size, background: `linear-gradient(140deg, ${p.color}, color-mix(in oklab, ${p.color} 70%, black))` }}
+      title={p.label}
     >
-      {p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)}
+      <ProviderLogo id={id} size={logoSize} fallback={p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)} />
     </span>
   );
 }
@@ -190,14 +193,15 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Toggle({ checked, onChange, label, className }: { checked: boolean; onChange: (v: boolean) => void; label: string; className?: string }) {
+export function Toggle({ checked, onChange, label, className, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; className?: string; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
+      disabled={disabled}
       aria-checked={checked}
       aria-label={label}
-      className={cx("toggle", className)}
+      className={cx("toggle", disabled && "opacity-40 pointer-events-none", className)}
       onClick={() => onChange(!checked)}
     />
   );
@@ -406,7 +410,7 @@ export function AlertDialog({
         onMouseDown={(e) => e.stopPropagation()}
         className="animate-pop flex max-h-full w-full max-w-md flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden"
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+        <div className="flex items-center justify-between px-6 pt-5 pb-1">
           <div className="flex items-center gap-2.5">
             {icon ? (
               <span className={cx("flex h-7 w-7 items-center justify-center rounded-lg", destructive ? "bg-danger-soft text-danger" : "bg-accent-soft text-accent")}>
@@ -424,11 +428,11 @@ export function AlertDialog({
           </IconButton>
         </div>
 
-        <div className="px-5 py-4 text-[13.5px] leading-relaxed text-muted">
+        <div className="px-6 py-2.5 text-[13.5px] leading-relaxed text-muted">
           {description}
         </div>
 
-        <div className="flex justify-end gap-2.5 border-t border-line px-5 py-3.5 bg-surface-2/40">
+        <div className="flex justify-end gap-2.5 px-6 pt-2 pb-5">
           <Button variant="secondary" onClick={onClose} disabled={isSpinning}>
             {cancelLabel}
           </Button>
@@ -485,16 +489,20 @@ export function TargetSelect({ value, onChange, className }: { value: string; on
   return <Select label="Continue in" value={value} onChange={onChange} options={options} className={className} />;
 }
 
-/** Small rounded provider initial, in the provider's color. */
+export { ProviderLogo } from "./ProviderLogos";
+
+/** Small rounded provider logo, in the provider's color. */
 export function ProviderChip({ id, size = 20 }: { id: string; size?: number }) {
   const p = provider(id);
+  const logoSize = Math.max(10, Math.round(size * 0.62));
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[7px] font-display text-[9.5px] font-semibold text-white"
+      className="flex shrink-0 items-center justify-center rounded-[6px] font-display text-[9.5px] font-semibold text-white overflow-hidden"
       style={{ width: size, height: size, background: `linear-gradient(160deg, ${p.color}, color-mix(in oklab, ${p.color} 68%, black))` }}
+      title={p.label}
     >
-      {p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)}
+      <ProviderLogo id={id} size={logoSize} fallback={p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)} />
     </span>
   );
 }

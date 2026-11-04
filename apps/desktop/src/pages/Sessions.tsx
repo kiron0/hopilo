@@ -128,7 +128,14 @@ function SessionList() {
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [listRef, pageSize] = useFitRows<HTMLDivElement>(62);
+  const [limitChoice, setLimitChoice] = useState<number | "auto">("auto");
+  const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(62);
+  const pageSize = limitChoice === "auto" ? autoPageSize : limitChoice;
+
+  const onLimitChange = (lim: number | "auto") => {
+    setLimitChoice(lim);
+    setPage(0);
+  };
 
   const sync = async () => {
     lastSync = Date.now();
@@ -264,7 +271,16 @@ function SessionList() {
                 </Button>
               </div>
             ) : (
-              <Pagination page={pg} pageSize={pageSize} total={rows.length} onPage={setPage} noun="session" />
+              <Pagination
+                page={pg}
+                pageSize={pageSize}
+                total={rows.length}
+                onPage={setPage}
+                noun="session"
+                limitOptions={["auto", 10, 25, 50, 100] as const}
+                currentLimit={limitChoice}
+                onLimitChange={onLimitChange}
+              />
             )}
           </div>
         </Card>

@@ -8,6 +8,7 @@ import { api, errorText } from "../lib/api";
 import { captureClipboard, importHandoffFile, pickFiles } from "../lib/actions";
 import { PASTE_SOURCES, provider } from "../lib/providers";
 import { useApp } from "../lib/store";
+import { modKey } from "../lib/platform";
 import { FileImportModal } from "./FileImport";
 import { ExportImportModal, pickChatExport } from "./ExportImport";
 import { Button, cx, Field, Modal, ProviderBadge, ProviderChip, TextArea, TextInput } from "./ui";
@@ -117,7 +118,7 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
           <TextInput placeholder="Uses the first line if empty" value={title} onChange={(e) => setTitle(e.target.value)} />
         </Field>
         <Field label="Conversation">
-          <TextArea autoFocus rows={7} placeholder="Paste the conversation here. In the chat app: ⌘A to select it, ⌘C to copy." value={text} onChange={(e) => setText(e.target.value)} />
+          <TextArea autoFocus rows={7} placeholder={`Paste the conversation here. In the chat app: ${modKey}A to select it, ${modKey}C to copy.`} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <Way icon={<ClipboardPaste size={17} />} title="Clipboard" body="Save the copied text as it is." onClick={async () => { const out = await captureClipboard(); if (out) done(out.sourceId); }} />

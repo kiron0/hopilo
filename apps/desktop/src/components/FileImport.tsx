@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, FileImage, FileText, File as FileIcon, XCi
 import { api, errorText, type FilePreflight } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useApp } from "../lib/store";
+import { deviceNoun } from "../lib/platform";
 import { Button, Checkbox, Modal, Spinner } from "./ui";
 
 const KIND_ICON = { text: FileText, image: FileImage, pdf: FileText, binary: FileIcon };
@@ -64,7 +65,7 @@ export function FileImportModal({ paths, session, onClose }: { paths: string[]; 
       {!files && !error && <Spinner label="Checking files" />}
       {files && (
         <div className="space-y-3">
-          <p className="text-muted">Files are copied into Hopilo on this Mac. Originals are not changed.</p>
+          <p className="text-muted">{`Files are copied into Hopilo on this ${deviceNoun}. Originals are not changed.`}</p>
           <ul className="divide-y divide-line rounded-xl border border-line">
             {files.map((f) => {
               const Icon = KIND_ICON[f.kind];

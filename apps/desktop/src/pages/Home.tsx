@@ -6,6 +6,7 @@ import { basename, plural, provider, relativeTime } from "../lib/format";
 import { prefetch, saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
+import { deviceNoun } from "../lib/platform";
 import { Button, Card, cx, ProviderBadge, Skeleton } from "../components/ui";
 import { RowSkeleton } from "../components/Skeletons";
 import { AddSessionModal } from "../components/AddSession";
@@ -298,7 +299,7 @@ export function Home() {
           <div className="flex-1">
             <div className="font-semibold">Welcome to Hopilo</div>
             <p className="mt-0.5 text-muted">
-              Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything stays on this Mac.
+              {`Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything stays on this ${deviceNoun}.`}
             </p>
           </div>
           <button type="button" aria-label="Dismiss welcome" className="text-muted hover:text-ink" onClick={() => saveSetting("onboarded", true)}>
@@ -412,7 +413,7 @@ export function Home() {
           title="Privacy"
           value="0"
           unit="uploads"
-          caption="Nothing leaves this Mac"
+          caption={`Nothing leaves this ${deviceNoun}`}
           action="Details"
           onClick={() => navigate({ page: "settings", section: "privacy" })}
           delay={0.42}
