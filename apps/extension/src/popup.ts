@@ -1,5 +1,6 @@
 import { PROTOCOL } from "./protocol";
 import type { CaptureReply, Draft, HostResponse, InsertReply, Level, PingReply, SessionSummary, Provider, TabRequest } from "./protocol";
+import { adapterFor } from "./adapters";
 
 const NAMES: Record<Provider, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek (experimental)", grok: "Grok (experimental)", perplexity: "Perplexity (experimental)" };
 
@@ -17,6 +18,20 @@ async function tab<T>(msg: TabRequest): Promise<T | null> {
   try {
     return await chrome.tabs.sendMessage(t.id, msg);
   } catch {
+    if (t.url) {
+      try {
+        const u = new URL(t.url);
+        if (adapterFor(u.hostname) && chrome.scripting) {
+          await chrome.scripting.executeScript({
+            target: { tabId: t.id },
+            files: ["content.js"],
+          });
+          return await chrome.tabs.sendMessage(t.id, msg);
+        }
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 }

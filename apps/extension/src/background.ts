@@ -36,3 +36,20 @@ chrome.runtime.onMessage.addListener((msg: BgRequest, sender, reply) => {
   });
   return true;
 });
+
+chrome.runtime.onInstalled.addListener(async () => {
+  if (!chrome.scripting) return;
+  for (const cs of chrome.runtime.getManifest().content_scripts ?? []) {
+    for (const match of cs.matches ?? []) {
+      const tabs = await chrome.tabs.query({ url: match });
+      for (const t of tabs) {
+        if (t.id) {
+          chrome.scripting.executeScript({
+            target: { tabId: t.id },
+            files: cs.js ?? ["content.js"],
+          }).catch(() => {});
+        }
+      }
+    }
+  }
+});

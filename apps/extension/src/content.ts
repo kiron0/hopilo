@@ -8,29 +8,33 @@ function host<T>(body: Record<string, unknown>): Promise<HostResponse<T>> {
   return chrome.runtime.sendMessage({ kind: "host", body });
 }
 
-chrome.runtime.onMessage.addListener((msg: TabRequest, sender, reply) => {
-  if (sender.id !== chrome.runtime.id || !adapter) return false;
-  if (msg.kind === "ping") {
-    reply({ provider: adapter.id, composer: !!adapter.composer(document), messageCount: adapter.messages(document).length } satisfies PingReply);
-    return false;
-  }
-  if (msg.kind === "capture") {
-    capture(adapter, document, { includeOlder: true })
-      .then((payload) => reply({ ok: true, payload } satisfies CaptureReply))
-      .catch((e) => reply({ ok: false, error: String(e) } satisfies CaptureReply));
-    return true;
-  }
-  if (msg.kind === "insert") {
-    const box = adapter.composer(document);
-    if (!box) {
-      reply({ ok: false, error: "Couldn't find the message box on this page." } satisfies InsertReply);
+if (!(window as unknown as { __hopilo_injected?: boolean }).__hopilo_injected) {
+  (window as unknown as { __hopilo_injected?: boolean }).__hopilo_injected = true;
+
+  chrome.runtime.onMessage.addListener((msg: TabRequest, sender, reply) => {
+    if (sender.id !== chrome.runtime.id || !adapter) return false;
+    if (msg.kind === "ping") {
+      reply({ provider: adapter.id, composer: !!adapter.composer(document), messageCount: adapter.messages(document).length } satisfies PingReply);
       return false;
     }
-    reply({ ok: insertDraft(box, msg.text) } satisfies InsertReply);
+    if (msg.kind === "capture") {
+      capture(adapter, document, { includeOlder: true })
+        .then((payload) => reply({ ok: true, payload } satisfies CaptureReply))
+        .catch((e) => reply({ ok: false, error: String(e) } satisfies CaptureReply));
+      return true;
+    }
+    if (msg.kind === "insert") {
+      const box = adapter.composer(document);
+      if (!box) {
+        reply({ ok: false, error: "Couldn't find the message box on this page." } satisfies InsertReply);
+        return false;
+      }
+      reply({ ok: insertDraft(box, msg.text) } satisfies InsertReply);
+      return false;
+    }
     return false;
-  }
-  return false;
-});
+  });
+}
 
 const SESSION_REF = /^hopilo:\/\/session\/([0-9A-Za-z]{10,40})$/;
 

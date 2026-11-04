@@ -32,6 +32,16 @@ describe("web adapters", () => {
     expect(p.adapterVersion).toBe("chatgpt-web@1");
   });
 
+  it("ChatGPT modern: data-message-role, user bubble, assistant markdown", async () => {
+    const doc = load("chatgpt_modern");
+    const p = await capture(chatgpt, doc, { includeOlder: false });
+    expect(p.title).toBe("Quantum computing explained");
+    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(p.messages[0].text).toBe("Explain quantum computing in one sentence.");
+    expect(p.messages[1].text).toContain("Quantum computing uses principles of quantum mechanics");
+    expect(chatgpt.composer(doc)?.tagName).toBe("TEXTAREA");
+  });
+
   it("Claude: nested reply containers counted once", async () => {
     const p = await capture(claude, load("claude"), { includeOlder: false });
     expect(p.title).toBe("Release checklist");
@@ -82,5 +92,17 @@ describe("experimental adapters", () => {
   it("known hosts route to experimental adapters", () => {
     expect(adapterFor("chat.deepseek.com")?.id).toBe("deepseek");
     expect(adapterFor("www.perplexity.ai")?.id).toBe("perplexity");
+  });
+
+  it("DeepSeek: turns from ds-markdown list container", async () => {
+    const { deepseek } = await import("../src/adapters/experimental");
+    const doc = load("deepseek");
+    const p = await capture(deepseek, doc, { includeOlder: false });
+    expect(p.title).toBe("Explain Rust ownership");
+    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(p.messages[0].text).toBe("What is ownership in Rust?");
+    expect(p.messages[1].text).toContain("Each value has an owner.");
+    expect(p.status).toBe("complete");
+    expect(p.adapterVersion).toBe("deepseek-web@0-experimental");
   });
 });
