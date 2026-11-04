@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
-import { Globe, ClipboardPaste, MessagesSquare, Search, Settings } from "./Icons";
+import { Globe, ClipboardPaste, LayoutDashboard, MessagesSquare, Search, Settings } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
 import { captureClipboard } from "../lib/actions";
 import { type Route, useApp } from "../lib/store";
 
 const PAGES: { route: Route; label: string; icon: React.ReactNode }[] = [
+  { route: { page: "home" }, label: "Home", icon: <LayoutDashboard size={15} /> },
   { route: { page: "sessions" }, label: "Sessions", icon: <MessagesSquare size={15} /> },
   { route: { page: "browser" }, label: "Browser extension", icon: <Globe size={15} /> },
   { route: { page: "settings" }, label: "Settings", icon: <Settings size={15} /> },

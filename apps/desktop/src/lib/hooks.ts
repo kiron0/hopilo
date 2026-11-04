@@ -8,6 +8,20 @@ import { DEFAULT_SETTINGS, type Settings, useApp } from "./store";
  *  revisited screen paints instantly and refreshes in the background. */
 const queryCache = new Map<string, unknown>();
 
+/** Warm the cache for a `useLoad` call before its screen opens (e.g. on
+ *  hover), so the screen paints with data instead of a skeleton. Pass the
+ *  same loader shape and deps the screen uses. */
+export function prefetch<T>(loader: () => Promise<T>, deps: unknown[] = []) {
+  const key = loader.toString() + JSON.stringify(deps);
+  if (queryCache.has(key) || inflight.has(key)) return;
+  inflight.add(key);
+  loader()
+    .then((d) => queryCache.set(key, d))
+    .catch(() => undefined)
+    .finally(() => inflight.delete(key));
+}
+const inflight = new Set<string>();
+
 /** Load data, reloading whenever the library changes. Cached results show
  *  immediately (stale-while-revalidate); `loading` is true only when there is
  *  nothing to show yet. */

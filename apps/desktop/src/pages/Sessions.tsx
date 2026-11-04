@@ -6,13 +6,13 @@ import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileTex
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
 import { copySessions, exportSessions, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
-import { useLoad } from "../lib/hooks";
-import { useApp } from "../lib/store";
+import { prefetch, useLoad } from "../lib/hooks";
+import { type SessionFilter, useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
 import { AddSessionModal } from "../components/AddSession";
 import { FileImportModal } from "../components/FileImport";
-import { ListSkeleton, TranscriptSkeleton } from "../components/Skeletons";
+import { SessionListSkeleton, SessionPageSkeleton } from "../components/Skeletons";
 import {
   Badge,
   Button,
@@ -28,14 +28,22 @@ import {
   ProviderBadge,
   SearchField,
   Segmented,
-  Skeleton,
   StatusBadge,
   TargetSelect,
   useFitRows,
 } from "../components/ui";
 import { FillPage, PageFooter, PageToolbar } from "../components/PageSlots";
 
-type Filter = "all" | "agents" | "web" | "added" | "pinned";
+type Filter = SessionFilter;
+
+/** Shared loader for one session, so a hover prefetch and the session page
+ *  hit the same cache entry. */
+export const sessionLoader = (id: string) => () => api.getSession(id);
+
+/** Agent folders are also checked whenever a Hopilo window gets focus, so
+ *  the list only asks again when it hasn't for a while. */
+const SYNC_EVERY_MS = 60_000;
+let lastSync = 0;
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
@@ -107,10 +115,15 @@ function SessionList() {
   const { data, error, loading } = useLoad(() => api.listSessions());
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(0);
+  // Search, filter, page and selection live in the app store, so opening a
+  // session and coming back returns to the same spot instantly.
+  const { q, filter, page, selected: picked } = useApp((s) => s.listView);
+  const setListView = useApp((s) => s.setListView);
+  const setQ = (v: string) => setListView({ q: v, page: 0 });
+  const setFilter = (v: Filter) => setListView({ filter: v, page: 0 });
+  const setPage = (v: number) => setListView({ page: v });
+  const selected = useMemo(() => new Set(picked), [picked]);
+  const setSelected = (n: Set<string>) => setListView({ selected: [...n] });
   const [syncing, setSyncing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -118,14 +131,14 @@ function SessionList() {
   const [listRef, pageSize] = useFitRows<HTMLDivElement>(62);
 
   const sync = async () => {
+    lastSync = Date.now();
     setSyncing(true);
     await api.syncSessions().catch(() => undefined);
     setSyncing(false);
   };
   useEffect(() => {
-    sync();
+    if (Date.now() - lastSync > SYNC_EVERY_MS) sync();
   }, []);
-  useEffect(() => setPage(0), [q, filter]);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -170,7 +183,7 @@ function SessionList() {
       </PageToolbar>
 
       {error && <ErrorNote text={error} />}
-      {loading && !data && <ListSkeleton rows={8} buttons={2} label="Loading sessions" />}
+      {loading && !data && <SessionListSkeleton />}
       {data && rows.length === 0 && (
         <Card>
           <EmptyState
@@ -198,6 +211,9 @@ function SessionList() {
                     draggable
                     // Drop on a chat page with the Hopilo extension to insert it as a draft.
                     onDragStart={(e) => e.dataTransfer.setData("text/plain", `hopilo://session/${r.id}`)}
+                    // Load the session while the pointer is on its way, so it opens with no wait.
+                    onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])}
+                    onFocus={() => prefetch(sessionLoader(r.id), [r.id])}
                     onClick={() => navigate({ page: "sessions", id: r.id })}
                     className="min-w-0 flex-1 text-left"
                   >
@@ -297,7 +313,7 @@ function FilesTab({ files }: { files: Attachment[] }) {
 }
 
 function SessionPage({ id }: { id: string }) {
-  const { data, error, loading } = useLoad(() => api.getSession(id), [id]);
+  const { data, error, loading } = useLoad(sessionLoader(id), [id]);
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
   const toast = useApp((s) => s.toast);
@@ -310,16 +326,7 @@ function SessionPage({ id }: { id: string }) {
   const back = () => navigate({ page: "sessions" });
 
   if (error) return <ErrorNote text={error} />;
-  if (loading && !data)
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-7 w-2/5" />
-        <Skeleton className="h-3.5 w-3/5" />
-        <Card className="p-5">
-          <TranscriptSkeleton count={5} />
-        </Card>
-      </div>
-    );
+  if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
   const { row, source, messages, files, tokenEstimate } = data;
 

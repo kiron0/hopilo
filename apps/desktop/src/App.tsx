@@ -6,17 +6,20 @@ import { useBootstrap } from "./lib/hooks";
 import { useFileDrop } from "./lib/useFileDrop";
 import { Shell } from "./components/Shell";
 import { FileImportModal } from "./components/FileImport";
+import { Home } from "./pages/Home";
 import { Sessions } from "./pages/Sessions";
 import { RouteSkeleton } from "./components/Skeletons";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
-// Sessions (home) loads with the app; the other screens load on first visit.
+// Home and Sessions load with the app; the other screens load on first visit.
 const Browser = lazy(() => import("./pages/Browser").then((m) => ({ default: m.Browser })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 import { FileDown } from "./components/Icons";
 
 function Page({ route }: { route: Route }) {
   switch (route.page) {
+    case "home":
+      return <Home />;
     case "sessions":
       return <Sessions />;
     case "browser":
@@ -50,7 +53,7 @@ export function App() {
   return (
     <>
       <Shell>
-        <ErrorBoundary key={route.page} onHome={() => navigate({ page: "sessions" })}>
+        <ErrorBoundary key={route.page} onHome={() => navigate({ page: "home" })}>
           <Suspense fallback={<RouteSkeleton page={route.page} />}>
             <Page route={route} />
           </Suspense>

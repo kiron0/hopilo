@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { SearchIcon, SessionsIcon, SettingsIcon, BrowserIcon } from "./Icons";
+import { HomeIcon, SearchIcon, SessionsIcon, SettingsIcon, BrowserIcon } from "./Icons";
 import { api } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useLoad } from "../lib/hooks";
@@ -13,6 +13,7 @@ type NavIcon = (p: { size?: number; active?: boolean }) => ReactNode;
 type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string };
 
 const NAV: NavItem[] = [
+  { page: "home", label: "Home", icon: HomeIcon, hint: "Overview and quick actions" },
   { page: "sessions", label: "Sessions", icon: SessionsIcon, hint: "Every conversation, with its files" },
   { page: "browser", label: "Browser", icon: BrowserIcon, hint: "Extension for ChatGPT, Claude, Gemini and more" },
 ];

@@ -1,15 +1,31 @@
 // App-wide UI state: navigation, toasts and settings.
 import { create } from "zustand";
 
-/** Sessions is home; `id` opens one session. */
-export type Route = { page: "sessions"; id?: string } | { page: "browser" } | { page: "settings"; section?: string };
+export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned";
+
+/** `id` opens one session; `filter` opens the list with that filter. */
+export type Route =
+  | { page: "home" }
+  | { page: "sessions"; id?: string; filter?: SessionFilter }
+  | { page: "browser" }
+  | { page: "settings"; section?: string };
 
 /** Map a route name sent by the shell or Quick Panel (e.g. "settings"). */
 export function routeFrom(name: string): Route {
   if (name === "browser") return { page: "browser" };
   if (name === "settings") return { page: "settings" };
+  if (name === "sessions") return { page: "sessions" };
   if (name.startsWith("session:")) return { page: "sessions", id: name.slice(8) };
-  return { page: "sessions" };
+  return { page: "home" };
+}
+
+/** The session list's search, filter, page and selection. Kept here so
+ *  opening a session and coming back restores the list exactly. */
+export interface ListView {
+  q: string;
+  filter: SessionFilter;
+  page: number;
+  selected: string[];
 }
 
 export interface Toast {
@@ -57,13 +73,19 @@ interface State {
   bump: () => void;
   paletteOpen: boolean;
   setPaletteOpen: (o: boolean) => void;
+  listView: ListView;
+  setListView: (v: Partial<ListView>) => void;
 }
 
 let toastId = 0;
 
 export const useApp = create<State>((set, get) => ({
-  route: { page: "sessions" },
-  navigate: (route) => set({ route }),
+  route: { page: "home" },
+  navigate: (route) => {
+    // A filter in the route (e.g. from a Home tile) resets the list to it.
+    if (route.page === "sessions" && route.filter) set({ listView: { ...get().listView, filter: route.filter, page: 0, q: "" } });
+    set({ route });
+  },
   toasts: [],
   toast: (t) => {
     const id = ++toastId;
@@ -77,4 +99,6 @@ export const useApp = create<State>((set, get) => ({
   bump: () => set({ tick: get().tick + 1 }),
   paletteOpen: false,
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+  listView: { q: "", filter: "all", page: 0, selected: [] },
+  setListView: (v) => set({ listView: { ...get().listView, ...v } }),
 }));

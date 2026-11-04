@@ -29,14 +29,14 @@
         "label": "quick",
         "title": "Hopilo",
         "url": "index.html?surface=quick",
-        "width": 368,
-        "height": 600,
+        "width": 388,
+        "height": 620,
         "visible": false,
         "decorations": false,
         "resizable": false,
         "skipTaskbar": true,
         "alwaysOnTop": true,
-        "shadow": true,
+        "shadow": false,
         "dragDropEnabled": false,
         "transparent": true
       }

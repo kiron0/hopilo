@@ -59,7 +59,7 @@ function BlockView({ b }: { b: Block }) {
 
 /** Messages rendered at first; more are added on request so sessions with
  *  thousands of turns open instantly. */
-const PAGE = 120;
+const PAGE = 60;
 
 export function Transcript({
   messages,
@@ -81,7 +81,8 @@ export function Transcript({
           <li
             key={m.id + m.sourceId}
             className={cx(
-              "flex gap-3 rounded-xl border px-3.5 py-3 transition-colors",
+              // Off-screen messages skip layout and paint until scrolled to.
+              "flex gap-3 rounded-xl border px-3.5 py-3 transition-colors [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
               isSel ? "border-accent/50 bg-accent-soft/50" : "border-transparent",
               m.role === "user" && !isSel && "bg-surface-2",
             )}
