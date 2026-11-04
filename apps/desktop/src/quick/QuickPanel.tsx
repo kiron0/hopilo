@@ -66,7 +66,7 @@ export function QuickPanel() {
         }
       }}
     >
-      <div aria-hidden className="app-aura app-aura-contained">
+      <div aria-hidden className="app-aura app-aura-contained overflow-hidden rounded-[17px]">
         <span />
         <span />
         <span />

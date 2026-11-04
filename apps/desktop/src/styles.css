@@ -342,6 +342,12 @@
   }
   .app-aura.app-aura-contained {
     position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    clip-path: inset(0 round 17px);
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    mask-image: radial-gradient(white, black);
   }
   .app-aura-contained > span:nth-child(1) {
     width: 320px;
