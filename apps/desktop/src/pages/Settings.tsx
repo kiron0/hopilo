@@ -96,17 +96,9 @@ export function Settings() {
 
         <Group id="appearance" title="Appearance" description="Window canvas, theme, and animations.">
           <div className="py-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[13px] font-medium">Background</div>
-                <div className="text-[12px] text-faint">The living canvas behind the dashboard and sidebar.</div>
-              </div>
-              <Segmented
-                label="Background"
-                value={s.background || "mist"}
-                onChange={(v) => saveSetting("background", v)}
-                options={BACKGROUNDS}
-              />
+            <div>
+              <div className="text-[13px] font-medium">Background</div>
+              <div className="text-[12px] text-faint">The living canvas behind the dashboard and sidebar.</div>
             </div>
             <div className="sy-swatches mt-3" aria-label="Background swatches">
               {BACKGROUNDS.map((b) => (
@@ -124,17 +116,9 @@ export function Settings() {
           </div>
 
           <div className="py-3 border-t border-line">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[13px] font-medium">Theme</div>
-                <div className="text-[12px] text-faint">{s.theme === "system" ? "Follows your macOS appearance" : `Always ${s.theme}`}</div>
-              </div>
-              <Segmented
-                label="Theme"
-                value={s.theme}
-                onChange={(v) => saveSetting("theme", v)}
-                options={THEMES}
-              />
+            <div>
+              <div className="text-[13px] font-medium">Theme</div>
+              <div className="text-[12px] text-faint">{s.theme === "system" ? "Follows your macOS appearance" : `Always ${s.theme}`}</div>
             </div>
             <div className="grid grid-cols-3 gap-2.5 mt-3" aria-label="Theme swatches">
               {THEMES.map((th) => (

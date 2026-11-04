@@ -247,10 +247,10 @@ export function Home() {
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]" aria-label="Overview">
         <Card className="card-w relative isolate overflow-hidden p-7">
-          <div className="hero-plume pointer-events-none absolute inset-0 -z-10 opacity-60 overflow-hidden">
+          <div className="hero-plume pointer-events-none absolute inset-0 -z-10">
             <Flow mode="plume" />
           </div>
-          <div aria-hidden className="pointer-events-none absolute inset-0 -z-20">
+          <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 dark:hidden">
             <span className="absolute -right-24 -bottom-28 h-80 w-80 rounded-full bg-[var(--aura-1)] blur-3xl opacity-50" />
             <span className="absolute right-24 -bottom-16 h-56 w-56 rounded-full bg-[var(--aura-2)] blur-3xl opacity-50" />
             <span className="absolute -top-20 right-8 h-40 w-40 rounded-full bg-[var(--aura-3)] blur-3xl opacity-50" />

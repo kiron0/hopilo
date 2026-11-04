@@ -329,12 +329,12 @@
     background-color: var(--window);
   }
   .cleanly-titlebar {
-    height: 58px;
+    height: 64px;
     flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 18px 24px 0 92px;
+    padding: 24px 24px 0 92px;
     user-select: none;
     position: relative;
     z-index: 10;
@@ -469,6 +469,25 @@
     filter: blur(80px);
     animation: slowspin 40s linear infinite;
   }
+  :root[data-theme='dark'] .bg-grain {
+    background: radial-gradient(1100px 700px at 20% -10%, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0) 60%),
+                radial-gradient(900px 600px at 110% 110%, rgba(154, 134, 255, 0.12) 0%, rgba(154, 134, 255, 0) 60%);
+  }
+  :root[data-theme='dark'] .bg-grain::before {
+    background: conic-gradient(from 0deg at 60% 40%, rgba(255, 143, 200, 0), rgba(255, 143, 200, 0.09), rgba(134, 160, 255, 0.09), rgba(255, 179, 138, 0.06), rgba(255, 143, 200, 0));
+    filter: blur(80px);
+    opacity: 0.8;
+  }
+  :root[data-theme='dark'] .bg-grain::after {
+    /* film grain overlay in dark theme */
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.045;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
   @keyframes slowspin { to { transform: rotate(360deg); } }
 
   /* Backlight Glow (dark mode mist) */
@@ -525,6 +544,27 @@
   }
   :root[data-theme='dark'] .lc:hover {
     box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 1px 2px rgba(0, 0, 0, 0.5), 0 26px 52px rgba(0, 0, 0, 0.5), 0 12px 48px var(--gl, transparent);
+  }
+  :root[data-theme='dark'] .lc::before {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%);
+  }
+  :root[data-theme='dark'] .lc::after {
+    background: rgba(255, 255, 255, 0.45);
+  }
+  :root[data-theme='dark'] .lc .shine {
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
+  }
+  :root[data-theme='dark'] .glass-ico {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45);
+  }
+  :root[data-theme='dark'] .pill {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+  :root[data-theme='dark'] .pill:hover {
+    background: rgba(255, 255, 255, 0.25);
   }
   .lc::before {
     content: '';
@@ -588,6 +628,45 @@
     --blob: radial-gradient(closest-side, rgba(255, 180, 205, 0.95), rgba(255, 70, 120, 0.4) 55%, transparent);
     --sh: rgba(160, 25, 50, 0.3);
     --gl: rgba(196, 37, 58, 0.22);
+  }
+
+  :root[data-theme='dark'] .c-blue {
+    --bg: linear-gradient(165deg, #10649a 0%, #0b4f7a 100%);
+    --blob: radial-gradient(closest-side, rgba(170, 240, 255, 0.75), rgba(70, 180, 255, 0.3) 55%, transparent);
+    --sh: rgba(0, 0, 0, 0.45);
+    --gl: rgba(26, 134, 196, 0.24);
+  }
+  :root[data-theme='dark'] .c-violet {
+    --bg: linear-gradient(165deg, #5458e2 0%, #3a3fc0 100%);
+    --blob: radial-gradient(closest-side, rgba(215, 230, 255, 0.6), rgba(150, 170, 255, 0.24) 55%, transparent);
+    --sh: rgba(0, 0, 0, 0.45);
+    --gl: rgba(84, 88, 226, 0.24);
+  }
+  :root[data-theme='dark'] .c-green {
+    --bg: linear-gradient(165deg, #0e6e44 0%, #08492c 100%);
+    --blob: radial-gradient(closest-side, rgba(160, 245, 205, 0.6), rgba(40, 180, 120, 0.22) 55%, transparent);
+    --sh: rgba(0, 0, 0, 0.45);
+    --gl: rgba(14, 110, 68, 0.22);
+  }
+  :root[data-theme='dark'] .c-crimson {
+    --bg: linear-gradient(165deg, #961b2d 0%, #680d1d 100%);
+    --blob: radial-gradient(closest-side, rgba(255, 180, 205, 0.75), rgba(255, 70, 120, 0.3) 55%, transparent);
+    --sh: rgba(0, 0, 0, 0.45);
+    --gl: rgba(196, 37, 58, 0.22);
+  }
+
+  .hero-plume {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  :root[data-theme='dark'] .hero-plume {
+    inset: -16px;
+    filter: saturate(2.4) hue-rotate(-12deg) blur(12px);
+    mix-blend-mode: screen;
+    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 28%, transparent 80%);
+    mask-image: linear-gradient(to top, #000 0%, #000 28%, transparent 80%);
   }
 
   .lc-top {
@@ -690,9 +769,11 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
   }
+  :root[data-theme='dark'] .card,
   :root[data-theme='dark'] .card-w {
-    border-color: rgba(255, 255, 255, 0.07);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), var(--shadow);
+    background: linear-gradient(180deg, #202024 0%, #1b1b1e 100%);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.35);
   }
   .panel {
     padding: 22px 24px;
