@@ -9,14 +9,13 @@ import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle } from "../components/ui";
 import { PageToolbar } from "../components/PageSlots";
-import { Select } from "../components/Select";
 
 const SECTIONS = [
   { id: "general", title: "General" },
   { id: "appearance", title: "Appearance" },
   { id: "handoff", title: "Handoff" },
+  { id: "sources", title: "Sources" },
   { id: "privacy", title: "Privacy" },
-  { id: "local-ai", title: "Local AI" },
   { id: "storage", title: "Storage" },
   { id: "about", title: "About" },
 ] as const;
@@ -51,7 +50,6 @@ export function Settings() {
   const toast = useApp((st) => st.toast);
   const info = useLoad(() => api.appInfo());
   const stats = useLoad(() => api.stats());
-  const ollama = useLoad(() => api.ollamaStatus());
   const [autostart, setAutostart] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -103,9 +101,6 @@ export function Settings() {
           <Row label="Closing the window" hint="Hide keeps Hopilo in the menu bar.">
             <Segmented label="Close button" value={s.closeButton} onChange={(v) => saveSetting("closeButton", v)} options={[{ value: "hide", label: "Hide" }, { value: "quit", label: "Quit" }]} />
           </Row>
-          <Row label="Drop Shelf stays on top" hint="Keep the small pack window above other apps while you switch between them.">
-            <Toggle label="Drop Shelf stays on top" checked={s.shelfOnTop} onChange={(v) => saveSetting("shelfOnTop", v)} />
-          </Row>
           <Row label="Menu-bar icon click">
             <Segmented label="Tray click" value={s.trayClick} onChange={(v) => saveSetting("trayClick", v)} options={[{ value: "panel", label: "Quick Panel" }, { value: "dashboard", label: "Dashboard" }]} />
           </Row>
@@ -120,11 +115,11 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="handoff" title="Handoff" description="Defaults for copy and export.">
+        <Group id="handoff" title="Copy" description="What Copy puts on the clipboard. No AI is used: the levels are fixed rules.">
           <Row label="Default destination">
             <TargetSelect value={s.defaultTarget} onChange={(v) => saveSetting("defaultTarget", v)} className="w-56" />
           </Row>
-          <Row label="Tool activity" hint="How tool calls and outputs appear in handoffs.">
+          <Row label="Tool activity" hint="How tool calls and outputs appear in copies.">
             <Segmented label="Tool activity" value={s.toolDetail} onChange={(v) => saveSetting("toolDetail", v)} options={[{ value: "truncated", label: "Trimmed" }, { value: "full", label: "Full" }, { value: "omit", label: "Leave out" }]} />
           </Row>
           <Row label="How much to include" hint="Full is everything; Balanced keeps every request and recent messages; Minimal is goal, latest exchange and key references.">
@@ -135,34 +130,27 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="privacy" title="Privacy" description="What Hopilo can see and send.">
-          <Row label="Network" hint="No accounts, analytics, telemetry or update checks. Optional Ollama runs on this computer only.">
-            <span className="text-[12.5px] text-success">Nothing leaves your Mac</span>
-          </Row>
-          <Row label="Clipboard" hint="Read only when you choose Capture clipboard.">
-            <span className="text-[12.5px] text-muted">On request</span>
-          </Row>
-          <Row label="Sensitive-data check" hint="Flags keys, tokens and emails in the preview before you share.">
-            <span className="text-[12.5px] text-muted">Always on</span>
+        <Group id="sources" title="Sources" description="Coding agents Hopilo reads on this Mac. Their files are only read, never changed.">
+          {info.data?.adapters.map((a) => (
+            <Row key={a.id} label={a.displayName} hint={a.roots.join(" · ")}>
+              {a.available ? <Badge tone="success">Found</Badge> : <span className="text-[12.5px] text-faint">Not installed</span>}
+            </Row>
+          ))}
+          <Row label="Web chats" hint="ChatGPT, Claude, Gemini, DeepSeek, Grok and Perplexity, through the browser extension.">
+            <Button size="sm" onClick={() => useApp.getState().navigate({ page: "browser" })}>Set up</Button>
           </Row>
         </Group>
 
-        <Group id="local-ai" title="Local AI (optional)" description="Write short summaries with Ollama running on this computer. Nothing leaves your Mac.">
-          <Row label="Ollama" hint={ollama.data?.running ? `${ollama.data.models.length} model(s) installed` : "Not running. Install from ollama.com and start it to enable summaries."}>
-            {ollama.data?.running ? <Badge tone="success">Running</Badge> : <Button size="sm" onClick={ollama.reload}>Check again</Button>}
+        <Group id="privacy" title="Privacy" description="What Hopilo can see and send.">
+          <Row label="Network" hint="No accounts, analytics, telemetry, AI calls or update checks.">
+            <span className="text-[12.5px] text-success">Nothing leaves your Mac</span>
           </Row>
-          {ollama.data?.running && (
-            <Row label="Model" hint="Used by “Write a summary” on a pack.">
-              <div className="w-56">
-                <Select
-                  label="Ollama model"
-                  value={s.ollamaModel}
-                  onChange={(v) => saveSetting("ollamaModel", v)}
-                  options={[{ value: "", label: "Off" }, ...ollama.data.models.map((m) => ({ value: m, label: m }))]}
-                />
-              </div>
-            </Row>
-          )}
+          <Row label="Clipboard" hint="Read only when you choose Clipboard in Add.">
+            <span className="text-[12.5px] text-muted">On request</span>
+          </Row>
+          <Row label="Sensitive-data check" hint="Warns about keys, tokens and emails when you copy.">
+            <span className="text-[12.5px] text-muted">Always on</span>
+          </Row>
         </Group>
 
         <Group id="storage" title="Storage" description="Your library lives in one folder on this Mac.">
@@ -174,7 +162,7 @@ export function Settings() {
           <Row label="Space used">
             {stats.data ? <span className="text-[12.5px] text-muted">{bytes(stats.data.storageBytes)}</span> : <Skeleton className="h-3 w-14" />}
           </Row>
-          <Row label="Verify library" hint="Re-checks every pack version and stored file against its fingerprint.">
+          <Row label="Verify library" hint="Re-checks every stored file against its fingerprint.">
             <Button
               size="sm"
               onClick={async () => {
@@ -184,19 +172,19 @@ export function Settings() {
                   kind: problems.length || r.database !== "ok" ? "warning" : "success",
                   text: problems.length || r.database !== "ok"
                     ? `Found ${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${r.database !== "ok" ? `; database: ${r.database}` : ""}`
-                    : `All good: ${r.versionsChecked} versions and ${r.attachmentsChecked} files match their fingerprints.`,
+                    : `All good: ${r.attachmentsChecked} files match their fingerprints.`,
                 });
               }}
             >
               Verify
             </Button>
           </Row>
-          <Row label="Erase library" hint="Deletes every capture, pack, file and log in Hopilo. Agent session files are not touched.">
+          <Row label="Erase library" hint="Deletes every session, file and log in Hopilo. Coding-agent sessions come back from their files on the next check.">
             <Button
               size="sm"
               variant="danger"
               onClick={async () => {
-                if (!(await ask("Erase every capture, pack, file and handoff record in Hopilo? This cannot be undone. Your original agent session files are not affected.", { title: "Erase library", kind: "warning" }))) return;
+                if (!(await ask("Erase every session, file and copy record in Hopilo? This cannot be undone. Your coding agents' own session files are not affected.", { title: "Erase library", kind: "warning" }))) return;
                 await api.wipeLibrary();
                 toast({ kind: "success", text: "Library erased." });
               }}
@@ -206,11 +194,11 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="about" title="About" description="Hopilo — Universal AI Session Handoff.">
+        <Group id="about" title="About" description="Hopilo: every AI session in one place.">
           <Row label="Version">
             {info.data ? <span className="font-mono text-[12.5px] text-muted">{info.data.version}</span> : <Skeleton className="h-3 w-12" />}
           </Row>
-          <Row label="Pack format" hint="Context Pack schema 1.0.0 · .handoff archive v1">
+          <Row label="Export format" hint="Markdown, JSON and the .handoff archive (v1)">
             <span className="text-[12.5px] text-muted">Open, documented</span>
           </Row>
         </Group>

@@ -1,32 +1,27 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type DiscoveredRow } from "../lib/api";
-import { captureClipboard, copyHandoff, quickHandoff } from "../lib/actions";
+import { api } from "../lib/api";
+import { captureClipboard, copySessions } from "../lib/actions";
 import { basename, provider, relativeTime } from "../lib/format";
 import { useBootstrap, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
-import { IconButton, Kbd, Skeleton } from "../components/ui";
-import { CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
-import { ProviderBadge } from "../pages/Dashboard";
+import { IconButton, Kbd, ProviderBadge, Skeleton } from "../components/ui";
+import { CaptureIcon, HomeIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
 
-/** Compact menu-bar panel: capture, recent items, one-tap copy. No sidebar. */
+/** Compact menu-bar panel: recent sessions, one tap to copy. No sidebar. */
 export function QuickPanel() {
   const ready = useBootstrap();
   const settings = useApp((s) => s.settings);
-  const sessions = useLoad(() => api.discoverSessions(), [], { refreshOnChange: false });
-  const packs = useLoad(() => api.listPacks());
+  const sessions = useLoad(() => api.listSessions());
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   // Refresh when the panel is shown again.
   useEffect(() => {
     const un = getCurrentWindow().onFocusChanged(({ payload }) => {
-      if (payload) {
-        sessions.reload();
-        packs.reload();
-      }
+      if (payload) sessions.reload();
     });
     return () => {
       un.then((f) => f());
@@ -41,17 +36,18 @@ export function QuickPanel() {
   }, []);
 
   const needle = q.trim().toLowerCase();
-  const recentPacks = (packs.data ?? []).filter((p) => !p.archived && (!needle || p.title.toLowerCase().includes(needle))).slice(0, 4);
-  const recentSessions = (sessions.data ?? []).filter((s) => !needle || s.title.toLowerCase().includes(needle)).slice(0, 4);
+  const recent = (sessions.data ?? [])
+    .filter((s) => !needle || s.title.toLowerCase().includes(needle) || provider(s.provider).label.toLowerCase().includes(needle))
+    .slice(0, needle ? 12 : 8);
 
   if (!ready) return null;
 
   // Rows share the dashboard sidebar's look: quiet until hovered or chosen,
   // then a raised white pill.
   const row = "nav-item h-auto min-h-10 w-full py-1.5 text-left text-[13px] focus-visible:bg-surface focus-visible:shadow-item disabled:opacity-50";
-  const runSession = async (s: DiscoveredRow) => {
-    setBusy(s.path);
-    await quickHandoff(s.adapter, s.path);
+  const copy = async (id: string) => {
+    setBusy(id);
+    await copySessions([id]);
     setBusy(null);
   };
 
@@ -91,8 +87,8 @@ export function QuickPanel() {
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            aria-label="Search recent"
-            placeholder="Search sessions and packs"
+            aria-label="Search sessions"
+            placeholder="Search sessions"
             className="min-w-0 flex-1 bg-transparent font-mono text-[11.5px] text-ink outline-none placeholder:text-faint"
           />
           <Kbd>esc</Kbd>
@@ -101,15 +97,7 @@ export function QuickPanel() {
 
       <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-line bg-canvas/80 shadow-card">
         <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-          <div className="label-mono px-3 pt-1 pb-1.5 text-faint">Capture</div>
-          <button type="button" data-row className={row} onClick={() => captureClipboard()}>
-            <span className="text-faint"><CaptureIcon size={17} /></span> <span className="flex-1">Capture clipboard</span>
-          </button>
-          <button type="button" data-row className={row} onClick={() => api.showMainWindow("capture")}>
-            <span className="text-faint"><FilesIcon size={17} /></span> <span className="flex-1">Import file or text…</span>
-          </button>
-
-          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Continue agent session</div>
+          <div className="label-mono px-3 pt-1 pb-1.5 text-faint">Tap to copy for {target(settings.defaultTarget).label}</div>
           {sessions.loading && !sessions.data &&
             [0, 1, 2].map((i) => (
               <div key={i} aria-hidden className="flex items-center gap-2.5 px-3 py-2">
@@ -120,59 +108,39 @@ export function QuickPanel() {
                 </div>
               </div>
             ))}
-          {recentSessions.map((s) => (
-            <button key={s.path} type="button" data-row className={row} disabled={!!busy} onClick={() => runSession(s)} title={`Copy a handoff for ${target(settings.defaultTarget).label}`}>
-              <ProviderBadge id={s.adapter} size={22} />
+          {recent.map((s) => (
+            <button key={s.id} type="button" data-row className={row} disabled={!!busy} onClick={() => copy(s.id)} title={`Copy for ${target(settings.defaultTarget).label}`}>
+              <ProviderBadge id={s.provider} size={22} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium text-ink">{s.title}</span>
-                <span className="block truncate font-mono text-[10.5px] text-faint">{basename(s.project) || provider(s.adapter).label} · {relativeTime(s.modifiedAt)}</span>
+                <span className="flex items-center gap-1.5 truncate font-mono text-[10.5px] text-faint">
+                  {basename(s.project) || provider(s.provider).label} · {relativeTime(s.updatedAt)}
+                  {s.fileCount > 0 && (
+                    <span className="inline-flex items-center gap-0.5">
+                      · <Paperclip size={10} /> {s.fileCount}
+                    </span>
+                  )}
+                </span>
               </span>
-              {busy === s.path ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
+              {busy === s.id ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
             </button>
           ))}
-          {sessions.data && recentSessions.length === 0 && <div className="px-3 py-1.5 text-faint">No sessions found.</div>}
+          {sessions.data && recent.length === 0 && <div className="px-3 py-1.5 text-faint">{needle ? "No matching sessions." : "No sessions yet."}</div>}
 
-          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Copy a pack</div>
-          {recentPacks.map((p) => (
-            <div key={p.id} className="group relative">
-              <button
-                type="button"
-                data-row
-                className={`${row} pr-10`}
-                disabled={busy === p.id}
-                title={`Copy for ${target(settings.defaultTarget).label}`}
-                onClick={async () => {
-                  setBusy(p.id);
-                  await copyHandoff(p.id, p.latestVersion, settings.defaultTarget, settings.toolDetail, settings.level);
-                  setBusy(null);
-                }}
-              >
-                <span className="text-faint"><PacksIcon size={17} /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-ink">{p.title}</span>
-                  <span className="block truncate font-mono text-[10.5px] text-faint">v{p.latestVersion} · {relativeTime(p.updatedAt)}</span>
-                </span>
-                {busy === p.id ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
-              </button>
-              <button
-                type="button"
-                aria-label={`Review ${p.title}`}
-                title="Review in the dashboard"
-                onClick={() => api.showMainWindow("handoff")}
-                className="absolute top-1/2 right-8 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-3 hover:text-ink focus-visible:opacity-100"
-              >
-                <SendIcon size={13} />
-              </button>
-            </div>
-          ))}
-          {packs.data && recentPacks.length === 0 && <div className="px-3 py-1.5 text-faint">No packs yet.</div>}
+          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Add</div>
+          <button type="button" data-row className={row} onClick={() => captureClipboard()}>
+            <span className="text-faint"><CaptureIcon size={17} /></span> <span className="flex-1">Save clipboard as a session</span>
+          </button>
+          <button type="button" data-row className={row} onClick={() => api.showMainWindow("sessions")}>
+            <span className="text-faint"><Plus size={17} /></span> <span className="flex-1">Paste, import or add files…</span>
+          </button>
         </div>
 
       </div>
 
       <footer className="flex shrink-0 items-center justify-between px-3 pb-2.5 text-[12.5px]">
         <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px]" onClick={() => api.showMainWindow()}>
-          <span className="text-faint"><HomeIcon size={15} /></span> Open Dashboard
+          <span className="text-faint"><HomeIcon size={15} /></span> Open Hopilo
         </button>
         <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px] hover:text-danger" onClick={() => api.quit()}>
           <Power size={14} /> Quit

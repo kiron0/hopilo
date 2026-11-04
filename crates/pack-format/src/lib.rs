@@ -54,7 +54,11 @@ pub fn sanitize_filename(title: &str) -> String {
 }
 
 pub fn export_filename(pack: &Pack, ext: &str) -> String {
-    format!("{}-v{}.{ext}", sanitize_filename(&pack.title), pack.version)
+    // Version 0 is a pack composed on the fly from sessions; it has no version.
+    match pack.version {
+        0 => format!("{}.{ext}", sanitize_filename(&pack.title)),
+        v => format!("{}-v{v}.{ext}", sanitize_filename(&pack.title)),
+    }
 }
 
 pub fn to_json(pack: &Pack) -> Result<String> {

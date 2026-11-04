@@ -124,6 +124,20 @@ export function ProviderDot({ id, size = 8 }: { id: string; size?: number }) {
   return <span aria-hidden className="inline-block shrink-0 rounded-full" style={{ width: size, height: size, background: provider(id).color }} />;
 }
 
+/** Rounded tile with the provider's initial, in its brand colour. */
+export function ProviderBadge({ id, size = 30 }: { id: string; size?: number }) {
+  const p = provider(id);
+  return (
+    <span
+      aria-hidden
+      className="flex shrink-0 items-center justify-center rounded-[10px] font-display text-[11px] font-semibold text-white shadow-card"
+      style={{ width: size, height: size, background: `linear-gradient(140deg, ${p.color}, color-mix(in oklab, ${p.color} 70%, black))` }}
+    >
+      {p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)}
+    </span>
+  );
+}
+
 export function ProviderTag({ id }: { id: string }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] text-muted">

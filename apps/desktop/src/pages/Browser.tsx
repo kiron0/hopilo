@@ -59,7 +59,7 @@ export function Browser() {
     <div className="space-y-4">
       <PageHeader
         title="Browser"
-        subtitle="The Hopilo extension captures ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) and puts packs into their message box as drafts. It talks only to this app, on this computer."
+        subtitle="The Hopilo extension captures ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) saves them as sessions, and puts a session into the message box as an unsent draft. It talks only to this app, on this computer."
         actions={<Button icon={<RefreshCw size={14} />} onClick={reload}>Refresh</Button>}
       />
 

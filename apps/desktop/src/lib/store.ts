@@ -1,29 +1,15 @@
-// App-wide UI state: navigation, the Builder draft, toasts and settings.
+// App-wide UI state: navigation, toasts and settings.
 import { create } from "zustand";
-import type { BuildItem } from "./api";
 
-export type Route =
-  | { page: "dashboard" }
-  | { page: "capture" }
-  | { page: "sessions"; tab?: "agents" | "library"; sourceId?: string }
-  | { page: "packs"; packId?: string; version?: number }
-  | { page: "attachments" }
-  | { page: "builder" }
-  | { page: "handoff"; packId?: string }
-  | { page: "agents" }
-  | { page: "browser" }
-  | { page: "map" }
-  | { page: "settings"; section?: string };
+/** Sessions is home; `id` opens one session. */
+export type Route = { page: "sessions"; id?: string } | { page: "browser" } | { page: "settings"; section?: string };
 
-/** One tile on the Builder canvas. `label` and `meta` are display-only. */
-export interface DraftItem {
-  key: string;
-  item: BuildItem;
-  label: string;
-  meta: string;
-  provider: string;
-  /** Total messages in the source, for "n of m selected". */
-  total?: number;
+/** Map a route name sent by the shell or Quick Panel (e.g. "settings"). */
+export function routeFrom(name: string): Route {
+  if (name === "browser") return { page: "browser" };
+  if (name === "settings") return { page: "settings" };
+  if (name.startsWith("session:")) return { page: "sessions", id: name.slice(8) };
+  return { page: "sessions" };
 }
 
 export interface Toast {
@@ -42,9 +28,6 @@ export interface Settings {
   toolDetail: "full" | "truncated" | "omit";
   /** How much of the conversation a handoff carries by default. */
   level: "full" | "balanced" | "minimal";
-  ollamaModel: string;
-  /** Keep the Drop Shelf above other windows. */
-  shelfOnTop: boolean;
   defaultTarget: string;
   onboarded: boolean;
 }
@@ -57,8 +40,6 @@ export const DEFAULT_SETTINGS: Settings = {
   trayClick: "panel",
   toolDetail: "truncated",
   level: "full",
-  ollamaModel: "",
-  shelfOnTop: false,
   defaultTarget: "chatgpt",
   onboarded: false,
 };
@@ -66,11 +47,6 @@ export const DEFAULT_SETTINGS: Settings = {
 interface State {
   route: Route;
   navigate: (r: Route) => void;
-  draft: { packId: string | null; title: string; note: string; items: DraftItem[] };
-  setDraft: (d: Partial<State["draft"]>) => void;
-  addToDraft: (items: DraftItem[]) => number;
-  removeFromDraft: (key: string) => void;
-  clearDraft: () => void;
   toasts: Toast[];
   toast: (t: Omit<Toast, "id">) => void;
   dismiss: (id: number) => void;
@@ -86,18 +62,8 @@ interface State {
 let toastId = 0;
 
 export const useApp = create<State>((set, get) => ({
-  route: { page: "dashboard" },
+  route: { page: "sessions" },
   navigate: (route) => set({ route }),
-  draft: { packId: null, title: "", note: "", items: [] },
-  setDraft: (d) => set({ draft: { ...get().draft, ...d } }),
-  addToDraft: (items) => {
-    const existing = new Set(get().draft.items.map((i) => i.key));
-    const fresh = items.filter((i) => !existing.has(i.key));
-    set({ draft: { ...get().draft, items: [...get().draft.items, ...fresh] } });
-    return fresh.length;
-  },
-  removeFromDraft: (key) => set({ draft: { ...get().draft, items: get().draft.items.filter((i) => i.key !== key) } }),
-  clearDraft: () => set({ draft: { packId: null, title: "", note: "", items: [] } }),
   toasts: [],
   toast: (t) => {
     const id = ++toastId;

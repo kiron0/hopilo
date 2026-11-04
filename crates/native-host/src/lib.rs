@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub const HOST_NAME: &str = "dev.hopilo.host";
-pub const PROTOCOL: &str = "1";
+pub const PROTOCOL: &str = "2";
 /// The ID Chrome derives from the public key pinned in the extension manifest.
 pub const DEFAULT_EXTENSION_ID: &str = "fgddcclgflboboacjmfdkkpgdbaolleo";
 /// Firefox identifies extensions by the gecko id in their manifest.
@@ -170,30 +170,31 @@ impl Host {
                 ok(&id, json!({ "app": "hopilo", "protocol": PROTOCOL, "version": env!("CARGO_PKG_VERSION") }))
             }
             "capture.import" => self.capture(&id, req),
-            "pack.list" => match self.store.list_packs() {
+            "session.list" => match self.store.list_sessions() {
                 Ok(rows) => ok(
                     &id,
                     json!(rows
                         .into_iter()
-                        .filter(|p| !p.archived)
-                        .take(30)
-                        .map(|p| json!({ "id": p.id, "title": p.title, "version": p.latest_version, "messageCount": p.message_count, "tokenEstimate": p.token_estimate, "providers": p.providers }))
+                        .take(40)
+                        .map(|r| json!({ "id": r.id, "title": r.title, "provider": r.provider, "messageCount": r.message_count, "tokenEstimate": r.token_estimate, "fileCount": r.file_count, "updatedAt": r.updated_at, "pinned": r.pinned }))
                         .collect::<Vec<_>>()),
                 ),
                 Err(e) => err(&id, "library", e.to_string()),
             },
-            "pack.getDraft" => self.draft(&id, req),
+            "session.getDraft" => self.draft(&id, req),
             "handoff.record" => {
-                let pack_id = req.get("packId").and_then(Value::as_str).unwrap_or("");
-                let version = req.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
+                let ids = session_ids(req);
                 let target = req.get("target").and_then(Value::as_str).unwrap_or("other");
                 let status = match req.get("status").and_then(Value::as_str) {
                     Some("drafted") => "drafted",
                     Some("copied") => "copied",
                     _ => "failed",
                 };
-                match self.store.record_handoff(pack_id, version, target, "extension", status) {
-                    Ok(hid) => ok(&id, json!({ "id": hid })),
+                if ids.is_empty() {
+                    return err(&id, "bad_request", "ids missing");
+                }
+                match self.store.record_copy(&ids, target, "extension", status) {
+                    Ok(()) => ok(&id, json!({})),
                     Err(e) => err(&id, "library", e.to_string()),
                 }
             }
@@ -303,34 +304,51 @@ impl Host {
     }
 
     fn draft(&mut self, id: &Value, req: &Value) -> Value {
-        let Some(pack_id) = req.get("packId").and_then(Value::as_str) else { return err(id, "bad_request", "packId missing") };
-        let version = req.get("version").and_then(Value::as_u64).map(|v| v as u32);
+        let ids = session_ids(req);
+        if ids.is_empty() {
+            return err(id, "bad_request", "ids missing");
+        }
         let level = match req.get("level").and_then(Value::as_str) {
             Some("minimal") => ContextLevel::Minimal,
             Some("full") => ContextLevel::Full,
             _ => ContextLevel::Balanced,
         };
-        let pack = match self.store.get_pack(pack_id, version) {
+        let pack = match self.store.compose(&ids) {
             Ok(p) => p,
             Err(e) => return err(id, "not_found", e.to_string()),
         };
         let text = render_handoff_prompt(&pack, &RenderOptions { level, ..Default::default() });
         // JSON escaping can grow the text; leave headroom under Chrome's cap.
         if text.len() > MAX_OUTGOING * 3 / 4 {
-            return err(id, "too_large", "This pack is too large to insert directly. Try the Balanced or Minimal level, or copy it from the Hopilo app.");
+            return err(id, "too_large", "This session is too long to insert directly. Try the Balanced or Minimal level, or copy it from the Hopilo app.");
         }
         let findings = scan_pack(&pack, None).len();
         let missing: usize = pack.sources.iter().map(|s| s.missing_items.len()).sum();
         ok(
             id,
             json!({
-                "packId": pack.pack_id, "version": pack.version, "title": pack.title,
+                "ids": ids, "title": pack.title,
                 "tokenEstimate": estimate_tokens(&text), "findings": findings, "missing": missing,
                 "attachManually": pack.attachments.iter().filter(|a| a.text.is_none()).map(|a| a.file_name.clone()).collect::<Vec<_>>(),
                 "text": text,
             }),
         )
     }
+}
+
+/// Session ids from a request: `ids: [...]`, at most 20, ids only.
+fn session_ids(req: &Value) -> Vec<String> {
+    req.get("ids")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_alphanumeric()))
+                .take(20)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

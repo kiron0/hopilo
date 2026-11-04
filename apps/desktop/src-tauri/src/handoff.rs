@@ -1,35 +1,44 @@
-//! One-call handoff actions. Rendering, the clipboard write and the handoff
-//! record all happen here, so the prompt text never travels through the web
-//! view and every surface (dashboard, Quick Panel, tray menu) behaves the same.
+//! Copy and export sessions for another AI. Rendering, the clipboard write
+//! and the history record all happen here, so the text never travels
+//! through the web view and every surface (dashboard, Quick Panel, tray
+//! menu) behaves the same. Nothing is summarized by a model: the trim levels
+//! are fixed rules in `hopilo_core::brief`.
+
+use std::path::PathBuf;
 
 use hopilo_core::brief::ContextLevel;
-use hopilo_core::render::{estimate_tokens, render_handoff_prompt, render_markdown};
+use hopilo_core::render::{estimate_tokens, render_handoff_prompt, render_markdown, RenderOptions, ToolDetail};
 use hopilo_core::scan::scan_pack;
+use hopilo_core::Pack;
 use hopilo_database::ImportOutcome;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::commands::{notify, quick_pack_blocking, render_opts, with_store, AppState, ToolDetailOpt};
+use crate::commands::{err, notify, with_store, write_atomic, AppState, CmdResult};
 
-type CmdResult<T> = Result<T, String>;
-
-/// What was copied, so the caller can confirm it and flag anything to review.
-#[derive(Serialize)]
+#[derive(Deserialize, Clone, Copy, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct CopyOutcome {
-    pack_id: String,
-    version: u32,
-    title: String,
-    target: String,
-    token_estimate: usize,
-    /// Capture gaps (messages the source could not provide).
-    missing: usize,
-    /// Possible secrets found by the sensitive-data check.
-    findings: usize,
+pub enum ToolDetailOpt {
+    Full,
+    #[default]
+    Truncated,
+    Omit,
 }
 
-/// Saved defaults for a handoff, used when the caller passes none.
+fn render_opts(t: ToolDetailOpt, level: ContextLevel) -> RenderOptions {
+    RenderOptions {
+        level,
+        tool_detail: match t {
+            ToolDetailOpt::Full => ToolDetail::Full,
+            ToolDetailOpt::Truncated => ToolDetail::Truncated { limit: 2000 },
+            ToolDetailOpt::Omit => ToolDetail::Omit,
+        },
+        ..Default::default()
+    }
+}
+
+/// Saved defaults for a copy, used when the caller passes none.
 struct Defaults {
     target: String,
     tool_detail: ToolDetailOpt,
@@ -37,7 +46,7 @@ struct Defaults {
 }
 
 fn defaults(state: &State<AppState>) -> Defaults {
-    let settings = with_store(state, |s| s.settings().map_err(|e| e.to_string())).unwrap_or_default();
+    let settings = with_store(state, |s| s.settings().map_err(err)).unwrap_or_default();
     let get = |k: &str| settings.get(k).cloned();
     Defaults {
         target: get("defaultTarget").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "chatgpt".into()),
@@ -46,66 +55,104 @@ fn defaults(state: &State<AppState>) -> Defaults {
     }
 }
 
-/// Render a pack, put it on the clipboard and log it as "copied" (never as
-/// delivered: Hopilo does not send anything).
-fn copy_rendered(
-    app: &AppHandle,
-    pack_id: &str,
-    version: Option<u32>,
+/// How a copy or export should look. Omitted fields use the saved defaults.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyOptions {
+    #[serde(default)]
     markdown: bool,
     target: Option<String>,
     tool_detail: Option<ToolDetailOpt>,
     level: Option<ContextLevel>,
-) -> CmdResult<CopyOutcome> {
+}
+
+/// What was copied, so the caller can confirm it and flag anything to check.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyOutcome {
+    ids: Vec<String>,
+    title: String,
+    target: String,
+    token_estimate: usize,
+    /// Capture gaps (messages the source could not provide).
+    missing: usize,
+    /// Possible secrets found by the sensitive-data check.
+    findings: usize,
+    /// Files that are not text, to attach by hand at the destination.
+    attach: Vec<String>,
+}
+
+fn outcome(pack: &Pack, ids: &[String], target: String, text: &str) -> CopyOutcome {
+    CopyOutcome {
+        ids: ids.to_vec(),
+        title: pack.title.clone(),
+        target,
+        token_estimate: estimate_tokens(text),
+        missing: pack.sources.iter().map(|s| s.missing_items.len()).sum(),
+        findings: scan_pack(pack, None).len(),
+        attach: pack.attachments.iter().filter(|a| a.text.is_none()).map(|a| a.file_name.clone()).collect(),
+    }
+}
+
+/// Render sessions, put the text on the clipboard and log it as "copied"
+/// (never as delivered: Hopilo does not send anything).
+pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) -> CmdResult<CopyOutcome> {
+    if ids.is_empty() {
+        return Err("Choose at least one session".into());
+    }
     let state = app.state::<AppState>();
     let d = defaults(&state);
-    let target = target.filter(|t| !t.is_empty()).unwrap_or(d.target);
-    let opts = render_opts(tool_detail.unwrap_or(d.tool_detail), Some(level.unwrap_or(d.level)));
+    let target = opts.target.filter(|t| !t.is_empty()).unwrap_or(d.target);
+    let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
     let (pack, text) = with_store(&state, |s| {
-        let pack = s.get_pack(pack_id, version).map_err(|e| e.to_string())?;
-        let text = if markdown { render_markdown(&pack, &opts) } else { render_handoff_prompt(&pack, &opts) };
+        let pack = s.compose(ids).map_err(err)?;
+        let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_handoff_prompt(&pack, &ropts) };
         Ok((pack, text))
     })?;
     app.clipboard().write_text(text.clone()).map_err(|e| format!("Couldn't write to the clipboard: {e}"))?;
-    let (rec_target, method) = if markdown { ("other", "clipboard-markdown") } else { (target.as_str(), "clipboard") };
-    with_store(&state, |s| s.record_handoff(&pack.pack_id, pack.version, rec_target, method, "copied").map_err(|e| e.to_string()))?;
+    let (rec_target, method) = if opts.markdown { ("other", "clipboard-markdown") } else { (target.as_str(), "clipboard") };
+    with_store(&state, |s| s.record_copy(ids, rec_target, method, "copied").map_err(err))?;
     notify(app);
-    Ok(CopyOutcome {
-        token_estimate: estimate_tokens(&text),
-        missing: pack.sources.iter().map(|s| s.missing_items.len()).sum(),
-        findings: scan_pack(&pack, None).len(),
-        pack_id: pack.pack_id,
-        version: pack.version,
-        title: pack.title,
-        target,
-    })
+    Ok(outcome(&pack, ids, target, &text))
 }
 
-/// Copy a pack's handoff prompt (or its Markdown) in one step.
+/// Copy one or more sessions for another AI in one step.
 #[tauri::command]
-pub fn copy_pack(
-    app: AppHandle,
-    id: String,
-    version: Option<u32>,
-    markdown: Option<bool>,
-    target: Option<String>,
-    tool_detail: Option<ToolDetailOpt>,
-    level: Option<ContextLevel>,
-) -> CmdResult<CopyOutcome> {
-    copy_rendered(&app, &id, version, markdown.unwrap_or(false), target, tool_detail, level)
+pub fn copy_sessions(app: AppHandle, ids: Vec<String>, opts: Option<CopyOptions>) -> CmdResult<CopyOutcome> {
+    copy_blocking(&app, &ids, opts.unwrap_or_default())
 }
 
-/// Capture a local agent session, build a Full pack and copy its handoff
-/// prompt with the saved defaults — the whole Flow B in one call.
+/// Suggested file name for an export of these sessions.
 #[tauri::command]
-pub async fn quick_handoff(app: AppHandle, adapter: String, path: String) -> CmdResult<CopyOutcome> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let pack = quick_pack_blocking(&app, &adapter, &path)?;
-        notify(&app);
-        copy_rendered(&app, &pack.pack_id, Some(pack.version), false, None, None, None)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub fn suggest_export_name(state: State<AppState>, ids: Vec<String>, ext: String) -> CmdResult<String> {
+    with_store(&state, |s| Ok(hopilo_pack_format::export_filename(&s.compose(&ids).map_err(err)?, &ext)))
+}
+
+/// Write sessions to a file: `md`, `txt` (the copy text), `json`, or a
+/// `.handoff` archive that also carries the files.
+#[tauri::command]
+pub fn export_sessions(app: AppHandle, state: State<AppState>, ids: Vec<String>, format: String, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
+    let opts = opts.unwrap_or_default();
+    let d = defaults(&state);
+    let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
+    let dest = PathBuf::from(&path);
+    with_store(&state, |s| {
+        let pack = s.compose(&ids).map_err(err)?;
+        match format.as_str() {
+            "md" => write_atomic(&dest, render_markdown(&pack, &ropts).as_bytes())?,
+            "txt" => write_atomic(&dest, render_handoff_prompt(&pack, &ropts).as_bytes())?,
+            "json" => write_atomic(&dest, hopilo_pack_format::to_json(&pack).map_err(err)?.as_bytes())?,
+            "handoff" => {
+                let mut buf = std::io::Cursor::new(Vec::new());
+                hopilo_pack_format::write_handoff(&pack, &ropts, &|a| s.attachment_bytes(&a.sha256), &mut buf).map_err(err)?;
+                write_atomic(&dest, &buf.into_inner())?;
+            }
+            other => return Err(format!("unknown export format {other}")),
+        }
+        s.record_copy(&ids, "file", &format!("export-{format}"), "exported").map_err(err)
+    })?;
+    notify(&app);
+    Ok(dest.display().to_string())
 }
 
 #[derive(Serialize)]
@@ -116,13 +163,13 @@ pub struct ClipboardCapture {
     chars: usize,
 }
 
-/// One-time clipboard import (CAP-04), read on the Rust side. There is no
-/// background clipboard monitoring.
+/// Save the clipboard text as a session, read once on the Rust side. There
+/// is no background clipboard monitoring.
 #[tauri::command]
 pub fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
     let text = app.clipboard().read_text().unwrap_or_default();
     if text.trim().is_empty() {
-        return Err("The clipboard has no text to capture.".into());
+        return Err("The clipboard has no text to save.".into());
     }
     let chars = text.chars().count();
     let state = app.state::<AppState>();
@@ -130,11 +177,11 @@ pub fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
     Ok(ClipboardCapture { outcome, chars })
 }
 
-/// Tray menu: hand off the most recently active agent session without
-/// opening any window. Shows the result briefly next to the menu-bar icon.
-pub fn continue_latest_session(app: &AppHandle) {
+/// Tray menu: copy the most recently active session without opening any
+/// window. Shows the result briefly next to the menu-bar icon.
+pub fn copy_latest_session(app: &AppHandle) {
     let app = app.clone();
-    tauri::async_runtime::spawn(async move {
+    tauri::async_runtime::spawn_blocking(move || {
         let flash = |text: &str| {
             if let Some(tray) = app.tray_by_id("hopilo") {
                 let _ = tray.set_title(Some(text));
@@ -147,14 +194,19 @@ pub fn continue_latest_session(app: &AppHandle) {
                 });
             }
         };
-        let rows = crate::commands::discover_sessions(app.clone()).await.unwrap_or_default();
-        let Some(latest) = rows.into_iter().next() else {
+        crate::commands::sync_blocking(&app);
+        let state = app.state::<AppState>();
+        let latest = with_store(&state, |s| s.list_sessions().map_err(err)).ok().and_then(|rows| {
+            let mut rows = rows;
+            rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            rows.into_iter().next()
+        });
+        let Some(row) = latest else {
             flash("No sessions");
             return;
         };
-        let (adapter, path) = (latest.session.adapter.clone(), latest.session.path.clone());
-        match quick_handoff(app.clone(), adapter, path).await {
-            Ok(out) if out.findings > 0 || out.missing > 0 => flash("Copied · review"),
+        match copy_blocking(&app, &[row.id], CopyOptions::default()) {
+            Ok(out) if out.findings > 0 || out.missing > 0 => flash("Copied · check it"),
             Ok(_) => flash("Copied"),
             Err(_) => flash("Failed"),
         }

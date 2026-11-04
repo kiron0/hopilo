@@ -1,7 +1,7 @@
 // Hopilo's own interface icons, drawn for this app: 24px grid, 1.7 stroke,
 // round caps and joins, and a soft duotone fill (`duo`) that is always faintly
 // present and deepens when the icon is active (set `active`). Every icon in
-// the dashboard, menu-bar panel and Drop Shelf comes from this file.
+// the dashboard and menu-bar panel comes from this file.
 import type { ReactNode, SVGProps } from "react";
 
 export type IconProps = SVGProps<SVGSVGElement> & { size?: number; active?: boolean };

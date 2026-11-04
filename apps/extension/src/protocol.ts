@@ -2,7 +2,7 @@
 // (crates/native-host). Page content is always treated as data.
 
 export const HOST_NAME = "dev.hopilo.host";
-export const PROTOCOL = "1";
+export const PROTOCOL = "2";
 
 export type Provider = "chatgpt" | "claude" | "gemini" | "deepseek" | "grok" | "perplexity";
 export type Level = "balanced" | "full" | "minimal";
@@ -31,18 +31,19 @@ export interface CapturePayload {
   adapterVersion: string;
 }
 
-export interface PackSummary {
+export interface SessionSummary {
   id: string;
   title: string;
-  version: number;
+  provider: string;
   messageCount: number;
   tokenEstimate: number;
-  providers: string[];
+  fileCount: number;
+  updatedAt: string;
+  pinned: boolean;
 }
 
 export interface Draft {
-  packId: string;
-  version: number;
+  ids: string[];
   title: string;
   text: string;
   tokenEstimate: number;

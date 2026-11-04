@@ -174,3 +174,124 @@ fn relations_tags_and_audit() {
         .unwrap();
     assert_eq!(db.audit().unwrap().version_problems.len(), 1);
 }
+
+#[test]
+fn sessions_refresh_in_place_and_keep_pin_and_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/s.jsonl", "first turn");
+    let first = db.insert_capture(&s, &m).unwrap();
+    db.update_session(&first.source_id, &SessionPatch { pinned: Some(true), tags: Some(vec!["Auth".into()]), ..Default::default() })
+        .unwrap();
+
+    // The agent wrote more to the same file: same session, new content.
+    let (s2, mut m2) = capture("/s.jsonl", "first turn");
+    m2.push(Message { id: "m2".into(), source_id: s2.source_id.clone(), role: Role::Assistant, created_at: None, blocks: vec![Block::text("reply")] });
+    let again = db.upsert_session(&s2, &m2, Some("2030-01-01T00:00:00Z")).unwrap();
+    assert_eq!(again.source_id, first.source_id);
+    assert!(again.duplicate_of.is_none());
+
+    let rows = db.list_sessions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].message_count, 2);
+    assert!(rows[0].pinned);
+    assert_eq!(rows[0].tags, vec!["auth"]);
+    assert_eq!(rows[0].updated_at, "2030-01-01T00:00:00Z");
+    let (src, msgs) = db.get_source(&first.source_id).unwrap();
+    assert_eq!(src.source_id, first.source_id);
+    assert!(msgs.iter().all(|m| m.source_id == first.source_id));
+    assert_eq!(db.search("reply", 5).unwrap().len(), 1);
+}
+
+#[test]
+fn removed_agent_sessions_stay_hidden_until_captured_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/h.jsonl", "hide me");
+    let id = db.insert_capture(&s, &m).unwrap().source_id;
+    db.remove_session(&id).unwrap();
+    assert!(db.list_sessions().unwrap().is_empty());
+    assert!(db.session_origins().unwrap()["/h.jsonl"].hidden);
+
+    let (s2, m2) = capture("/h.jsonl", "hide me");
+    assert_eq!(db.insert_capture(&s2, &m2).unwrap().source_id, id);
+    assert_eq!(db.list_sessions().unwrap().len(), 1);
+}
+
+#[test]
+fn compose_combines_sessions_with_their_files_and_logs_copies() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let a = db.insert_capture(&capture("/a1", "one").0, &capture("/a1", "one").1).unwrap().source_id;
+    let (s, m) = capture("/a2", "two");
+    let b = db.insert_capture(&s, &m).unwrap().source_id;
+    let att = Attachment {
+        id: new_id(),
+        file_name: "notes.txt".into(),
+        media_type: "text/plain".into(),
+        size: 5,
+        sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into(),
+        origin_path: None,
+        text: Some("hello".into()),
+    };
+    db.insert_attachment(&att, b"hello").unwrap();
+    assert_eq!(db.add_files(Some(&b), &[att.clone()]).unwrap(), b);
+    assert_eq!(db.session_row(&b).unwrap().file_count, 1);
+
+    let pack = db.compose(&[a.clone(), b.clone()]).unwrap();
+    assert_eq!(pack.sources.len(), 2);
+    assert_eq!(pack.messages.len(), 3);
+    assert_eq!(pack.attachments.len(), 1);
+    assert!(pack.title.starts_with("2 sessions"));
+
+    db.record_copy(&[a.clone()], "chatgpt", "clipboard", "copied").unwrap();
+    assert!(db.session_row(&a).unwrap().last_copied_at.is_some());
+    assert_eq!(db.list_handoffs(1).unwrap()[0].pack_title.as_deref(), Some("Auth migration"));
+
+    let loose = db.add_files(None, &[att]).unwrap();
+    assert_eq!(db.session_row(&loose).unwrap().title, "notes.txt");
+}
+
+#[test]
+fn upgrade_folds_packs_and_loose_files_into_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    // An older capture and a newer one of the same file (pre-v3 behaviour).
+    let (old, old_m) = capture("/u.jsonl", "old");
+    let (new, new_m) = capture("/u.jsonl", "new");
+    for (s, m) in [(&old, &old_m), (&new, &new_m)] {
+        let text = m[0].blocks[0].plain_text().to_string();
+        db.conn
+            .execute(
+                "INSERT INTO sources (id, kind, provider, title, origin, captured_at, capture_status, source_json, message_count, token_estimate, content_hash)
+                 VALUES (?1, 'local-agent', 'claude-code', 't', '/u.jsonl', ?2, 'complete', ?3, 1, 1, ?4)",
+                params![s.source_id, if text == "old" { "2020" } else { "2021" }, serde_json::to_string(s).unwrap(), text],
+            )
+            .unwrap();
+    }
+    // A pack made from a source the library no longer has, with a note.
+    let (gone, gone_m) = capture("/gone.jsonl", "only in the pack");
+    let mut pack = pack_from(gone, gone_m);
+    pack.context.note = Some("Keep the API stable".into());
+    db.create_pack(pack, None).unwrap();
+    // A file added on its own.
+    let att = Attachment {
+        id: new_id(),
+        file_name: "spec.pdf".into(),
+        media_type: "application/pdf".into(),
+        size: 3,
+        sha256: "abc".into(),
+        origin_path: None,
+        text: None,
+    };
+    db.insert_attachment(&att, b"pdf").unwrap();
+
+    db.upgrade_to_sessions().unwrap();
+    let rows = db.list_sessions().unwrap();
+    let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+    assert_eq!(rows.iter().filter(|r| r.origin.as_deref() == Some("/u.jsonl")).count(), 1);
+    assert!(rows.iter().any(|r| r.id == new.source_id));
+    assert!(titles.contains(&"Project X — Auth Migration"), "{titles:?}");
+    assert!(titles.contains(&"Added files"), "{titles:?}");
+    assert!(rows.iter().any(|r| r.origin.as_deref() == Some("/gone.jsonl")));
+}

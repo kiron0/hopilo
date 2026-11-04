@@ -48,8 +48,8 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
                 const dup = out.filter((o) => o.duplicateOf).length;
                 toast({
                   kind: "success",
-                  text: `Imported ${out.length - dup} conversation(s)${dup ? `, ${dup} already in your library` : ""}.`,
-                  action: { label: "View", run: () => navigate({ page: "sessions", tab: "library" }) },
+                  text: `Imported ${out.length - dup} conversation(s)${dup ? `, ${dup} already saved` : ""}.`,
+                  action: out[0] ? { label: "Open", run: () => navigate({ page: "sessions", id: out[0].sourceId }) } : undefined,
                 });
                 onClose();
               } catch (e) {

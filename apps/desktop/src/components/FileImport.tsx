@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileImage, FileText, File as FileIcon, XCircle } from "./Icons";
-import { api, errorText, type Attachment, type FilePreflight } from "../lib/api";
+import { api, errorText, type FilePreflight } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useApp } from "../lib/store";
 import { Button, Checkbox, Modal, Spinner } from "./ui";
@@ -8,9 +8,11 @@ import { Button, Checkbox, Modal, Spinner } from "./ui";
 const KIND_ICON = { text: FileText, image: FileImage, pdf: FileText, binary: FileIcon };
 
 /** Preflight review for dropped or chosen files (DND-01, DND-09): shows
- *  type, size and warnings; nothing is stored until the user confirms. */
-export function FileImportModal({ paths, onClose, onImported }: { paths: string[]; onClose: () => void; onImported?: (a: Attachment[]) => void }) {
+ *  type, size and warnings; nothing is stored until the user confirms.
+ *  Files join `session`, or start a new session when it is null. */
+export function FileImportModal({ paths, session, onClose }: { paths: string[]; session: string | null; onClose: () => void }) {
   const toast = useApp((s) => s.toast);
+  const navigate = useApp((s) => s.navigate);
   const [files, setFiles] = useState<FilePreflight[] | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [skip, setSkip] = useState<Set<string>>(new Set());
@@ -32,10 +34,10 @@ export function FileImportModal({ paths, onClose, onImported }: { paths: string[
   const run = async () => {
     setBusy(true);
     try {
-      const r = await api.importFiles(accepted.map((f) => f.path));
+      const r = await api.addFiles(session, accepted.map((f) => f.path));
       if (r.errors.length) toast({ kind: "warning", text: `Some files were skipped: ${r.errors.join("; ")}` });
-      if (r.attachments.length) toast({ kind: "success", text: `Added ${r.attachments.length} file(s) to your library.` });
-      onImported?.(r.attachments);
+      if (r.added) toast({ kind: "success", text: `Added ${r.added} file${r.added === 1 ? "" : "s"}${session ? " to this session" : ""}.` });
+      if (r.sessionId && r.sessionId !== session) navigate({ page: "sessions", id: r.sessionId });
       onClose();
     } catch (e) {
       setError(errorText(e));
@@ -46,14 +48,14 @@ export function FileImportModal({ paths, onClose, onImported }: { paths: string[
 
   return (
     <Modal
-      title="Review files before importing"
+      title={session ? "Add files to this session" : "Add files as a new session"}
       onClose={onClose}
       wide
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="primary" busy={busy} disabled={!files || accepted.length === 0} onClick={run}>
-            Import {accepted.length} file{accepted.length === 1 ? "" : "s"}
+            Add {accepted.length} file{accepted.length === 1 ? "" : "s"}
           </Button>
         </>
       }
@@ -62,7 +64,7 @@ export function FileImportModal({ paths, onClose, onImported }: { paths: string[
       {!files && !error && <Spinner label="Checking files" />}
       {files && (
         <div className="space-y-3">
-          <p className="text-muted">Files are copied into Hopilo's local library. Originals are not changed.</p>
+          <p className="text-muted">Files are copied into Hopilo on this Mac. Originals are not changed.</p>
           <ul className="divide-y divide-line rounded-xl border border-line">
             {files.map((f) => {
               const Icon = KIND_ICON[f.kind];
@@ -70,7 +72,7 @@ export function FileImportModal({ paths, onClose, onImported }: { paths: string[
               return (
                 <li key={f.path} className="flex items-start gap-3 px-3.5 py-2.5">
                   <Checkbox
-                    label={`Import ${f.name}`}
+                    label={`Add ${f.name}`}
                     disabled={!f.accepted}
                     checked={on}
                     onChange={() => {

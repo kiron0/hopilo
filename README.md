@@ -1,16 +1,15 @@
 # Hopilo
 
-Move an AI conversation from one tool to another. Hopilo turns a chat or coding-agent session into a reviewable **Context Pack**, then copies it ready to paste into the next AI.
+Every AI session in one app. Hopilo keeps your conversations from coding agents and chat apps, with the files shared in them, and copies any of them, ready to paste into another AI.
 
-Local-first: no accounts, no network, and it never sends a message for you.
+Local-first: no accounts, no network, no AI inside the app, and it never sends a message for you.
 
 ## Use
 
-- **Menu bar** — one tap copies a handoff for a recent agent session or pack. Right-click › *Copy handoff for latest session* does it without opening anything.
-- **Dashboard** — browse sessions, build packs from sessions, files and notes, review and export (`.md`, `.json`, `.txt`, `.handoff`).
-- **Browser extension** — capture ChatGPT, Claude and Gemini chats, and insert a pack as an unsent draft.
-
-Reads Claude Code, Codex CLI, Gemini CLI, OpenCode and Qwen Code sessions (read-only), plus ChatGPT and Claude data exports.
+- **Sessions**: Claude Code, Codex CLI, Gemini CLI, OpenCode and Qwen Code sessions appear on their own and stay in step with their files (read-only). Web chats come in through the extension; pasted text, ChatGPT/Claude data exports, files and `.handoff` archives through **Add**.
+- **Copy**: one click puts a session on the clipboard for the AI you continue in. Pick Full, Balanced or Minimal (fixed rules, no summarizing model). Select several sessions to copy them together, or export `.md`, `.json`, `.txt` or `.handoff` (with files).
+- **Menu bar**: tap a recent session to copy it. Right-click › *Copy latest session* does it without opening anything.
+- **Browser extension**: save ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) with their files, and insert a session into the chat box as an unsent draft.
 
 ## Develop
 
@@ -33,7 +32,7 @@ Icons: edit the SVGs in `assets/logo/`, run `python3 assets/make_icons.py` (need
 crates/core          types, rendering, secret scan
 crates/adapters      session readers and chat-export parsers
 crates/pack-format   exports and .handoff archives
-crates/database      SQLite library
+crates/database      SQLite library (sessions, files, copy history)
 crates/native-host   browser bridge
 apps/desktop         Tauri shell (src-tauri) + React UI (src)
 apps/extension       Chromium MV3 extension

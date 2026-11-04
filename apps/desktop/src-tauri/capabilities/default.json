@@ -4,8 +4,7 @@
   "description": "Permissions for Hopilo's own windows",
   "windows": [
     "main",
-    "quick",
-    "shelf"
+    "quick"
   ],
   "permissions": [
     "core:default",

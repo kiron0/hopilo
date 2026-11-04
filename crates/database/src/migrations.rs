@@ -123,6 +123,18 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX pack_relations_to ON pack_relations(to_pack);
     ALTER TABLE packs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
     "#,
+    // 3: sessions are the only user-facing object. One row per origin,
+    // refreshed in place; packs stay stored but are folded into sessions by
+    // `Store::upgrade_to_sessions`.
+    r#"
+    ALTER TABLE sources ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sources ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE sources ADD COLUMN file_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sources ADD COLUMN updated_at TEXT;
+    ALTER TABLE sources ADD COLUMN last_copied_at TEXT;
+    ALTER TABLE sources ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+    UPDATE sources SET updated_at = captured_at;
+    "#,
 ];
 
 pub fn latest() -> usize {

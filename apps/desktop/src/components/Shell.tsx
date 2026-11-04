@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { BuildIcon, CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SessionsIcon, SettingsIcon, ToolsIcon, BrowserIcon, MapIcon } from "./Icons";
+import { SearchIcon, SessionsIcon, SettingsIcon, BrowserIcon } from "./Icons";
 import { api } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useLoad } from "../lib/hooks";
@@ -12,36 +12,9 @@ import { PageSlotsContext } from "./PageSlots";
 type NavIcon = (p: { size?: number; active?: boolean }) => ReactNode;
 type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string };
 
-const GROUPS: { title?: string; items: NavItem[] }[] = [
-  {
-    items: [
-      { page: "dashboard", label: "Home", icon: HomeIcon, hint: "Overview and quick actions" },
-      { page: "capture", label: "Capture", icon: CaptureIcon, hint: "Bring in a chat, text or files" },
-    ],
-  },
-  {
-    title: "Library",
-    items: [
-      { page: "sessions", label: "Sessions", icon: SessionsIcon, hint: "Conversations found or captured" },
-      { page: "packs", label: "Packs", icon: PacksIcon, hint: "Ready-to-share context, with versions" },
-      { page: "map", label: "Context Map", icon: MapIcon, hint: "Arrange, merge and split packs" },
-      { page: "attachments", label: "Files", icon: FilesIcon, hint: "Files you added" },
-    ],
-  },
-  {
-    title: "Workflows",
-    items: [
-      { page: "builder", label: "Build a pack", icon: BuildIcon, hint: "Combine sessions, files and notes" },
-      { page: "handoff", label: "Send to AI", icon: SendIcon, hint: "Review, then copy or export" },
-    ],
-  },
-  {
-    title: "Connect",
-    items: [
-      { page: "agents", label: "AI tools", icon: ToolsIcon, hint: "Supported apps and agents" },
-      { page: "browser", label: "Browser", icon: BrowserIcon, hint: "Extension for ChatGPT, Claude and Gemini" },
-    ],
-  },
+const NAV: NavItem[] = [
+  { page: "sessions", label: "Sessions", icon: SessionsIcon, hint: "Every conversation, with its files" },
+  { page: "browser", label: "Browser", icon: BrowserIcon, hint: "Extension for ChatGPT, Claude, Gemini and more" },
 ];
 
 function LibraryCard() {
@@ -55,9 +28,9 @@ function LibraryCard() {
         {s ? <span className="font-mono text-[10.5px] text-faint">{bytes(s.storageBytes)}</span> : <Skeleton className="h-2.5 w-10" />}
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
-        <div className="bg-brand h-full rounded-full" style={{ width: s ? `${Math.min(100, 8 + s.packCount * 6)}%` : "8%" }} />
+        <div className="bg-brand h-full rounded-full" style={{ width: s ? `${Math.min(100, 8 + s.providerCount * 12)}%` : "8%" }} />
       </div>
-      {s ? <div className="mt-1.5 text-[11px] text-muted">{`${s.packCount} packs · ${s.sourceCount} sessions`}</div> : <Skeleton className="mt-2 h-2.5 w-2/3" />}
+      {s ? <div className="mt-1.5 text-[11px] text-muted">{`${s.sourceCount} sessions · ${s.providerCount} tools`}</div> : <Skeleton className="mt-2 h-2.5 w-2/3" />}
       <div className="text-[11px] text-faint">Stays on this Mac</div>
     </button>
   );
@@ -66,7 +39,6 @@ function LibraryCard() {
 export function Shell({ children }: { children: ReactNode }) {
   const route = useApp((s) => s.route);
   const navigate = useApp((s) => s.navigate);
-  const draftCount = useApp((s) => s.draft.items.length);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
@@ -96,9 +68,6 @@ export function Shell({ children }: { children: ReactNode }) {
             <it.icon size={18} active={active} />
           </span>
           <span className="flex-1">{it.label}</span>
-          {it.page === "builder" && draftCount > 0 && (
-            <span className="rounded-full bg-accent-soft px-1.5 font-mono text-[10.5px] font-semibold text-accent">{draftCount}</span>
-          )}
         </button>
       </li>
     );
@@ -118,12 +87,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <span data-tauri-drag-region className="font-display text-[17px] font-semibold">Hopilo</span>
         </div>
         <nav aria-label="Main" className="flex-1 overflow-auto">
-          {GROUPS.map((g, i) => (
-            <div key={i} className="mb-3">
-              {g.title && <div className="label-mono mb-1.5 px-3 text-faint">{g.title}</div>}
-              <ul className="space-y-0.5">{g.items.map(link)}</ul>
-            </div>
-          ))}
+          <ul className="space-y-0.5">{NAV.map(link)}</ul>
         </nav>
         <div className="space-y-2 pb-3">
           <ul>{link({ page: "settings", label: "Settings", icon: SettingsIcon, hint: "Preferences" })}</ul>

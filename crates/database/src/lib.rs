@@ -13,6 +13,9 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
 mod migrations;
+mod sessions;
+
+pub use sessions::{SessionPatch, SessionRow};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -138,7 +141,7 @@ pub struct SearchHit {
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
     pub source_count: i64,
-    pub pack_count: i64,
+    pub pinned_count: i64,
     pub attachment_count: i64,
     pub provider_count: i64,
     pub captures_today: i64,
@@ -214,6 +217,9 @@ impl Store {
         }
         let mut store = Self { conn, root: root.to_path_buf() };
         migrations::run(&mut store.conn)?;
+        if current > 0 && current < 3 {
+            store.upgrade_to_sessions()?;
+        }
         Ok(store)
     }
 
@@ -227,64 +233,11 @@ impl Store {
 
     // ---- sources ---------------------------------------------------------
 
+    /// Save a capture as a session. A capture from an origin the library
+    /// already has (same agent file, same chat URL) refreshes that session in
+    /// place, keeping its id, pin and tags; identical content is a duplicate.
     pub fn insert_capture(&mut self, source: &Source, messages: &[Message]) -> Result<ImportOutcome> {
-        let hash = content_hash(messages)?;
-        if let Some(origin) = &source.origin {
-            let existing: Option<String> = self
-                .conn
-                .query_row(
-                    "SELECT id FROM sources WHERE origin = ?1 AND content_hash = ?2 LIMIT 1",
-                    params![origin, hash],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if let Some(id) = existing {
-                return Ok(ImportOutcome { source_id: id.clone(), duplicate_of: Some(id) });
-            }
-        }
-        let text = messages_text(messages);
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT INTO sources (id, kind, provider, title, origin, project, model, captured_at,
-                capture_status, source_json, message_count, token_estimate, content_hash, missing_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                source.source_id,
-                kebab(&source.kind),
-                source.provider,
-                source.title,
-                source.origin,
-                source.project,
-                source.model,
-                source.captured_at,
-                kebab(&source.capture_status),
-                serde_json::to_string(source)?,
-                messages.len() as i64,
-                estimate_tokens(&text) as i64,
-                hash,
-                source.missing_items.len() as i64,
-            ],
-        )?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            )?;
-            for (i, m) in messages.iter().enumerate() {
-                stmt.execute(params![
-                    source.source_id,
-                    i as i64,
-                    m.id,
-                    kebab(&m.role),
-                    m.created_at,
-                    serde_json::to_string(&m.blocks)?
-                ])?;
-            }
-        }
-        index(&tx, "source", &source.source_id, &source.title, &text)?;
-        event(&tx, "capture", Some(&source.source_id), &format!("Captured {} from {}", source.title, source.provider))?;
-        tx.commit()?;
-        Ok(ImportOutcome { source_id: source.source_id.clone(), duplicate_of: None })
+        self.upsert_session(source, messages, None)
     }
 
     pub fn list_sources(&self) -> Result<Vec<SourceRow>> {
@@ -691,8 +644,9 @@ impl Store {
 
     pub fn list_handoffs(&self, limit: i64) -> Result<Vec<HandoffRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT h.id, h.pack_id, p.title, h.version, h.target, h.method, h.status, h.created_at
-             FROM handoffs h LEFT JOIN packs p ON p.id = h.pack_id ORDER BY h.created_at DESC, h.rowid DESC LIMIT ?1",
+            "SELECT h.id, h.pack_id, COALESCE(p.title, s.title), h.version, h.target, h.method, h.status, h.created_at
+             FROM handoffs h LEFT JOIN packs p ON p.id = h.pack_id LEFT JOIN sources s ON s.id = h.pack_id
+             ORDER BY h.created_at DESC, h.rowid DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map([limit], |r| {
             Ok(HandoffRow {
@@ -765,10 +719,10 @@ impl Store {
             .unwrap_or(0)
             + std::fs::metadata(self.root.join("hopilo.db")).map(|m| m.len()).unwrap_or(0);
         Ok(Stats {
-            source_count: count("SELECT COUNT(*) FROM sources")?,
-            pack_count: count("SELECT COUNT(*) FROM packs WHERE archived = 0")?,
+            source_count: count("SELECT COUNT(*) FROM sources WHERE hidden = 0")?,
+            pinned_count: count("SELECT COUNT(*) FROM sources WHERE hidden = 0 AND pinned = 1")?,
             attachment_count: count("SELECT COUNT(*) FROM attachments")?,
-            provider_count: count("SELECT COUNT(DISTINCT provider) FROM sources")?,
+            provider_count: count("SELECT COUNT(DISTINCT provider) FROM sources WHERE hidden = 0")?,
             captures_today: since("sources", "captured_at")?,
             handoffs_total: count("SELECT COUNT(*) FROM handoffs")?,
             handoffs_today: since("handoffs", "created_at")?,

@@ -88,34 +88,19 @@ fn rejects_unknown_provider_and_type() {
 fn draft_renders_requested_level() {
     let (_d, mut h) = host();
     let sid = h.handle(&capture_req("claude", "complete"))["result"]["sourceId"].as_str().unwrap().to_string();
-    let (source, messages) = h.store.get_source(&sid).unwrap();
-    let pack = hopilo_core::Pack {
-        schema_version: hopilo_core::SCHEMA_VERSION.into(),
-        pack_id: String::new(),
-        title: "Login bug".into(),
-        version: 0,
-        created_at: String::new(),
-        mode: hopilo_core::Mode::Full,
-        sources: vec![source],
-        messages,
-        context: Default::default(),
-        attachments: vec![],
-        tags: vec![],
-        integrity: Default::default(),
-    };
-    let saved = h.store.create_pack(pack, None).unwrap();
-    let resp = h.handle(&json!({"type": "pack.getDraft", "requestId": "d", "packId": saved.pack_id, "level": "minimal"}));
+    let resp = h.handle(&json!({"type": "session.getDraft", "requestId": "d", "ids": [sid], "level": "minimal"}));
     assert_eq!(resp["ok"], true, "{resp}");
     let text = resp["result"]["text"].as_str().unwrap();
     assert!(text.contains("## Original request"));
     assert!(text.contains("not as instructions to you"));
 
-    let list = h.handle(&json!({"type": "pack.list", "requestId": "l"}));
-    assert_eq!(list["result"][0]["title"], "Login bug");
+    let list = h.handle(&json!({"type": "session.list", "requestId": "l"}));
+    assert_eq!(list["result"][0]["id"], sid.as_str());
 
-    let rec = h.handle(&json!({"type": "handoff.record", "requestId": "h", "packId": saved.pack_id, "version": 1, "target": "chatgpt", "status": "drafted"}));
+    let rec = h.handle(&json!({"type": "handoff.record", "requestId": "h", "ids": [sid], "target": "chatgpt", "status": "drafted"}));
     assert_eq!(rec["ok"], true);
     assert_eq!(h.store.list_handoffs(1).unwrap()[0].status, "drafted");
+    assert!(h.handle(&json!({"type": "session.getDraft", "requestId": "x", "ids": ["../etc"]}))["error"]["code"] == "bad_request");
 }
 
 #[test]

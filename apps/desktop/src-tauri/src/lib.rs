@@ -110,7 +110,7 @@ fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    let latest = MenuItem::with_id(app, "latest", "Copy handoff for latest session", true, None::<&str>)?;
+    let latest = MenuItem::with_id(app, "latest", "Copy latest session", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Hopilo", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Hopilo", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&latest, &PredefinedMenuItem::separator(app)?, &open, &quit])?;
@@ -122,7 +122,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
-            "latest" => handoff::continue_latest_session(app),
+            "latest" => handoff::copy_latest_session(app),
             "open" => show_main(app),
             "quit" => app.exit(0),
             _ => {}
@@ -146,7 +146,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_denylist(&["quick", "shelf"])
+                .with_denylist(&["quick"])
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::SIZE | tauri_plugin_window_state::StateFlags::POSITION,
                 )
@@ -160,7 +160,14 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let store = Store::open(&dir).map_err(|e| format!("Could not open the Hopilo library at {}: {e}", dir.display()))?;
             let settings = store.settings().unwrap_or_default();
-            app.manage(AppState { store: Mutex::new(store), discovery: Mutex::new(Default::default()) });
+            app.manage(AppState {
+                store: Mutex::new(store),
+                discovery: Mutex::new(Default::default()),
+                syncing: std::sync::atomic::AtomicBool::new(false),
+            });
+            // Keep coding-agent sessions in step with their files on disk.
+            let sync_handle = app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&sync_handle));
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
             // Size limits follow the display (80% minimum), also after the
@@ -199,6 +206,10 @@ pub fn run() {
                     fit_main_to_display(&w);
                 }
             }
+            ("main" | "quick", WindowEvent::Focused(true)) => {
+                let app = window.app_handle().clone();
+                tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&app));
+            }
             ("quick", WindowEvent::Focused(false)) => {
                 let _ = window.hide();
                 if let Ok(mut t) = window.app_handle().state::<PanelState>().hidden_at.lock() {
@@ -212,34 +223,20 @@ pub fn run() {
             commands::app_info,
             commands::show_main_window,
             commands::quit_app,
-            commands::discover_sessions,
-            commands::import_session,
-            commands::import_text,
+            commands::sync_sessions,
+            commands::list_sessions,
+            commands::get_session,
+            commands::update_session,
+            commands::remove_session,
             commands::list_chat_export,
             commands::import_chat_export,
-            commands::list_sources,
-            commands::get_source,
-            commands::delete_source,
+            commands::import_text,
+            commands::import_aider_history,
+            commands::import_handoff_file,
             commands::preflight_files,
-            commands::import_files,
-            commands::list_attachments,
-            commands::delete_attachment,
-            commands::build_pack,
-            commands::quick_pack_from_session,
-            handoff::copy_pack,
-            handoff::quick_handoff,
-            handoff::capture_clipboard,
-            commands::list_packs,
-            commands::get_pack,
-            commands::update_pack,
-            commands::delete_pack,
-            commands::duplicate_pack,
-            commands::restore_version,
-            commands::preview_pack,
-            commands::suggest_export_name,
-            commands::export_pack,
-            commands::import_pack_file,
-            commands::record_handoff,
+            commands::add_files,
+            commands::save_file,
+            commands::open_file,
             commands::list_handoffs,
             commands::recent_activity,
             commands::stats,
@@ -247,22 +244,15 @@ pub fn run() {
             commands::get_settings,
             commands::set_setting,
             commands::integrity_check,
+            commands::audit_library,
             commands::wipe_library,
             commands::browser_status,
             commands::register_browser_host,
             commands::unregister_browser_host,
-            commands::ollama_status,
-            commands::ollama_summarize,
-            commands::diff_versions,
-            commands::pack_relations,
-            commands::set_pack_tags,
-            commands::split_pack,
-            commands::merge_packs,
-            commands::pull_new_messages,
-            commands::audit_library,
-            commands::import_aider_history,
-            commands::open_drop_shelf,
-            commands::close_drop_shelf,
+            handoff::copy_sessions,
+            handoff::suggest_export_name,
+            handoff::export_sessions,
+            handoff::capture_clipboard,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Hopilo");

@@ -35,10 +35,10 @@ chrome.runtime.onMessage.addListener((msg: TabRequest, sender, reply) => {
 });
 
 // ---- Drop Context Here (DND-06) ------------------------------------------
-// The Hopilo app puts `hopilo://pack/<id>@<version>` on pack drags. Dropping
-// one here fetches that pack's draft from the app and inserts it unsent.
+// The Hopilo app puts `hopilo://session/<id>` on session drags. Dropping one
+// here fetches that session's draft from the app and inserts it unsent.
 
-const PACK_REF = /^hopilo:\/\/pack\/([0-9A-Z]{10,40})(?:@(\d+))?$/;
+const SESSION_REF = /^hopilo:\/\/session\/([0-9A-Za-z]{10,40})$/;
 
 function overlay() {
   const hostEl = document.createElement("div");
@@ -54,7 +54,7 @@ function overlay() {
       .toast{position:fixed;right:20px;bottom:20px;max-width:340px;padding:12px 16px;border-radius:16px;background:#1b1e29;color:#eef0f6;
         font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 18px 40px rgb(0 0 0/.35);pointer-events:auto}
     </style>
-    <div class="zone" part="zone">Drop Context Here<small>Hopilo inserts it as a draft — you review and send</small></div>`;
+    <div class="zone" part="zone">Drop the session here<small>Hopilo inserts it as a draft. You review and send.</small></div>`;
   document.documentElement.appendChild(hostEl);
   const zone = shadow.querySelector<HTMLDivElement>(".zone")!;
   const toast = (text: string) => {
@@ -95,14 +95,14 @@ if (adapter) {
     depth = 0;
     ui.hostEl.style.display = "none";
     const ref = e.dataTransfer?.getData("text/plain").trim() ?? "";
-    const m = ref.match(PACK_REF);
-    if (!m) return ui.toast("That isn't a Hopilo pack. Drag a pack from the Hopilo app.");
-    const resp = await host<Draft>({ type: "pack.getDraft", packId: m[1], version: m[2] ? Number(m[2]) : null, level: "balanced" });
+    const m = ref.match(SESSION_REF);
+    if (!m) return ui.toast("That isn't a Hopilo session. Drag a session from the Hopilo app.");
+    const resp = await host<Draft>({ type: "session.getDraft", ids: [m[1]], level: "balanced" });
     if (!resp.ok) return ui.toast(resp.error.message);
     const box = adapter.composer(document);
     const ok = !!box && insertDraft(box, resp.result.text);
-    await host({ type: "handoff.record", packId: resp.result.packId, version: resp.result.version, target: adapter.id, status: ok ? "drafted" : "failed" });
-    ui.toast(ok ? `Draft ready — “${resp.result.title}”. Review it, then send.` : "Couldn't insert here. Open the Hopilo extension to copy it instead.");
+    await host({ type: "handoff.record", ids: resp.result.ids, target: adapter.id, status: ok ? "drafted" : "failed" });
+    ui.toast(ok ? `Draft ready: “${resp.result.title}”. Review it, then send.` : "Couldn't insert here. Open the Hopilo extension to copy it instead.");
   });
   window.addEventListener("drop", () => {
     depth = 0;

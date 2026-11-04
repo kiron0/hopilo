@@ -1,10 +1,11 @@
-// Toolbar popup: capture the open chat, or insert a pack as an unsent draft.
-import type { CaptureReply, Draft, HostResponse, InsertReply, Level, PackSummary, PingReply, Provider, TabRequest } from "./protocol";
+// Toolbar popup: save the open chat as a session, or insert a session as an unsent draft.
+import { PROTOCOL } from "./protocol";
+import type { CaptureReply, Draft, HostResponse, InsertReply, Level, PingReply, SessionSummary, Provider, TabRequest } from "./protocol";
 
 const NAMES: Record<Provider, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek (experimental)", grok: "Grok (experimental)", perplexity: "Perplexity (experimental)" };
 
-// Same drawing as the desktop app's PacksIcon (apps/desktop/src/components/Icons.tsx).
-const PACK_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path class="duo" d="M12 4 3.5 8.5 12 13l8.5-4.5z"/><path d="M12 4 3.5 8.5 12 13l8.5-4.5z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5"/></svg>`;
+// Same drawing as the desktop app's SessionsIcon (apps/desktop/src/components/Icons.tsx).
+const SESSION_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path class="duo" d="M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z"/><path d="M8.5 8V6a2 2 0 0 1 2-2H18a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-1v2.2"/><path d="M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z"/></svg>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -29,15 +30,23 @@ function status(text: string, tone: "ok" | "warn" | "err" | "info" = "info") {
   el.hidden = !text;
 }
 
+function ago(iso: string) {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (!Number.isFinite(min) || min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 60 * 24) return `${Math.round(min / 60)} h ago`;
+  return `${Math.round(min / 60 / 24)} d ago`;
+}
+
 function tokens(n: number) {
   return n < 1000 ? `~${n}` : `~${(n / 1000).toFixed(1)}k`;
 }
 
 let page: PingReply | null = null;
-let picked: PackSummary | null = null;
+let picked: SessionSummary | null = null;
 
 async function init() {
-  const hello = await host<{ version: string }>({ type: "hello", protocol: "1", extensionVersion: chrome.runtime.getManifest().version });
+  const hello = await host<{ version: string }>({ type: "hello", protocol: PROTOCOL, extensionVersion: chrome.runtime.getManifest().version });
   const dot = $("conn");
   if (!hello.ok) {
     dot.dataset.state = "off";
@@ -59,29 +68,29 @@ async function init() {
     cap.disabled = true;
   }
 
-  const packs = await host<PackSummary[]>({ type: "pack.list" });
-  const list = $("packs");
+  const sessions = await host<SessionSummary[]>({ type: "session.list" });
+  const list = $("sessions");
   list.replaceChildren();
-  if (!packs.ok || packs.result.length === 0) {
-    list.innerHTML = `<li class="empty">No packs yet. Build one in the Hopilo app.</li>`;
+  if (!sessions.ok || sessions.result.length === 0) {
+    list.innerHTML = `<li class="empty">No sessions yet. Capture a chat above, or open the Hopilo app.</li>`;
     return;
   }
-  for (const p of packs.result) {
+  for (const p of sessions.result) {
     const li = document.createElement("li");
     const b = document.createElement("button");
     b.type = "button";
     b.className = "pack";
     b.dataset.id = p.id;
-    b.innerHTML = `${PACK_ICON}<span class="txt"><span class="t"></span><span class="m"></span></span>`;
+    b.innerHTML = `${SESSION_ICON}<span class="txt"><span class="t"></span><span class="m"></span></span>`;
     b.querySelector(".t")!.textContent = p.title;
-    b.querySelector(".m")!.textContent = `v${p.version} · ${p.messageCount} msgs · ${tokens(p.tokenEstimate)} tokens`;
+    b.querySelector(".m")!.textContent = [p.provider, `${p.messageCount} msgs`, p.fileCount ? `${p.fileCount} files` : "", `${tokens(p.tokenEstimate)} tokens`, ago(p.updatedAt)].filter(Boolean).join(" · ");
     b.addEventListener("click", () => choose(p));
     li.appendChild(b);
     list.appendChild(li);
   }
 }
 
-function choose(p: PackSummary) {
+function choose(p: SessionSummary) {
   picked = p;
   for (const el of document.querySelectorAll<HTMLButtonElement>(".pack")) el.setAttribute("aria-current", String(el.dataset.id === p.id));
   $("pick-title").textContent = p.title;
@@ -110,7 +119,7 @@ $("capture").addEventListener("click", async () => {
   if (!saved.ok) {
     status(saved.error.message, "err");
   } else if (saved.result.duplicateOf) {
-    status("Already in Hopilo — nothing changed since the last capture.", "info");
+    status("Already in Hopilo: nothing changed since the last capture.", "info");
   } else if (saved.result.status === "partial") {
     status(`Saved ${saved.result.messageCount} messages, but some may be missing: ${res.payload.missing.join("; ")}`, "warn");
   } else {
@@ -123,7 +132,7 @@ $("insert").addEventListener("click", async () => {
   if (!picked) return;
   const level = (document.querySelector<HTMLInputElement>("input[name=level]:checked")?.value ?? "balanced") as Level;
   status("Preparing draft…");
-  const d = await host<Draft>({ type: "pack.getDraft", packId: picked.id, version: picked.version, level });
+  const d = await host<Draft>({ type: "session.getDraft", ids: [picked.id], level });
   if (!d.ok) return status(d.error.message, "err");
   const warn = [d.result.findings ? `${d.result.findings} possible secret(s)` : "", d.result.missing ? `${d.result.missing} missing item(s)` : ""].filter(Boolean);
   let inserted = false;
@@ -133,13 +142,13 @@ $("insert").addEventListener("click", async () => {
   if (!inserted) {
     await navigator.clipboard.writeText(d.result.text);
   }
-  await host({ type: "handoff.record", packId: d.result.packId, version: d.result.version, target: page?.provider ?? "other", status: inserted ? "drafted" : "copied" });
+  await host({ type: "handoff.record", ids: d.result.ids, target: page?.provider ?? "other", status: inserted ? "drafted" : "copied" });
   const tail = warn.length ? ` Check before sending: ${warn.join(", ")}.` : "";
   const files = d.result.attachManually.length ? ` Attach yourself: ${d.result.attachManually.join(", ")}.` : "";
   status(
     inserted
       ? `Draft inserted (${tokens(d.result.tokenEstimate)} tokens). Review it, then send.${tail}${files}`
-      : `Copied to the clipboard instead — paste with ⌘V.${tail}${files}`,
+      : `Copied to the clipboard instead. Paste with ⌘V.${tail}${files}`,
     inserted ? "ok" : "warn",
   );
 });

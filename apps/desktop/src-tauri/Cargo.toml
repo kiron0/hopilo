@@ -24,11 +24,10 @@ hopilo-adapters.workspace = true
 hopilo-pack-format.workspace = true
 hopilo-database.workspace = true
 hopilo-native-host = { path = "../../../crates/native-host" }
-ureq = { version = "2", default-features = false, features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
-# macos-private-api: transparent borderless windows (rounded Quick Panel and
-# Drop Shelf). No vibrancy is used.
+# macos-private-api: transparent borderless windows (rounded Quick Panel).
+# No vibrancy is used.
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
