@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Loader2, Power } from "lucide-react";
-import { api, type DiscoveredRow, type PackRow } from "../lib/api";
+import { api, type DiscoveredRow } from "../lib/api";
 import { captureClipboard, copyHandoff, quickHandoff } from "../lib/actions";
 import { basename, provider, relativeTime } from "../lib/format";
 import { useBootstrap, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
-import { Button, IconButton, Kbd, Skeleton } from "../components/ui";
+import { IconButton, Kbd, Skeleton } from "../components/ui";
 import { CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SettingsIcon } from "../components/Icons";
 import { ProviderBadge } from "../pages/Dashboard";
 
@@ -18,7 +18,6 @@ export function QuickPanel() {
   const settings = useApp((s) => s.settings);
   const sessions = useLoad(() => api.discoverSessions(), [], { refreshOnChange: false });
   const packs = useLoad(() => api.listPacks());
-  const [selected, setSelected] = useState<PackRow | null>(null);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -45,7 +44,6 @@ export function QuickPanel() {
   const needle = q.trim().toLowerCase();
   const recentPacks = (packs.data ?? []).filter((p) => !p.archived && (!needle || p.title.toLowerCase().includes(needle))).slice(0, 4);
   const recentSessions = (sessions.data ?? []).filter((s) => !needle || s.title.toLowerCase().includes(needle)).slice(0, 4);
-  const sel = selected ?? recentPacks[0] ?? null;
 
   if (!ready) return null;
 
@@ -134,39 +132,42 @@ export function QuickPanel() {
           ))}
           {sessions.data && recentSessions.length === 0 && <div className="px-3 py-1.5 text-faint">No sessions found.</div>}
 
-          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Recent packs</div>
+          <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Copy a pack</div>
           {recentPacks.map((p) => (
-            <button key={p.id} type="button" data-row aria-current={sel?.id === p.id ? "page" : undefined} className={row} onClick={() => setSelected(p)}>
-              <span className={sel?.id === p.id ? "text-accent" : "text-faint"}>
-                <PacksIcon size={17} active={sel?.id === p.id} />
-              </span>
-              <span className="min-w-0 flex-1 truncate">{p.title}</span>
-              <span className="font-mono text-[10.5px] text-faint">v{p.latestVersion}</span>
-            </button>
+            <div key={p.id} className="group relative">
+              <button
+                type="button"
+                data-row
+                className={`${row} pr-10`}
+                disabled={busy === p.id}
+                title={`Copy for ${target(settings.defaultTarget).label}`}
+                onClick={async () => {
+                  setBusy(p.id);
+                  await copyHandoff(p.id, p.latestVersion, settings.defaultTarget, settings.toolDetail, settings.level);
+                  setBusy(null);
+                }}
+              >
+                <span className="text-faint"><PacksIcon size={17} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-ink">{p.title}</span>
+                  <span className="block truncate font-mono text-[10.5px] text-faint">v{p.latestVersion} · {relativeTime(p.updatedAt)}</span>
+                </span>
+                {busy === p.id ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
+              </button>
+              <button
+                type="button"
+                aria-label={`Review ${p.title}`}
+                title="Review in the dashboard"
+                onClick={() => api.showMainWindow("handoff")}
+                className="absolute top-1/2 right-8 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-3 hover:text-ink focus-visible:opacity-100"
+              >
+                <SendIcon size={13} />
+              </button>
+            </div>
           ))}
           {packs.data && recentPacks.length === 0 && <div className="px-3 py-1.5 text-faint">No packs yet.</div>}
         </div>
 
-        {sel && (
-          <div className="shrink-0 border-t border-line px-3 py-3">
-            <div className="mb-2 truncate text-[12px] text-muted">
-              Selected: <span className="font-medium text-ink">{sel.title}</span>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                className="flex-1"
-                icon={<Copy size={14} />}
-                onClick={() => copyHandoff(sel.id, sel.latestVersion, settings.defaultTarget, settings.toolDetail, settings.level)}
-              >
-                Copy for {target(settings.defaultTarget).label}
-              </Button>
-              <Button icon={<SendIcon size={14} />} onClick={() => api.showMainWindow("handoff")}>
-                Review
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
 
       <footer className="flex shrink-0 items-center justify-between px-3 pb-2.5 text-[12.5px]">

@@ -59,7 +59,7 @@ export function CommandPalette() {
       >
         <div className="flex items-center gap-2 border-b border-line px-4">
           <Search size={16} className="text-faint" />
-          <Command.Input autoFocus value={q} onValueChange={setQ} placeholder="Search packs, sessions, files — or type a command" className="h-12 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-faint" />
+          <Command.Input autoFocus value={q} onValueChange={setQ} aria-label="Search packs, sessions, files, or type a command" className="h-12 flex-1 bg-transparent text-[14px] text-ink outline-none" />
         </div>
         <Command.List className="max-h-[360px] overflow-auto p-2">
           <Command.Empty className="px-3 py-6 text-center text-muted">No matches.</Command.Empty>

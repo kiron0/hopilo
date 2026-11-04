@@ -87,6 +87,11 @@ export function installMockIpc() {
         return { pack: { schemaVersion: "1.0.0", packId: "p1", title: "DevDock architecture handoff", version: 3, createdAt: ago(2), mode: "full", sources: [], messages: MESSAGES, context: { note: null }, attachments: [], tags: [] }, versions: [3, 2, 1].map((v) => ({ version: v, createdAt: ago(v * 30), label: v === 1 ? null : "Edited in Builder", mode: "full", messageCount: 58, tokenEstimate: 22_000, contentHash: "abc" })) };
       case "preview_pack":
         return PREVIEW;
+      case "copy_pack":
+      case "quick_handoff":
+        return { packId: "p1", version: 3, title: "DevDock architecture handoff", target: "chatgpt", tokenEstimate: 22_000, missing: 1, findings: 1 };
+      case "capture_clipboard":
+        return { sourceId: "s9", duplicateOf: null, messageCount: 1, chars: 1240 };
       case "list_handoffs":
         return [{ id: "h1", packId: "p1", packTitle: "DevDock architecture handoff", version: 3, target: "chatgpt", method: "clipboard", status: "copied", createdAt: ago(5) }];
       case "list_chat_export":
