@@ -65,7 +65,7 @@ export function Browser() {
 
       <Step n={1} title="Add the extension to your browser" done={seen}>
         <p className="text-muted">
-          In Chrome, Edge, Brave or Arc: open <code className="font-mono text-[12px]">chrome:
+          In Chrome, Edge, Brave or Arc: open <code className="font-mono text-[12px]">chrome://extensions</code>, turn on <b>Developer mode</b>, choose <b>Load unpacked</b> and select this folder.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <code data-selectable className="max-w-full truncate rounded-xl border border-line bg-surface-2 px-3 py-1.5 font-mono text-[12px]">{data.extensionDir ?? "apps/extension/dist (run pnpm --filter @hopilo/extension build)"}</code>
