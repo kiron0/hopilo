@@ -407,7 +407,10 @@
     min-height: 0;
     width: 100%;
     padding-top: 4px;
-    padding-bottom: 6px !important;
+    padding-bottom: 28px !important;
+  }
+  .page-scroll:has(.page-fill):has(~ .page-footer-slot:not(:empty)) > .page-inner {
+    padding-bottom: 12px !important;
   }
   .page-scroll:has(.page-fill) > .page-inner > *,
   .page-fill {
