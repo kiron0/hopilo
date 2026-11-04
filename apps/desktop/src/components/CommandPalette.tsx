@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Command } from "cmdk";
-import { Globe, ClipboardPaste, LayoutDashboard, MessagesSquare, Search, Settings } from "./Icons";
+import { Globe, ClipboardPaste, LayoutDashboard, MessagesSquare, Search, Settings, X } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
 import { captureClipboard } from "../lib/actions";
 import { type Route, useApp } from "../lib/store";
+import { IconButton, Kbd } from "./ui";
 
 const PAGES: { route: Route; label: string; icon: React.ReactNode }[] = [
   { route: { page: "home" }, label: "Home", icon: <LayoutDashboard size={15} /> },
@@ -29,56 +31,113 @@ export function CommandPalette() {
     return () => clearTimeout(t);
   }, [q]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
   const go = (r: Route) => {
     navigate(r);
     setOpen(false);
   };
   const openHit = (h: SearchHit) => go({ page: "sessions", id: h.refId });
 
-  const item = "flex h-9 cursor-default items-center gap-2.5 rounded-lg px-2.5 text-[13px] data-[selected=true]:bg-accent-soft data-[selected=true]:text-ink text-muted";
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 pt-[14vh]" onMouseDown={() => setOpen(false)}>
+  const item =
+    "flex h-9.5 cursor-pointer items-center gap-2.5 rounded-xl px-3 text-[13px] text-muted transition-colors data-[selected=true]:bg-accent-soft data-[selected=true]:text-ink hover:bg-surface-2";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6 pt-[12vh] backdrop-blur-[6px]"
+      onMouseDown={() => setOpen(false)}
+    >
       <Command
-        label="Command menu"
+        label="Search & Commands"
         shouldFilter={true}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        className="animate-pop w-[560px] overflow-hidden rounded-2xl border border-line bg-surface shadow-pop"
+        className="animate-pop flex w-full max-w-xl flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden"
       >
-        <div className="flex items-center gap-2 border-b border-line px-4">
-          <Search size={16} className="text-faint" />
-          <Command.Input autoFocus value={q} onValueChange={setQ} aria-label="Search every session, or type a command" placeholder="Search every session, or type a command" className="h-12 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-faint" />
+        <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+          <Search size={18} className="text-faint shrink-0" />
+          <Command.Input
+            autoFocus
+            value={q}
+            onValueChange={setQ}
+            aria-label="Search sessions, tools, or type a command"
+            placeholder="Search sessions, tools, or type a command…"
+            className="h-9 flex-1 bg-transparent text-[14.5px] text-ink outline-none placeholder:text-faint"
+          />
+          <IconButton label="Close" onClick={() => setOpen(false)}>
+            <X size={16} />
+          </IconButton>
         </div>
-        <Command.List className="max-h-[360px] overflow-auto p-2">
-          <Command.Empty className="px-3 py-6 text-center text-muted">No matches.</Command.Empty>
+
+        <Command.List className="max-h-[380px] overflow-auto p-3">
+          <Command.Empty className="px-3 py-8 text-center text-[13px] text-muted">
+            No matching sessions or commands.
+          </Command.Empty>
           {hits.length > 0 && (
-            <Command.Group heading="Sessions" className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:text-faint">
+            <Command.Group
+              heading="Sessions"
+              className="mb-2 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-faint"
+            >
               {hits.map((h) => (
-                <Command.Item key={`${h.kind}-${h.refId}`} value={`${h.title} ${h.snippet} ${h.refId}`} onSelect={() => openHit(h)} className={item}>
-                  <MessagesSquare size={15} />
+                <Command.Item
+                  key={`${h.kind}-${h.refId}`}
+                  value={`${h.title} ${h.snippet} ${h.refId}`}
+                  onSelect={() => openHit(h)}
+                  className={item}
+                >
+                  <MessagesSquare size={16} className="shrink-0 text-faint" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-ink">{h.title}</div>
-                    <div className="truncate text-[11.5px] text-faint">{h.snippet.replace(/\s+/g, " ")}</div>
+                    <div className="truncate font-medium text-ink">{h.title}</div>
+                    <div className="truncate text-[11.5px] text-faint">
+                      {h.snippet.replace(/\s+/g, " ")}
+                    </div>
                   </div>
                 </Command.Item>
               ))}
             </Command.Group>
           )}
-          <Command.Group heading="Actions" className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:text-faint">
-            <Command.Item value="capture clipboard" onSelect={() => { setOpen(false); captureClipboard(); }} className={item}>
-              <ClipboardPaste size={15} /> Save clipboard as a session
+          <Command.Group
+            heading="Actions"
+            className="mb-2 [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-faint"
+          >
+            <Command.Item
+              value="capture clipboard save clipboard as session"
+              onSelect={() => {
+                setOpen(false);
+                captureClipboard();
+              }}
+              className={item}
+            >
+              <ClipboardPaste size={16} className="shrink-0 text-accent" />
+              <span className="font-medium">Save clipboard as a session</span>
             </Command.Item>
           </Command.Group>
-          <Command.Group heading="Go to" className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:text-faint">
+          <Command.Group
+            heading="Go to"
+            className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-faint"
+          >
             {PAGES.map((p) => (
-              <Command.Item key={p.label} value={`go ${p.label}`} onSelect={() => go(p.route)} className={item}>
-                {p.icon} {p.label}
+              <Command.Item
+                key={p.label}
+                value={`go to ${p.label}`}
+                onSelect={() => go(p.route)}
+                className={item}
+              >
+                <span className="shrink-0 text-faint">{p.icon}</span>
+                <span className="font-medium">{p.label}</span>
               </Command.Item>
             ))}
           </Command.Group>
         </Command.List>
+
+        <div className="flex items-center justify-between border-t border-line bg-surface-2/40 px-5 py-2.5 text-[11.5px] text-faint">
+          <div className="flex items-center gap-3">
+            <span><Kbd>↑</Kbd> <Kbd>↓</Kbd> navigate</span>
+            <span><Kbd>↵</Kbd> select</span>
+          </div>
+          <span><Kbd>esc</Kbd> to close</span>
+        </div>
       </Command>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,4 +1,5 @@
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CaptureStatus } from "../lib/api";
 import { provider } from "../lib/format";
 import { TARGETS as TARGET_LIST } from "../lib/providers";
@@ -290,8 +291,11 @@ export function Modal({ title, onClose, children, footer, wide }: { title: strin
       prev?.focus();
     };
   }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6 backdrop-blur-[2px]" onMouseDown={onClose}>
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-[6px]" onMouseDown={onClose}>
       <div
         ref={ref}
         tabIndex={-1}
@@ -310,7 +314,136 @@ export function Modal({ title, onClose, children, footer, wide }: { title: strin
         <div className="min-h-0 overflow-auto px-5 py-4">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
+  );
+}
+
+export interface AlertDialogProps {
+  open?: boolean;
+  title: string;
+  description: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  icon?: ReactNode;
+  onConfirm: () => void | Promise<void>;
+  onClose: () => void;
+  loading?: boolean;
+}
+
+export function AlertDialog({
+  open = true,
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  destructive = true,
+  icon,
+  onConfirm,
+  onClose,
+  loading = false,
+}: AlertDialogProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.activeElement as HTMLElement | null;
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy && !loading) return onClose();
+      if (e.key !== "Tab" || !ref.current) return;
+      const items = Array.from(
+        ref.current.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), [tabindex]:not([tabindex='-1'])"
+        )
+      );
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      prev?.focus();
+    };
+  }, [open, onClose, busy, loading]);
+
+  if (!open || typeof document === "undefined") return null;
+
+  const handleConfirm = async () => {
+    try {
+      setBusy(true);
+      await onConfirm();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isSpinning = busy || loading;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-[6px]"
+      onMouseDown={() => {
+        if (!isSpinning) onClose();
+      }}
+    >
+      <div
+        ref={ref}
+        tabIndex={-1}
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="animate-pop flex max-h-full w-full max-w-md flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none overflow-hidden"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2.5">
+            {icon ? (
+              <span className={cx("flex h-7 w-7 items-center justify-center rounded-lg", destructive ? "bg-danger-soft text-danger" : "bg-accent-soft text-accent")}>
+                {icon}
+              </span>
+            ) : destructive ? (
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-danger-soft text-danger">
+                <AlertTriangle size={15} />
+              </span>
+            ) : null}
+            <h2 className="font-semibold text-[15px]">{title}</h2>
+          </div>
+          <IconButton label="Close" onClick={onClose} disabled={isSpinning}>
+            <X size={16} />
+          </IconButton>
+        </div>
+
+        <div className="px-5 py-4 text-[13.5px] leading-relaxed text-muted">
+          {description}
+        </div>
+
+        <div className="flex justify-end gap-2.5 border-t border-line px-5 py-3.5 bg-surface-2/40">
+          <Button variant="secondary" onClick={onClose} disabled={isSpinning}>
+            {cancelLabel}
+          </Button>
+          <Button
+            variant={destructive ? "danger" : "primary"}
+            onClick={handleConfirm}
+            busy={isSpinning}
+            autoFocus
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

@@ -337,7 +337,7 @@
     padding: 24px 24px 0 92px;
     user-select: none;
     position: relative;
-    z-index: 10;
+    z-index: 1;
   }
   .cleanly-body {
     flex: 1;
@@ -677,8 +677,8 @@
     --blob: radial-gradient(closest-side, rgba(180, 255, 215, 0.7), rgba(50, 200, 130, 0.3) 55%, transparent);
     --sh: rgba(20, 130, 80, 0.3);
     --gl: rgba(22, 138, 92, 0.22);
-    --tc: #efff8a;
-    --sc: #d2e87a;
+    --tc: #ffffff;
+    --sc: rgba(255, 255, 255, 0.85);
   }
   .c-crimson {
     --bg: linear-gradient(165deg, #c4253a 0%, #8f1430 100%);
@@ -710,8 +710,8 @@
     --blob: radial-gradient(closest-side, rgba(160, 245, 205, 0.6), rgba(40, 180, 120, 0.22) 55%, transparent);
     --sh: rgba(0, 0, 0, 0.45);
     --gl: rgba(14, 110, 68, 0.22);
-    --tc: #efff8a;
-    --sc: #e4f3a0;
+    --tc: #ffffff;
+    --sc: rgba(255, 255, 255, 0.85);
   }
   :root[data-theme='dark'] .c-crimson {
     --bg: linear-gradient(165deg, #961b2d 0%, #680d1d 100%);

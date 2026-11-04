@@ -1,7 +1,6 @@
 // Sessions: every conversation from every AI tool, in one list. A session is
 // copied or exported straight from here; there is nothing to build first.
 import { useEffect, useMemo, useState } from "react";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Plus, RefreshCw, Star, Trash2, X } from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
 import { copySessions, exportSessions, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
@@ -14,6 +13,7 @@ import { AddSessionModal } from "../components/AddSession";
 import { FileImportModal } from "../components/FileImport";
 import { SessionListSkeleton, SessionPageSkeleton } from "../components/Skeletons";
 import {
+  AlertDialog,
   Badge,
   Button,
   Card,
@@ -322,6 +322,7 @@ function SessionPage({ id }: { id: string }) {
   const [level, setLevel] = useState<Level>(settings.level);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [paths, setPaths] = useState<string[] | null>(null);
   const back = () => navigate({ page: "sessions" });
 
@@ -329,6 +330,7 @@ function SessionPage({ id }: { id: string }) {
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
   const { row, source, messages, files, tokenEstimate } = data;
+  const agent = row.kind === "local-agent";
 
   const copy = async (markdown = false) => {
     setBusy(true);
@@ -336,13 +338,9 @@ function SessionPage({ id }: { id: string }) {
     setBusy(false);
   };
   const remove = async () => {
-    const agent = row.kind === "local-agent";
-    const msg = agent
-      ? `Remove “${row.title}” from Hopilo? The session file stays where it is, and the session won't come back here.`
-      : `Delete “${row.title}” from Hopilo? This cannot be undone.`;
-    if (!(await ask(msg, { title: agent ? "Remove session" : "Delete session", kind: "warning" }))) return;
     try {
       await api.removeSession(id);
+      setConfirmDelete(false);
       back();
     } catch (e) {
       toast({ kind: "error", text: errorText(e) });
@@ -373,7 +371,7 @@ function SessionPage({ id }: { id: string }) {
             <IconButton label={row.pinned ? "Unpin" : "Pin to the top"} onClick={() => api.updateSession(id, { pinned: !row.pinned })}>
               <Star size={15} className={row.pinned ? "text-accent" : ""} />
             </IconButton>
-            <IconButton label={row.kind === "local-agent" ? "Remove from Hopilo" : "Delete"} onClick={remove}>
+            <IconButton label={row.kind === "local-agent" ? "Remove from Hopilo" : "Delete"} onClick={() => setConfirmDelete(true)}>
               <Trash2 size={15} />
             </IconButton>
           </>
@@ -432,6 +430,20 @@ function SessionPage({ id }: { id: string }) {
       </Card>
       {exporting && <ExportModal ids={[id]} level={level} onClose={() => setExporting(false)} />}
       {paths && <FileImportModal paths={paths} session={id} onClose={() => setPaths(null)} />}
+      {confirmDelete && (
+        <AlertDialog
+          title={agent ? "Remove session" : "Delete session"}
+          description={
+            agent
+              ? `Remove “${row.title}” from Hopilo? The session file stays where it is, and the session won't come back here.`
+              : `Delete “${row.title}” from Hopilo? This cannot be undone.`
+          }
+          confirmLabel={agent ? "Remove" : "Delete"}
+          destructive
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={remove}
+        />
+      )}
     </FillPage>
   );
 }

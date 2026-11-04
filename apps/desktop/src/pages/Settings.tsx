@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FolderOpen } from "../components/Icons";
@@ -7,7 +6,7 @@ import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
-import { Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
+import { AlertDialog, Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
   { value: "mist", label: "Mist" },
@@ -53,6 +52,7 @@ export function Settings() {
   const info = useLoad(() => api.appInfo());
   const stats = useLoad(() => api.stats());
   const [autostart, setAutostart] = useState<boolean | null>(null);
+  const [confirmErase, setConfirmErase] = useState(false);
 
   useEffect(() => {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
@@ -208,11 +208,7 @@ export function Settings() {
             <Button
               size="sm"
               variant="danger"
-              onClick={async () => {
-                if (!(await ask("Erase every session, file and copy record in Hopilo? This cannot be undone. Your coding agents' own session files are not affected.", { title: "Erase library", kind: "warning" }))) return;
-                await api.wipeLibrary();
-                toast({ kind: "success", text: "Library erased." });
-              }}
+              onClick={() => setConfirmErase(true)}
             >
               Erase…
             </Button>
@@ -228,6 +224,25 @@ export function Settings() {
           </Row>
         </Group>
       </div>
+
+      {confirmErase && (
+        <AlertDialog
+          title="Erase library"
+          description="Erase every session, file and copy record in Hopilo? This cannot be undone. Your coding agents' own session files are not affected."
+          confirmLabel="Erase library"
+          destructive
+          onClose={() => setConfirmErase(false)}
+          onConfirm={async () => {
+            try {
+              await api.wipeLibrary();
+              setConfirmErase(false);
+              toast({ kind: "success", text: "Library erased." });
+            } catch (e) {
+              toast({ kind: "error", text: errorText(e) });
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
