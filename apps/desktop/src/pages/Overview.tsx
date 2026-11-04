@@ -10,7 +10,7 @@ import { Button, Card, cx, ProviderBadge, Skeleton } from "../components/ui";
 import { RowSkeleton } from "../components/Skeletons";
 import { AddSessionModal } from "../components/AddSession";
 import { sessionLoader } from "./Sessions";
-import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, MousePointerClick, Send, ShieldCheck, X } from "../components/Icons";
+import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, Send, ShieldCheck, X } from "../components/Icons";
 import { Flow } from "../components/Flow";
 
 const SLOTS = [
@@ -232,9 +232,21 @@ function Tile({
 }
 
 const STEPS = [
-  { icon: <MousePointerClick size={16} />, title: "Pick a session", body: "From a coding agent, a web chat, or anything you added." },
-  { icon: <ClipboardCheck size={16} />, title: "Choose how much", body: "Full, Balanced or Minimal. Files come along." },
-  { icon: <Send size={16} />, title: "Paste into any AI", body: "Hopilo copies one ready message. You press send." },
+  {
+    icon: <Bot size={16} />,
+    title: "Pick a session",
+    body: "From a coding agent (Claude Code, Codex, Aider) or a web chat.",
+  },
+  {
+    icon: <ClipboardCheck size={16} />,
+    title: "Choose how much",
+    body: "Full, Balanced, or Minimal. Files and attachments stay intact.",
+  },
+  {
+    icon: <Send size={16} />,
+    title: "Universal handoff",
+    body: "Hopilo copies one ready prompt pack. Paste into any AI and send.",
+  },
 ];
 
 function RecentRow({ row }: { row: SessionRow }) {
@@ -423,10 +435,10 @@ export function Overview() {
         />
       </section>
 
-      <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <Card>
-          <div className="flex items-center justify-between px-4 pt-4 pb-1">
-            <h2 className="font-semibold">Recent sessions</h2>
+      <section className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <Card className="flex h-full flex-col">
+          <div className="flex items-center justify-between px-5 pt-4 pb-2">
+            <h2 className="font-semibold text-[15px]">Recent sessions</h2>
             <button
               type="button"
               className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
@@ -436,7 +448,7 @@ export function Overview() {
               <ChevronRight size={13} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
             </button>
           </div>
-          <div className="divide-y divide-line">
+          <div className="flex-1 divide-y divide-line flex flex-col justify-around">
             {loading && (
               <div role="status" aria-label="Loading sessions" className="divide-y divide-line">
                 {[0, 1, 2, 3].map((i) => (
@@ -444,30 +456,39 @@ export function Overview() {
                 ))}
               </div>
             )}
-            {sessions.data && recent.length === 0 && <div className="px-4 py-6 text-center text-muted">No sessions yet. Coding-agent sessions show up on their own.</div>}
+            {sessions.data && recent.length === 0 && <div className="flex-1 flex items-center justify-center px-4 py-8 text-center text-[13px] text-muted">No sessions yet. Coding-agent sessions show up on their own.</div>}
             {recent.slice(0, 4).map((r) => (
               <RecentRow key={r.id} row={r} />
             ))}
           </div>
         </Card>
-        <Card className="p-4">
-          <h2 className="font-semibold">How it works</h2>
-          <ol className="mt-3 space-y-3">
+        <Card className="flex h-full flex-col justify-between p-5">
+          <div className="flex items-center justify-between pb-2">
+            <h2 className="font-semibold text-[15px]">How it works</h2>
+            <button
+              type="button"
+              className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
+              onClick={() => setAdding(true)}
+            >
+              <span>Add session</span>
+              <ArrowRight size={12} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
+            </button>
+          </div>
+          <ol className="flex flex-1 flex-col justify-between py-2 space-y-3">
             {STEPS.map((st, i) => (
-              <li key={st.title} className="flex gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">{st.icon}</span>
-                <div>
-                  <div className="text-[13px] font-semibold">
-                    <span className="font-mono text-faint">{i + 1}.</span> {st.title}
+              <li key={st.title} className="flex items-center gap-3.5">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                  {st.icon}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-ink">
+                    <span className="font-mono text-faint mr-1">{i + 1}.</span> {st.title}
                   </div>
-                  <div className="text-[12px] text-muted">{st.body}</div>
+                  <div className="text-[12px] text-muted leading-snug">{st.body}</div>
                 </div>
               </li>
             ))}
           </ol>
-          <Button size="sm" className="mt-4" onClick={() => setAdding(true)}>
-            Add a session
-          </Button>
         </Card>
       </section>
       {adding && <AddSessionModal onClose={() => setAdding(false)} />}

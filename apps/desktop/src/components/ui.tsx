@@ -306,14 +306,14 @@ export function Modal({ title, onClose, children, footer, wide }: { title: strin
         onMouseDown={(e) => e.stopPropagation()}
         className={cx("animate-pop flex max-h-full w-full flex-col rounded-[22px] border border-line bg-surface shadow-pop outline-none", wide ? "max-w-3xl" : "max-w-lg")}
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+        <div className="flex items-center justify-between px-6 pt-5 pb-2">
           <h2 className="font-semibold">{title}</h2>
           <IconButton label="Close" onClick={onClose}>
             <X size={16} />
           </IconButton>
         </div>
-        <div className="min-h-0 overflow-auto px-5 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+        <div className="min-h-0 overflow-auto px-6 py-2">{children}</div>
+        {footer && <div className="flex justify-end gap-2 px-6 pt-2 pb-5">{footer}</div>}
       </div>
     </div>,
     document.body

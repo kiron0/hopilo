@@ -392,15 +392,15 @@
     background-color: var(--window);
   }
   .cleanly-titlebar {
-    height: 64px;
+    height: 60px;
     flex: none;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 24px 24px 0 92px;
+    padding: 14px 24px 14px 92px;
     user-select: none;
     position: relative;
-    z-index: 1;
+    z-index: 10;
   }
   .cleanly-body {
     flex: 1;
@@ -422,17 +422,17 @@
   .cleanly-main {
     flex: 1;
     min-width: 0;
-    padding: 20px 24px 0 12px;
+    padding: 12px 24px 32px 12px;
     display: flex;
     flex-direction: column;
     gap: 16px;
     overflow-y: auto;
   }
   .cleanly-main > .screen {
-    padding-bottom: 24px;
+    padding-bottom: 32px;
   }
   .cleanly-main:has(.page-fill) {
-    padding-bottom: 24px;
+    padding-bottom: 32px;
   }
   .cleanly-main:has(.page-fill) > .screen {
     padding-bottom: 0;

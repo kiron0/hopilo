@@ -94,7 +94,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={() => setPaletteOpen(true)}
-          className="flex h-8.5 w-72 items-center gap-2 rounded-full border border-line bg-card/90 px-3 text-faint shadow-item transition-all hover:bg-card hover:text-muted hover:shadow-card active:scale-[0.99]"
+          className="flex h-8.5 w-72 items-center gap-2 rounded-full border border-line bg-card/90 px-3 text-faint shadow-item transition-all hover:bg-card hover:text-muted hover:shadow-card active:scale-[0.99] cursor-pointer"
         >
           <Kbd>{modKey}K</Kbd>
           <span className="flex-1 text-left text-[12.5px] text-muted">Search sessions & actions…</span>
@@ -119,7 +119,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
         <main key={route.page} className="cleanly-main">
           <div ref={setHeaderSlot} className="page-header-slot" />
-          <div className="screen flex-1 min-h-0 flex flex-col gap-4">
+          <div className="screen flex-1 min-h-0 flex flex-col gap-4 pb-8">
             <PageSlotsContext.Provider value={slots}>{children}</PageSlotsContext.Provider>
           </div>
           <div ref={setFooterSlot} className="page-footer-slot" />
