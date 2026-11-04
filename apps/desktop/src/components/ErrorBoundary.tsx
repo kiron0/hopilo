@@ -5,7 +5,7 @@ import { Button, Card } from "./ui";
 const CHUNK_ERROR = /dynamically imported module|Importing a module script failed|Failed to fetch|ChunkLoadError/i;
 const RETRY_KEY = "hopilo.chunkRetry";
 
-export class ErrorBoundary extends Component<{ children: ReactNode; onHome?: () => void }, { error: Error | null }> {
+export class ErrorBoundary extends Component<{ children: ReactNode; onOverview?: () => void; onHome?: () => void }, { error: Error | null }> {
   state = { error: null as Error | null };
 
   static getDerivedStateFromError(error: Error) {
@@ -37,14 +37,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode; onHome?: () 
         <p className="mt-1 text-muted">Your library is safe. Reload to try again.</p>
         <p data-selectable className="mt-3 truncate font-mono text-[11.5px] text-faint">{error.message}</p>
         <div className="mt-5 flex justify-center gap-2">
-          {this.props.onHome && (
+          {(this.props.onOverview || this.props.onHome) && (
             <Button
               onClick={() => {
                 this.setState({ error: null });
-                this.props.onHome?.();
+                (this.props.onOverview ?? this.props.onHome)?.();
               }}
             >
-              Go to Home
+              Go to Overview
             </Button>
           )}
           <Button variant="primary" onClick={() => window.location.reload()}>

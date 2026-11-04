@@ -270,7 +270,7 @@ function RecentRow({ row }: { row: SessionRow }) {
   );
 }
 
-export function Home() {
+export function Overview() {
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
   const stats = useLoad(() => api.stats());
@@ -474,3 +474,6 @@ export function Home() {
     </div>
   );
 }
+
+export { Overview as Home };
+

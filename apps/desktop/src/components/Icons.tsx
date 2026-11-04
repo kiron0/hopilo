@@ -46,14 +46,52 @@ const c = (cx: number, cy: number, r: number) => `M${cx - r} ${cy}a${r} ${r} 0 1
 const rr = (x: number, y: number, w: number, h: number, r: number) =>
   `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${-(w - 2 * r)}a${r} ${r} 0 0 1 ${-r} ${-r}v${-(h - 2 * r)}a${r} ${r} 0 0 1 ${r} ${-r}z`;
 
-const HOME = "M4 10.8 12 4.3l8 6.5v8.2a1.5 1.5 0 0 1-1.5 1.5H15v-5.2a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5.2H5.5A1.5 1.5 0 0 1 4 19z";
-export const HomeIcon = make(HOME, HOME);
+export const HomeIcon = ({ size = 20, active, className, ...rest }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    className={className ? `ic ${className}` : "ic"}
+    aria-hidden="true"
+    {...rest}
+  >
+    <path
+      className="f"
+      d="M4.5 11 12 4.8l7.5 6.2v7.5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5z"
+    />
+    <path
+      className="s"
+      d="M3.5 11.2 12 4.2l8.5 7 M5.5 9.8v9.7a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5V9.8"
+    />
+    <path className="s" d="M10 20.4v-4.8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.8" />
+    <circle className="a" cx="17.2" cy="7.2" r="1.4" />
+  </svg>
+);
 
 const TRAY = "M4 14v3.5A2.5 2.5 0 0 0 6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V14h-4.2a1 1 0 0 0-.9.55l-.4.9a1 1 0 0 1-.9.55h-3.2a1 1 0 0 1-.9-.55l-.4-.9A1 1 0 0 0 8.2 14z";
 export const CaptureIcon = make(["M12 4v9m0 0-3.5-3.5M12 13l3.5-3.5", TRAY], TRAY);
 
-const FRONT = "M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z";
-export const SessionsIcon = make(["M8.5 8V6a2 2 0 0 1 2-2H18a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-1v2.2", FRONT], FRONT);
+export const SessionsIcon = ({ size = 20, active, className, ...rest }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    className={className ? `ic ${className}` : "ic"}
+    aria-hidden="true"
+    {...rest}
+  >
+    <path
+      className="f"
+      d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17A2.5 2.5 0 0 1 4 14.5z"
+    />
+    <path
+      className="s"
+      d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17A2.5 2.5 0 0 1 4 14.5z"
+    />
+    <path className="s" d="M8 9.5h8 M8 13h5" />
+    <circle className="a" cx="16.2" cy="13" r="1.3" />
+  </svg>
+);
 export const MessagesSquare = SessionsIcon;
 
 const TOP = "M12 4 3.5 8.5 12 13l8.5-4.5z";
@@ -72,28 +110,43 @@ export const Send = SendIcon;
 const PLUG = "M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z";
 export const ToolsIcon = make(["M9 3.5v4M15 3.5v4", PLUG, "M12 16v4.5"], PLUG);
 
-export const SettingsIcon = (p: IconProps) => (
-  <Icon
-    {...p}
-    duo={
-      <>
-        <circle cx="15" cy="7" r="2.2" />
-        <circle cx="9" cy="17" r="2.2" />
-      </>
-    }
+export const SettingsIcon = ({ size = 20, active, className, ...rest }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    className={className ? `ic ${className}` : "ic"}
+    aria-hidden="true"
+    {...rest}
   >
-    <path d="M4 7h8.8M17.2 7H20M4 17h2.8M11.2 17H20" />
-    <circle cx="15" cy="7" r="2.2" />
-    <circle cx="9" cy="17" r="2.2" />
-  </Icon>
+    <path className="s" d="M4 7h9 M19 7h1 M4 17h3 M13 17h7" />
+    <circle className="f" cx="16" cy="7" r="2.6" />
+    <circle className="s" cx="16" cy="7" r="2.6" />
+    <circle className="f" cx="10" cy="17" r="2.6" />
+    <circle className="s" cx="10" cy="17" r="2.6" />
+    <circle className="a" cx="16" cy="7" r="1.1" />
+  </svg>
 );
 export const Settings = SettingsIcon;
 
 export const SearchIcon = make([c(11, 11, 6.5), "m16 16 4 4"], c(11, 11, 6.5));
 export const Search = SearchIcon;
 
-const WIN = "M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z";
-export const BrowserIcon = make([WIN, "M3.5 9h17M6.5 6.8h.01M9 6.8h.01", "m10 13.5 2 2 4-4"], "M3.5 6.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V9h-17z");
+export const BrowserIcon = ({ size = 20, active, className, ...rest }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    className={className ? `ic ${className}` : "ic"}
+    aria-hidden="true"
+    {...rest}
+  >
+    <circle className="f" cx="12" cy="12" r="8.5" />
+    <circle className="s" cx="12" cy="12" r="8.5" />
+    <path className="s" d="M3.5 12h17 M12 3.5c2.5 2.5 3.6 5.3 3.6 8.5s-1.1 6-3.6 8.5 M12 3.5c-2.5 2.5-3.6 5.3-3.6 8.5s1.1 6 3.6 8.5" />
+    <circle className="a" cx="16.5" cy="7.5" r="1.4" />
+  </svg>
+);
 
 export const MapIcon = make([c(9, 10, 5.5), c(17, 15.5, 3.5), c(16.5, 5.5, 2)], c(9, 10, 5.5));
 

@@ -11,7 +11,7 @@ import { Toasts } from "./Toasts";
 import { PageSlotsContext } from "./PageSlots";
 import { BackgroundLayer } from "./Flow";
 
-type NavIcon = (p: { size?: number; active?: boolean }) => ReactNode;
+type NavIcon = (p: { size?: number; active?: boolean; className?: string }) => ReactNode;
 type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string };
 
 const NAV: NavItem[] = [
@@ -77,9 +77,7 @@ export function Shell({ children }: { children: ReactNode }) {
           onClick={() => navigate({ page: it.page } as Route)}
           className={`nav-item h-10 w-full text-left cursor-pointer ${active ? "on" : ""}`}
         >
-          <span className={active ? "text-accent" : "text-faint"}>
-            <it.icon size={18} active={active} />
-          </span>
+          <it.icon size={20} active={active} className="ic" />
           <span className="flex-1 text-[14px] font-medium">{it.label}</span>
         </button>
       </li>

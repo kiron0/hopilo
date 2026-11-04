@@ -3,6 +3,7 @@ import { create } from "zustand";
 export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned";
 
 export type Route =
+  | { page: "overview" }
   | { page: "home" }
   | { page: "sessions"; id?: string; filter?: SessionFilter }
   | { page: "browser" }
@@ -13,7 +14,7 @@ export function routeFrom(name: string): Route {
   if (name === "settings") return { page: "settings" };
   if (name === "sessions") return { page: "sessions" };
   if (name.startsWith("session:")) return { page: "sessions", id: name.slice(8) };
-  return { page: "home" };
+  return { page: "overview" };
 }
 
 export interface ListView {
@@ -34,7 +35,7 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   background?: "mist" | "grid" | "dots" | "grain";
   motion: "system" | "reduced";
-  startupSurface: "tray" | "home";
+  startupSurface: "tray" | "overview" | "home";
   closeButton: "hide" | "quit";
   trayClick: "panel" | "dashboard";
   toolDetail: "full" | "truncated" | "omit";
@@ -77,7 +78,7 @@ interface State {
 let toastId = 0;
 
 export const useApp = create<State>((set, get) => ({
-  route: { page: "home" },
+  route: { page: "overview" },
   navigate: (route) => {
 
     if (route.page === "sessions" && route.filter) set({ listView: { ...get().listView, filter: route.filter, page: 0, q: "" } });

@@ -6,7 +6,7 @@ import { useBootstrap } from "./lib/hooks";
 import { useFileDrop } from "./lib/useFileDrop";
 import { Shell } from "./components/Shell";
 import { FileImportModal } from "./components/FileImport";
-import { Home } from "./pages/Home";
+import { Overview } from "./pages/Overview";
 import { Sessions } from "./pages/Sessions";
 import { RouteSkeleton } from "./components/Skeletons";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -17,8 +17,9 @@ import { FileDown } from "./components/Icons";
 
 function Page({ route }: { route: Route }) {
   switch (route.page) {
+    case "overview":
     case "home":
-      return <Home />;
+      return <Overview />;
     case "sessions":
       return <Sessions />;
     case "browser":
@@ -51,7 +52,7 @@ export function App() {
   return (
     <>
       <Shell>
-        <ErrorBoundary key={route.page} onHome={() => navigate({ page: "home" })}>
+        <ErrorBoundary key={route.page} onOverview={() => navigate({ page: "overview" })}>
           <Suspense fallback={<RouteSkeleton page={route.page} />}>
             <Page route={route} />
           </Suspense>
