@@ -65,6 +65,7 @@ function applyAppearance(s: Settings) {
   const dark = s.theme === "dark" || (s.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const root = document.documentElement;
   root.dataset.theme = dark ? "dark" : "light";
+  root.dataset.bg = s.background || "mist";
   root.style.colorScheme = dark ? "dark" : "light";
   // theme-init.js painted a plain background before CSS loaded; CSS owns it now.
   root.style.background = "";

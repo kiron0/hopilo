@@ -163,25 +163,24 @@ export function Segmented<T extends string>({
   onChange,
   options,
   label,
+  className,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: { value: T; label: string }[];
   label: string;
+  className?: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-full border border-line bg-surface-3/70 p-0.5">
+    <div role="radiogroup" aria-label={label} className={cx("seg", className)}>
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={value === o.value}
+          aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          className={cx(
-            "h-7 rounded-full px-3 text-[12.5px] font-medium transition-colors",
-            value === o.value ? "bg-surface font-semibold text-ink shadow-item" : "text-muted hover:text-ink",
-          )}
         >
           {o.label}
         </button>
@@ -190,18 +189,16 @@ export function Segmented<T extends string>({
   );
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+export function Toggle({ checked, onChange, label, className }: { checked: boolean; onChange: (v: boolean) => void; label: string; className?: string }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      className={cx("toggle", className)}
       onClick={() => onChange(!checked)}
-      className={cx("relative h-5.5 w-9 shrink-0 rounded-full transition-colors", checked ? "bg-accent" : "bg-line-strong")}
-    >
-      <span className={cx("absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow transition-all", checked ? "left-4" : "left-0.5")} />
-    </button>
+    />
   );
 }
 

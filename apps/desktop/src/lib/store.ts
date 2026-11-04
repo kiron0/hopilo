@@ -37,6 +37,7 @@ export interface Toast {
 
 export interface Settings {
   theme: "system" | "light" | "dark";
+  background?: "mist" | "grid" | "dots" | "grain";
   motion: "system" | "reduced";
   startupSurface: "tray" | "home";
   closeButton: "hide" | "quit";
@@ -50,6 +51,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
+  background: "mist",
   motion: "system",
   startupSurface: "tray",
   closeButton: "hide",

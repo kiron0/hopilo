@@ -7,7 +7,7 @@ import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
-import { Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle } from "../components/ui";
+import { Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 import { PageToolbar } from "../components/PageSlots";
 
 const SECTIONS = [
@@ -19,6 +19,19 @@ const SECTIONS = [
   { id: "storage", title: "Storage" },
   { id: "about", title: "About" },
 ] as const;
+
+const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
+  { value: "mist", label: "Mist" },
+  { value: "grid", label: "Grid" },
+  { value: "dots", label: "Dots" },
+  { value: "grain", label: "Grain" },
+];
+
+const THEMES: { value: "light" | "dark" | "system"; label: string; swatchClass: string }[] = [
+  { value: "light", label: "Light", swatchClass: "theme-light" },
+  { value: "dark", label: "Dark", swatchClass: "theme-dark" },
+  { value: "system", label: "System", swatchClass: "theme-system" },
+];
 
 /** One category: a label column on the left, its settings in a full-width card. */
 function Group({ id, title, description, children }: { id: string; title: string; description: string; children: React.ReactNode }) {
@@ -79,7 +92,7 @@ export function Settings() {
           ))}
         </nav>
       </PageToolbar>
-      <div>
+      <div className="sy-stagger">
         <Group id="general" title="General" description="Startup and window behavior.">
           <Row label="Launch at login" hint="Off unless you turn it on.">
             <Toggle
@@ -106,11 +119,64 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="appearance" title="Appearance" description="Light, dark or follow the system.">
-          <Row label="Theme">
-            <Segmented label="Theme" value={s.theme} onChange={(v) => saveSetting("theme", v)} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
-          </Row>
-          <Row label="Reduce motion" hint="Also follows the system setting.">
+        <Group id="appearance" title="Appearance" description="Window canvas, theme, and animations.">
+          <div className="py-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[13px] font-medium">Background</div>
+                <div className="text-[12px] text-faint">The living canvas behind the dashboard and sidebar.</div>
+              </div>
+              <Segmented
+                label="Background"
+                value={s.background || "mist"}
+                onChange={(v) => saveSetting("background", v)}
+                options={BACKGROUNDS}
+              />
+            </div>
+            <div className="sy-swatches mt-3" aria-label="Background swatches">
+              {BACKGROUNDS.map((b) => (
+                <button
+                  key={b.value}
+                  type="button"
+                  className={cx("sy-swatch", b.value)}
+                  aria-pressed={(s.background || "mist") === b.value}
+                  onClick={() => saveSetting("background", b.value)}
+                >
+                  <span>{b.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="py-3 border-t border-line">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[13px] font-medium">Theme</div>
+                <div className="text-[12px] text-faint">{s.theme === "system" ? "Follows your macOS appearance" : `Always ${s.theme}`}</div>
+              </div>
+              <Segmented
+                label="Theme"
+                value={s.theme}
+                onChange={(v) => saveSetting("theme", v)}
+                options={THEMES}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2.5 mt-3" aria-label="Theme swatches">
+              {THEMES.map((th) => (
+                <button
+                  key={th.value}
+                  type="button"
+                  className={cx("sy-swatch", th.swatchClass)}
+                  aria-pressed={s.theme === th.value}
+                  onClick={() => saveSetting("theme", th.value)}
+                >
+                  <span>{th.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Row label="Reduce motion" hint="Disables background wandering and smooth rises. Also follows system.">
             <Toggle label="Reduce motion" checked={s.motion === "reduced"} onChange={(v) => saveSetting("motion", v ? "reduced" : "system")} />
           </Row>
         </Group>

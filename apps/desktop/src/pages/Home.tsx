@@ -11,6 +11,7 @@ import { RowSkeleton } from "../components/Skeletons";
 import { AddSessionModal } from "../components/AddSession";
 import { sessionLoader } from "./Sessions";
 import { SparkIcon, ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, MousePointerClick, Send, ShieldCheck, X } from "../components/Icons";
+import { Flow } from "../components/Flow";
 
 const SLOTS = [
   { x: 50, y: 46 },
@@ -91,36 +92,35 @@ function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: bo
 
 function Tile({ tone, icon, title, value, unit, caption, action, onClick, loading }: { tone: string; icon: React.ReactNode; title: string; value: string; unit: string; caption: string; action: string; onClick: () => void; loading?: boolean }) {
   return (
-    <div className={cx("tile flex min-h-[168px] flex-col p-4", tone)}>
-      <span aria-hidden className="tile-glow" />
-      <div className="flex items-center gap-2">
-        <span className="flex h-7.5 w-7.5 items-center justify-center rounded-[10px] border border-white/25 bg-white/15 shadow-[inset_0_1px_1px_rgb(255_255_255/0.3)]">{icon}</span>
-        <span className="text-[13px] font-semibold">{title}</span>
+    <article className={cx("lc rise min-h-[175px]", tone)}>
+      <span className="glow" />
+      <span className="shine" />
+      <div className="lc-top">
+        <span className="glass-ico">{icon}</span>
+        <b>{title}</b>
       </div>
       {loading ? (
-        <div aria-hidden className="mt-3 space-y-2">
-          <span className="block h-[34px] w-16 rounded-lg bg-white/20" />
-          <span className="block h-3 w-3/4 rounded bg-white/15" />
+        <div aria-hidden className="lc-num">
+          <span className="inline-block h-9 w-20 rounded-xl bg-white/20 animate-pulse" />
         </div>
       ) : (
-        <>
-          <div className="mt-3 flex items-baseline gap-1.5">
-            <span className="font-display text-[34px] leading-none font-medium tabular-nums">{value}</span>
-            <span className="text-[12px] font-medium text-white/80">{unit}</span>
-          </div>
-          <div className="mt-1 truncate text-[12px] text-white/75">{caption}</div>
-        </>
+        <div className="lc-num">
+          <strong>{value}</strong>
+          <em>{unit}</em>
+        </div>
       )}
-      <div className="flex-1" />
-      <button
-        type="button"
-        onClick={onClick}
-        className="group mt-3 inline-flex h-8 w-fit items-center gap-1.5 rounded-full border border-white/35 bg-white/15 px-3.5 text-[12.5px] font-medium shadow-[inset_0_1px_1px_rgb(255_255_255/0.3)] transition-all hover:scale-[1.02] hover:bg-white/25 active:scale-[0.98]"
-      >
-        <span>{action}</span>
-        <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
-      </button>
-    </div>
+      <div className="lc-sub">{caption}</div>
+      <div className="lc-foot">
+        <button
+          type="button"
+          onClick={onClick}
+          className="pill group"
+        >
+          <span>{action}</span>
+          <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -200,15 +200,18 @@ export function Home() {
       )}
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]" aria-label="Overview">
-        <Card className="relative isolate overflow-hidden p-7">
-          <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-            <span className="absolute -right-24 -bottom-28 h-80 w-80 rounded-full bg-[var(--aura-1)] blur-3xl" />
-            <span className="absolute right-24 -bottom-16 h-56 w-56 rounded-full bg-[var(--aura-2)] blur-3xl" />
-            <span className="absolute -top-20 right-8 h-40 w-40 rounded-full bg-[var(--aura-3)] blur-3xl" />
+        <Card className="card-w relative isolate overflow-hidden p-7">
+          <div className="hero-plume pointer-events-none absolute inset-0 -z-10 opacity-60 overflow-hidden">
+            <Flow mode="plume" />
+          </div>
+          <div aria-hidden className="pointer-events-none absolute inset-0 -z-20">
+            <span className="absolute -right-24 -bottom-28 h-80 w-80 rounded-full bg-[var(--aura-1)] blur-3xl opacity-50" />
+            <span className="absolute right-24 -bottom-16 h-56 w-56 rounded-full bg-[var(--aura-2)] blur-3xl opacity-50" />
+            <span className="absolute -top-20 right-8 h-40 w-40 rounded-full bg-[var(--aura-3)] blur-3xl opacity-50" />
           </div>
           <h1 className="text-[24px] font-normal text-muted">Ready to continue</h1>
           <div className="mt-1 flex items-baseline gap-2">
-            {loading ? <Skeleton className="my-1.5 h-[60px] w-20 rounded-2xl" /> : <span className="font-display text-[64px] leading-[1.05] font-medium tabular-nums">{all.length}</span>}
+            {loading ? <Skeleton className="my-1.5 h-[60px] w-20 rounded-2xl" /> : <span className="font-display text-[64px] leading-[1.05] font-semibold tabular-nums">{all.length}</span>}
             <span className="font-display text-[22px] font-medium text-accent">sessions</span>
           </div>
           <p className="mt-2 max-w-md text-muted">Pick up any conversation in another AI. Hopilo copies it as one message you paste; nothing is ever sent for you.</p>
@@ -253,10 +256,10 @@ export function Home() {
       </section>
 
       <section aria-label="At a glance" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Tile tone="tile-blue" icon={<Bot size={15} />} title="Coding agents" loading={loading} value={String(agents)} unit="sessions" caption="Kept in step with their files" action="Browse" onClick={() => navigate({ page: "sessions", filter: "agents" })} />
-        <Tile tone="tile-violet" icon={<Globe size={15} />} title="Web chats" loading={loading} value={String(web)} unit="saved" caption={s ? `${s.capturesToday} new today` : ""} action="Open" onClick={() => navigate({ page: "sessions", filter: "web" })} />
+        <Tile tone="c-blue" icon={<Bot size={15} />} title="Coding agents" loading={loading} value={String(agents)} unit="sessions" caption="Kept in step with their files" action="Browse" onClick={() => navigate({ page: "sessions", filter: "agents" })} />
+        <Tile tone="c-violet" icon={<Globe size={15} />} title="Web chats" loading={loading} value={String(web)} unit="saved" caption={s ? `${s.capturesToday} new today` : ""} action="Open" onClick={() => navigate({ page: "sessions", filter: "web" })} />
         <Tile
-          tone="tile-green"
+          tone="c-green"
           icon={<Send size={15} />}
           title="Copies"
           loading={!s}
@@ -266,7 +269,7 @@ export function Home() {
           action="Copy one"
           onClick={() => navigate({ page: "sessions", filter: "all" })}
         />
-        <Tile tone="tile-rose" icon={<ShieldCheck size={15} />} title="Privacy" value="0" unit="uploads" caption="Nothing leaves this Mac" action="Details" onClick={() => navigate({ page: "settings", section: "privacy" })} />
+        <Tile tone="c-crimson" icon={<ShieldCheck size={15} />} title="Privacy" value="0" unit="uploads" caption="Nothing leaves this Mac" action="Details" onClick={() => navigate({ page: "settings", section: "privacy" })} />
       </section>
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
