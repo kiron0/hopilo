@@ -3,6 +3,9 @@ import type { CaptureReply, Draft, HostResponse, InsertReply, Level, PackSummary
 
 const NAMES: Record<Provider, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek (experimental)", grok: "Grok (experimental)", perplexity: "Perplexity (experimental)" };
 
+// Same drawing as the desktop app's PacksIcon (apps/desktop/src/components/Icons.tsx).
+const PACK_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path class="duo" d="M12 4 3.5 8.5 12 13l8.5-4.5z"/><path d="M12 4 3.5 8.5 12 13l8.5-4.5z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5"/></svg>`;
+
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 function host<T>(body: Record<string, unknown>): Promise<HostResponse<T>> {
@@ -69,7 +72,7 @@ async function init() {
     b.type = "button";
     b.className = "pack";
     b.dataset.id = p.id;
-    b.innerHTML = `<span class="t"></span><span class="m"></span>`;
+    b.innerHTML = `${PACK_ICON}<span class="txt"><span class="t"></span><span class="m"></span></span>`;
     b.querySelector(".t")!.textContent = p.title;
     b.querySelector(".m")!.textContent = `v${p.version} · ${p.messageCount} msgs · ${tokens(p.tokenEstimate)} tokens`;
     b.addEventListener("click", () => choose(p));
@@ -83,7 +86,7 @@ function choose(p: PackSummary) {
   for (const el of document.querySelectorAll<HTMLButtonElement>(".pack")) el.setAttribute("aria-current", String(el.dataset.id === p.id));
   $("pick-title").textContent = p.title;
   $("insert-panel").hidden = false;
-  $("insert").textContent = page?.composer && page.provider ? `Insert into ${NAMES[page.provider]} as draft` : "Copy draft";
+  $("insert-label").textContent = page?.composer && page.provider ? `Insert into ${NAMES[page.provider]} as draft` : "Copy draft";
   $("insert-panel").scrollIntoView({ block: "nearest" });
 }
 

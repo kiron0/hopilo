@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, ClipboardPaste, FileArchive, FilePlus2, FileUp, FolderPlus, Type } from "lucide-react";
+import { Bot, ClipboardPaste, FileArchive, FilePlus2, FileUp, FolderPlus, Type } from "../components/Icons";
 import { api, errorText } from "../lib/api";
 import { captureClipboard, importPackFile, pickFiles } from "../lib/actions";
 import { PASTE_SOURCES, provider } from "../lib/providers";
@@ -90,11 +90,11 @@ export function QuickCapture() {
               </div>
             </div>
           </div>
-          <Field label="Title" hint="Optional — first line if empty">
-            <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Field label="Title" hint="Optional">
+            <TextInput placeholder="Uses the first line if empty" value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <Field label="Conversation" hint="In the chat: ⌘A, ⌘C, then paste here">
-            <TextArea rows={8} value={text} onChange={(e) => setText(e.target.value)} />
+          <Field label="Conversation">
+            <TextArea rows={8} placeholder="Paste the conversation here. In the chat app: ⌘A to select it, ⌘C to copy." value={text} onChange={(e) => setText(e.target.value)} />
           </Field>
           <div className="flex items-center justify-between gap-3">
             <span className="text-[12px] text-faint">Kept exactly as pasted. Marked as a pasted source, since Hopilo can't verify it.</span>

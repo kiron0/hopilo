@@ -116,6 +116,7 @@ struct Tally {
     unreadable: usize,
     images: usize,
     compactions: usize,
+    files: Vec<hopilo_core::CapturedFile>,
 }
 
 fn read_rollout(path: &Path) -> Result<Capture> {
@@ -195,8 +196,23 @@ fn read_rollout(path: &Path) -> Result<Capture> {
                             }
                         }
                         Some("input_image") => {
-                            t.images += 1;
-                            blocks.push(Block::Missing { description: "image shared in the conversation".into() });
+                            let url = c.get("image_url").and_then(|u| u.as_str().or_else(|| u.get("url").and_then(Value::as_str))).unwrap_or("");
+                            let n = t.files.len() + 1;
+                            let recovered = if url.starts_with("data:") {
+                                hopilo_core::CapturedFile::from_base64(format!("image-{n}"), "", url)
+                            } else {
+                                crate::text::read_local_file(url)
+                            };
+                            match recovered {
+                                Some(f) => {
+                                    blocks.push(f.block());
+                                    t.files.push(f);
+                                }
+                                None => {
+                                    t.images += 1;
+                                    blocks.push(Block::Missing { description: "image shared in the conversation".into() });
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -272,6 +288,7 @@ fn read_rollout(path: &Path) -> Result<Capture> {
             omitted: om,
         },
         messages,
+        files: t.files,
     })
 }
 

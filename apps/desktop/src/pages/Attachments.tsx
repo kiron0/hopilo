@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { FilePlus2, FolderPlus, Hammer, Paperclip, Trash2 } from "lucide-react";
+import { FilePlus2, FolderPlus, Hammer, Paperclip, Trash2 } from "../components/Icons";
 import { api } from "../lib/api";
 import { pickFiles } from "../lib/actions";
 import { bytes } from "../lib/format";

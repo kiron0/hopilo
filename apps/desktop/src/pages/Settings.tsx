@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen } from "../components/Icons";
 import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";

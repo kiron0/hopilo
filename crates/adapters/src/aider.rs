@@ -100,6 +100,7 @@ pub fn read_history(path: &Path) -> Result<Capture> {
             omitted: om,
         },
         messages,
+        files: Vec::new(),
     })
 }
 

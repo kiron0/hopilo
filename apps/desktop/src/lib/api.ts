@@ -11,7 +11,8 @@ export type Block =
   | { type: "text"; text: string }
   | { type: "toolCall"; name: string; input: string }
   | { type: "toolResult"; name: string | null; output: string; isError: boolean }
-  | { type: "missing"; description: string };
+  | { type: "missing"; description: string }
+  | { type: "file"; name: string; mediaType: string; sha256: string; size: number };
 
 export interface Message {
   id: string;

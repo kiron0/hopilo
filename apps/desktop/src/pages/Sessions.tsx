@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bot, Download, Hammer, Loader2, MessagesSquare, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Bot, Download, Hammer, Loader2, MessagesSquare, RefreshCw, Trash2 } from "../components/Icons";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { api, errorText, type DiscoveredRow, type SourceRow } from "../lib/api";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
@@ -8,7 +8,7 @@ import { type DraftItem, useApp } from "../lib/store";
 import { CopyHandoffButton } from "./Dashboard";
 import { Transcript } from "../components/Transcript";
 import { ListSkeleton, TranscriptSkeleton } from "../components/Skeletons";
-import { Badge, Button, Card, cx, EmptyState, ErrorNote, IconButton, PageHeader, ProviderDot, ProviderTag, SearchField, Segmented, Skeleton, StatusBadge } from "../components/ui";
+import { Badge, Button, Card, cx, EmptyState, ErrorNote, IconButton, PageHeader, Pagination, useFitRows, ProviderDot, ProviderTag, SearchField, Segmented, Skeleton, StatusBadge } from "../components/ui";
 import { FillPage, PageFooter, PageToolbar } from "../components/PageSlots";
 
 export function sourceDraftItem(r: { id: string; title: string; provider: string; messageCount: number }, messageIds?: string[]): DraftItem {
@@ -30,7 +30,10 @@ function AgentSessions() {
   const [q, setQ] = useState("");
   const [adapter, setAdapter] = useState<"all" | "claude-code" | "codex" | "gemini-cli" | "opencode" | "qwen-code">("all");
   const [busy, setBusy] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [listRef, pageSize] = useFitRows<HTMLDivElement>(62);
 
+  useEffect(() => setPage(0), [q, adapter]);
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (data ?? []).filter(
@@ -39,6 +42,8 @@ function AgentSessions() {
         (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle)),
     );
   }, [data, q, adapter]);
+
+  const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
 
   const capture = async (r: DiscoveredRow, thenBuild: boolean) => {
     setBusy(r.path);
@@ -65,7 +70,7 @@ function AgentSessions() {
   return (
     <FillPage>
       <PageToolbar>
-        <SearchField label="Filter sessions by title or project" value={q} onChange={setQ} className="flex-1" />
+        <SearchField label="Filter sessions" placeholder="Search by title or project" value={q} onChange={setQ} className="flex-1" />
         <Segmented
           label="Agent"
           value={adapter}
@@ -95,9 +100,10 @@ function AgentSessions() {
         </Card>
       )}
       {rows.length > 0 && (
-        <Card className="min-h-0 flex-1 divide-y divide-line overflow-auto">
-          {rows.map((r) => (
-            <div key={r.path} className="group flex items-center gap-3 px-4 py-3 hover:bg-surface-2/60">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref={listRef} className="min-h-0 flex-1 divide-y divide-line overflow-hidden">
+          {rows.slice(pg * pageSize, pg * pageSize + pageSize).map((r) => (
+            <div key={r.path} data-fit-row className="group flex items-center gap-3 px-4 py-3 hover:bg-surface-2/60">
               <ProviderDot id={r.adapter} size={9} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -118,11 +124,15 @@ function AgentSessions() {
               <CopyHandoffButton row={r} variant="primary" />
             </div>
           ))}
+        </div>
+        <div className="shrink-0 border-t border-line bg-surface-2/50 px-4 py-2.5">
+          <Pagination page={pg} pageSize={pageSize} total={rows.length} onPage={setPage} noun="session" />
+        </div>
         </Card>
       )}
       <PageFooter>
         <span className="mr-auto text-[12px] text-faint">
-          {data ? `${plural(rows.length, "session")}${rows.length !== data.length ? ` of ${data.length}` : ""} · ` : ""}Opened read-only. Hidden reasoning and injected system context are left out.
+          Opened read-only. Hidden reasoning and injected system context are left out.
         </span>
       </PageFooter>
     </FillPage>
@@ -296,7 +306,7 @@ function CapturedSessions({ initial }: { initial?: string }) {
     <FillPage>
     <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-4">
       <div className="flex min-h-0 flex-col gap-2">
-        <SearchField label="Filter captures" value={q} onChange={setQ} />
+        <SearchField label="Filter captures" placeholder="Search captures" value={q} onChange={setQ} />
         <Card className="min-h-0 flex-1 divide-y divide-line overflow-auto">
           {rows.map((r) => (
             <button

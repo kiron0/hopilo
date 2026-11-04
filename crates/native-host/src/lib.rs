@@ -26,7 +26,9 @@ pub const FIREFOX_EXTENSION_ID: &str = "hopilo@hopilo.dev";
 /// Chrome refuses host-to-extension messages over 1 MiB; stay under it.
 pub const MAX_OUTGOING: usize = 1_000_000;
 /// Extension-to-host messages may be up to 64 MiB; we accept far less.
-pub const MAX_INCOMING: usize = 16 * 1024 * 1024;
+pub const MAX_INCOMING: usize = 60 * 1024 * 1024;
+/// Largest single file accepted from a captured chat (decoded bytes).
+const MAX_FILE: usize = 20 * 1024 * 1024;
 const MAX_MESSAGES: usize = 5_000;
 const WEB_PROVIDERS: &[&str] = &["chatgpt", "claude", "gemini", "deepseek", "grok", "perplexity"];
 
@@ -102,9 +104,24 @@ pub fn allowed_ids(store: &Store) -> Vec<String> {
 #[serde(rename_all = "camelCase")]
 struct CaptureMessage {
     role: String,
+    #[serde(default)]
     text: String,
     #[serde(default)]
     created_at: Option<String>,
+    /// Files and images shared in this message, read by the extension.
+    #[serde(default)]
+    files: Vec<CaptureFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureFile {
+    name: String,
+    #[serde(default)]
+    media_type: String,
+    /// Base64 bytes; absent when the page showed the file but it couldn't be read.
+    #[serde(default)]
+    data: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -217,20 +234,51 @@ impl Host {
             return err(id, "too_large", "Conversation is too long to capture in one go.");
         }
         let source_id = new_id();
-        let messages: Vec<Message> = payload
-            .messages
-            .into_iter()
-            .filter(|m| !m.text.trim().is_empty())
-            .map(|m| Message {
+        let mut unrecovered: Vec<String> = Vec::new();
+        let mut messages: Vec<Message> = Vec::new();
+        for m in payload.messages {
+            let mut blocks = Vec::new();
+            for f in m.files.into_iter().take(50) {
+                let name: String = f.name.trim().chars().take(200).collect();
+                let file = f
+                    .data
+                    .as_deref()
+                    .and_then(|d| hopilo_core::CapturedFile::from_base64(if name.is_empty() { "file".to_string() } else { name.clone() }, f.media_type.clone(), d))
+                    .filter(|cf| cf.bytes.len() <= MAX_FILE);
+                match file {
+                    Some(cf) => match self.store.insert_attachment(&cf.attachment(), &cf.bytes) {
+                        Ok(_) => blocks.push(cf.block()),
+                        Err(_) => {
+                            blocks.push(Block::Missing { description: format!("file “{name}”") });
+                            unrecovered.push(name);
+                        }
+                    },
+                    None => {
+                        blocks.push(Block::Missing { description: format!("file “{name}”") });
+                        unrecovered.push(name);
+                    }
+                }
+            }
+            if !m.text.trim().is_empty() {
+                blocks.insert(0, Block::text(m.text));
+            }
+            if blocks.is_empty() {
+                continue;
+            }
+            messages.push(Message {
                 id: new_id(),
                 source_id: source_id.clone(),
                 role: if m.role == "user" { Role::User } else { Role::Assistant },
                 created_at: m.created_at,
-                blocks: vec![Block::text(m.text)],
-            })
-            .collect();
-        let status = if payload.status == "complete" && payload.missing.is_empty() { CaptureStatus::Complete } else { CaptureStatus::Partial };
+                blocks,
+            });
+        }
         let mut missing: Vec<String> = payload.missing.into_iter().take(20).map(|s| s.chars().take(300).collect()).collect();
+        if !unrecovered.is_empty() {
+            let names = unrecovered.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+            missing.push(format!("{} file(s) shown in the chat couldn't be downloaded: {names}", unrecovered.len()));
+        }
+        let status = if payload.status == "complete" && missing.is_empty() { CaptureStatus::Complete } else { CaptureStatus::Partial };
         if status == CaptureStatus::Partial && missing.is_empty() {
             missing.push("The page may not have shown the whole conversation".into());
         }

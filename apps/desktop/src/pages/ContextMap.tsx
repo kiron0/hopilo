@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileDown, GitMerge, Hammer, Map as MapIcon, Scissors } from "lucide-react";
+import { FileDown, GitMerge, Hammer, Map as MapIcon, Scissors } from "../components/Icons";
 import { api, errorText, type PackRow } from "../lib/api";
 import { exportPack } from "../lib/actions";
 import { plural, provider, relativeTime, tokens } from "../lib/format";

@@ -52,6 +52,9 @@ pub struct DiscoveredSession {
 pub struct Capture {
     pub source: Source,
     pub messages: Vec<Message>,
+    /// Files and images recovered from the session; their messages carry a
+    /// matching `Block::File`. The library stores the bytes as attachments.
+    pub files: Vec<hopilo_core::CapturedFile>,
 }
 
 #[derive(Debug, Clone, Serialize)]

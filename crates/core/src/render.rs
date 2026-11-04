@@ -135,7 +135,18 @@ fn write_message(out: &mut String, m: &Message, opts: &RenderOptions) {
             Block::Missing { description } => {
                 let _ = writeln!(out, "> ⚠ Referenced but not recovered: {description}\n");
             }
+            Block::File { name, media_type, size, .. } => {
+                let _ = writeln!(out, "> 📎 Shared file: `{name}` ({media_type}, {}) — included with this pack\n", human_size(*size));
+            }
         }
+    }
+}
+
+fn human_size(n: u64) -> String {
+    match n {
+        n if n < 1024 => format!("{n} B"),
+        n if n < 1024 * 1024 => format!("{:.0} KB", n as f64 / 1024.0),
+        n => format!("{:.1} MB", n as f64 / (1024.0 * 1024.0)),
     }
 }
 

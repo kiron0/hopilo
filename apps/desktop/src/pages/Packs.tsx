@@ -1,28 +1,6 @@
 import { useEffect, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
-import {
-  AlertTriangle,
-  RefreshCw,
-  PanelBottom,
-  Scissors,
-  Tag,
-  GitBranch,
-  Archive,
-  ArrowLeft,
-  Boxes,
-  Copy,
-  CopyPlus,
-  FileDown,
-  FileUp,
-  History,
-  Info,
-  Pencil,
-  Pin,
-  Send,
-  ShieldAlert,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, RefreshCw, PanelBottom, Scissors, Tag, GitBranch, Archive, ArrowLeft, Boxes, Copy, CopyPlus, FileDown, FileUp, History, Info, Pencil, Pin, Send, ShieldAlert, Star, Trash2 } from "../components/Icons";
 import { api, errorText, type Level, type PackRow, type ToolDetail } from "../lib/api";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { copyHandoff, copyMarkdown, exportPack, importPackFile } from "../lib/actions";
@@ -462,7 +440,7 @@ export function Packs() {
         }
       />
       <PageToolbar className="gap-3">
-        <SearchField label="Filter packs" value={q} onChange={setQ} className="w-72" />
+        <SearchField label="Filter packs" placeholder="Search packs" value={q} onChange={setQ} className="w-72" />
         <label className="flex items-center gap-2 text-[12.5px] text-muted">
           <Toggle checked={showArchived} onChange={setShowArchived} label="Show archived" /> Archived
         </label>
@@ -553,7 +531,8 @@ function TagEditor({ id, tags }: { id: string; tags: string[] }) {
             title="Add a tag, then press Return"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="w-20 bg-transparent text-ink focus:outline-none"
+            placeholder={tags.length ? "Add tag" : "Add a tag"}
+            className="w-20 bg-transparent text-ink placeholder:text-faint focus:outline-none"
           />
         </label>
       </form>

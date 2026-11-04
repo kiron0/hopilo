@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronRight, Wrench } from "lucide-react";
+import { AlertTriangle, ChevronRight, Wrench, FileImage, FileText } from "./Icons";
 import type { Block, Message } from "../lib/api";
+import { bytes } from "../lib/format";
 import { Button, Checkbox, cx } from "./ui";
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
@@ -43,6 +44,16 @@ function BlockView({ b }: { b: Block }) {
           <AlertTriangle size={13} /> Referenced but not recovered: {b.description}
         </div>
       );
+    case "file": {
+      const Glyph = b.mediaType.startsWith("image/") ? FileImage : FileText;
+      return (
+        <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface px-2.5 py-1.5 text-[12.5px] shadow-item" title={b.mediaType}>
+          <Glyph size={15} className="shrink-0 text-accent" />
+          <span className="truncate font-medium">{b.name}</span>
+          <span className="shrink-0 font-mono text-[11px] text-faint">{bytes(b.size)}</span>
+        </div>
+      );
+    }
   }
 }
 

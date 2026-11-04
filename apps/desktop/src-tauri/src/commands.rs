@@ -202,7 +202,7 @@ fn checked_session_path(adapter: &dyn hopilo_adapters::LocalAgentAdapter, path: 
 
 /// Read and normalize a session file. Runs without the library lock, so a
 /// large session never blocks other screens.
-fn read_session(adapter_id: &str, path: &str) -> CmdResult<(Source, Vec<Message>)> {
+fn read_session(adapter_id: &str, path: &str) -> CmdResult<(Source, Vec<Message>, Vec<hopilo_core::CapturedFile>)> {
     let adapter = adapter_by_id(adapter_id).ok_or_else(|| format!("unknown adapter {adapter_id}"))?;
     let real = checked_session_path(adapter.as_ref(), path)?;
     let cap = adapter.read(&real).map_err(err)?;
@@ -211,16 +211,38 @@ fn read_session(adapter_id: &str, path: &str) -> CmdResult<(Source, Vec<Message>
     source.origin = Some(path.to_string());
     let messages: Vec<Message> =
         cap.messages.into_iter().map(|m| Message { source_id: source.source_id.clone(), ..m }).collect();
-    Ok((source, messages))
+    Ok((source, messages, cap.files))
+}
+
+/// Store files recovered with a capture as library attachments (deduplicated
+/// by content). Returns the stored records.
+pub(crate) fn store_captured_files(store: &mut Store, files: &[hopilo_core::CapturedFile]) -> CmdResult<Vec<Attachment>> {
+    files.iter().map(|f| store.insert_attachment(&f.attachment(), &f.bytes).map(|(a, _)| a).map_err(err)).collect()
+}
+
+/// Library attachments referenced by `Block::File` in these messages.
+fn referenced_files(store: &Store, messages: &[Message]) -> Vec<Attachment> {
+    let mut seen = HashSet::new();
+    messages
+        .iter()
+        .flat_map(|m| m.blocks.iter())
+        .filter_map(|b| match b {
+            Block::File { sha256, .. } if seen.insert(sha256.clone()) => store.attachment_by_sha(sha256).ok().flatten(),
+            _ => None,
+        })
+        .collect()
 }
 
 #[tauri::command]
 pub async fn import_session(app: AppHandle, adapter: String, path: String) -> CmdResult<ImportOutcome> {
     let a2 = app.clone();
     let out = tauri::async_runtime::spawn_blocking(move || {
-        let (source, messages) = read_session(&adapter, &path)?;
+        let (source, messages, files) = read_session(&adapter, &path)?;
         let state = a2.state::<AppState>();
-        with_store(&state, |s| s.insert_capture(&source, &messages).map_err(err))
+        with_store(&state, |s| {
+            store_captured_files(s, &files)?;
+            s.insert_capture(&source, &messages).map_err(err)
+        })
     })
     .await
     .map_err(err)??;
@@ -456,7 +478,14 @@ fn assemble(store: &Store, req: &BuildRequest) -> CmdResult<Pack> {
                 if keep.is_some() {
                     any_selected = true;
                 }
-                messages.extend(msgs.into_iter().filter(|m| keep.as_ref().is_none_or(|k| k.contains(&m.id))));
+                let kept: Vec<Message> = msgs.into_iter().filter(|m| keep.as_ref().is_none_or(|k| k.contains(&m.id))).collect();
+                // Files shared in the kept messages travel with the pack.
+                for a in referenced_files(store, &kept) {
+                    if seen_atts.insert(a.id.clone()) {
+                        attachments.push(a);
+                    }
+                }
+                messages.extend(kept);
                 sources.push(source);
             }
             BuildItem::Attachment { id } => {
@@ -534,9 +563,10 @@ pub async fn quick_pack_from_session(app: AppHandle, adapter: String, path: Stri
 /// Capture + Full pack, on the calling thread (blocking file reads).
 pub(crate) fn quick_pack_blocking(app: &AppHandle, adapter: &str, path: &str) -> CmdResult<Pack> {
     {
-        let (source, messages) = read_session(adapter, path)?;
+        let (source, messages, files) = read_session(adapter, path)?;
         let state = app.state::<AppState>();
         with_store(&state, |s| {
+            store_captured_files(s, &files)?;
             let out = s.insert_capture(&source, &messages).map_err(err)?;
             let req = BuildRequest {
                 pack_id: None,
@@ -1223,6 +1253,7 @@ pub async fn pull_new_messages(app: AppHandle, id: String) -> CmdResult<PullResu
         let fingerprint = |m: &Message| serde_json::to_string(&(&m.role, &m.blocks)).unwrap_or_default();
         let have: HashSet<String> = pack.messages.iter().map(fingerprint).collect();
         let mut added = 0;
+        let mut new_files: Vec<hopilo_core::CapturedFile> = Vec::new();
         let mut skipped = Vec::new();
         for i in 0..pack.sources.len() {
             let src = pack.sources[i].clone();
@@ -1249,6 +1280,12 @@ pub async fn pull_new_messages(app: AppHandle, id: String) -> CmdResult<PullResu
                 .map(|m| Message { source_id: src.source_id.clone(), ..m })
                 .collect();
             added += fresh.len();
+            let fresh_shas: HashSet<&str> = fresh
+                .iter()
+                .flat_map(|m| m.blocks.iter())
+                .filter_map(|b| if let Block::File { sha256, .. } = b { Some(sha256.as_str()) } else { None })
+                .collect();
+            new_files.extend(cap.files.iter().filter(|f| fresh_shas.contains(f.sha256().as_str())).cloned());
             pack.messages.splice(last_pos..last_pos, fresh);
             pack.sources[i].capture_status = cap.source.capture_status;
             pack.sources[i].missing_items = cap.source.missing_items;
@@ -1259,7 +1296,14 @@ pub async fn pull_new_messages(app: AppHandle, id: String) -> CmdResult<PullResu
             return Ok::<_, String>(PullResult { added, pack: None, skipped });
         }
         let label = format!("Pulled {added} new message(s)");
-        let saved = with_store(&state, |s| s.add_version(&id, pack, Some(&label)).map_err(err))?;
+        let saved = with_store(&state, |s| {
+            for a in store_captured_files(s, &new_files)? {
+                if !pack.attachments.iter().any(|x| x.sha256 == a.sha256) {
+                    pack.attachments.push(a);
+                }
+            }
+            s.add_version(&id, pack, Some(&label)).map_err(err)
+        })?;
         Ok(PullResult { added, pack: Some(saved), skipped })
     })
     .await

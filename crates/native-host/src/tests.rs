@@ -138,3 +138,35 @@ fn firefox_caller_by_extension_id() {
     assert!(caller_allowed(&[format!("chrome-extension://{DEFAULT_EXTENSION_ID}/")], &allowed));
     assert!(!caller_allowed(&[], &allowed));
 }
+
+#[test]
+fn capture_stores_shared_files_and_flags_unreadable_ones() {
+    let (_d, mut h) = host();
+    let req = json!({
+        "type": "capture.import", "requestId": "r2", "provider": "chatgpt",
+        "payload": {
+            "title": "Spec review", "url": "https://chatgpt.com/c/1", "status": "complete",
+            "messages": [
+                { "role": "user", "text": "See the spec", "files": [
+                    { "name": "spec.md", "mediaType": "text/markdown", "data": "IyBTcGVj" },
+                    { "name": "diagram.png", "mediaType": "image/png" }
+                ] },
+                { "role": "assistant", "text": "Got it." }
+            ]
+        }
+    });
+    let resp = h.handle(&req);
+    assert_eq!(resp["ok"], true, "{resp}");
+    let sid = resp["result"]["sourceId"].as_str().unwrap();
+    let (src, msgs) = h.store.get_source(sid).unwrap();
+    assert_eq!(src.capture_status, CaptureStatus::Partial);
+    assert!(src.missing_items.iter().any(|m| m.contains("diagram.png")));
+    let file = msgs[0].blocks.iter().find_map(|b| match b {
+        Block::File { name, sha256, .. } => Some((name.clone(), sha256.clone())),
+        _ => None,
+    });
+    let (name, sha) = file.expect("file block");
+    assert_eq!(name, "spec.md");
+    let att = h.store.attachment_by_sha(&sha).unwrap().expect("stored attachment");
+    assert_eq!(att.text.as_deref(), Some("# Spec"));
+}

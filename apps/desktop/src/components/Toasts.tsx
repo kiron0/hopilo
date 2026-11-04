@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "./Icons";
 import { useApp } from "../lib/store";
 import { cx } from "./ui";
 

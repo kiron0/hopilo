@@ -397,7 +397,7 @@ impl Store {
         })
     }
 
-    fn attachment_by_sha(&self, sha: &str) -> Result<Option<Attachment>> {
+    pub fn attachment_by_sha(&self, sha: &str) -> Result<Option<Attachment>> {
         Ok(self
             .conn
             .query_row(

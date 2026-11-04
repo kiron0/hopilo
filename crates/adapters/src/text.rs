@@ -66,3 +66,66 @@ mod tests {
         assert_eq!(title_from(&"a".repeat(100)).chars().count(), 80);
     }
 }
+
+/// Largest file an adapter will pull into the library from a local path.
+pub const MAX_RECOVERED_FILE: u64 = 25 * 1024 * 1024;
+
+/// Read a file a session points at by local path (`/abs/path` or
+/// `file:///abs/path`). Returns None for remote URLs, missing files,
+/// directories and anything over [`MAX_RECOVERED_FILE`].
+pub fn read_local_file(reference: &str) -> Option<hopilo_core::CapturedFile> {
+    let raw = reference.strip_prefix("file://").unwrap_or(reference);
+    if raw.is_empty() || raw.contains("://") {
+        return None;
+    }
+    let decoded = percent_decode(raw);
+    let path = std::path::Path::new(&decoded);
+    if !path.is_absolute() {
+        return None;
+    }
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_RECOVERED_FILE {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    Some(hopilo_core::CapturedFile { media_type: media_type_for(&name).into(), name, bytes })
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Media type from a file name's extension.
+pub fn media_type_for(name: &str) -> &'static str {
+    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        "md" | "markdown" => "text/markdown",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "html" | "htm" => "text/html",
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "rb" | "c" | "h" | "cpp" | "swift" | "kt" | "sh" | "toml" | "yaml" | "yml" | "css" | "sql" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}

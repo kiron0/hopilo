@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, FileDown, GripVertical, X } from "lucide-react";
+import { Copy, FileDown, GripVertical, X } from "../components/Icons";
 import { api, type Level } from "../lib/api";
 import { copyHandoff, exportPack } from "../lib/actions";
 import { tokens } from "../lib/format";

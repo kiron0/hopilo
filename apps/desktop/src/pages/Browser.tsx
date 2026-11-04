@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { AlertTriangle, CheckCircle2, CircleDashed, Copy, FolderOpen, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Copy, FolderOpen, RefreshCw } from "../components/Icons";
 import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { useLoad } from "../lib/hooks";

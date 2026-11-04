@@ -1,9 +1,8 @@
-import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, X, XCircle } from "lucide-react";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState } from "react";
 import type { CaptureStatus } from "../lib/api";
 import { provider } from "../lib/format";
 import { TARGETS as TARGET_LIST } from "../lib/providers";
-import { CheckIcon, SearchIcon } from "./Icons";
+import { CheckIcon, SearchIcon, AlertTriangle, CheckCircle2, CircleDashed, Loader2, X, XCircle, ArrowLeft, ArrowRight } from "./Icons";
 import { Select, type SelectOption } from "./Select";
 import { PageHeaderSlot } from "./PageSlots";
 
@@ -192,9 +191,8 @@ export function Toggle({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-/** Search/filter field: the dashboard's pill search, with a clear button.
- *  The icon and accessible label say what it is; no placeholder text. */
-export function SearchField({ value, onChange, label, className, autoFocus }: { value: string; onChange: (v: string) => void; label: string; className?: string; autoFocus?: boolean }) {
+/** Search/filter field: the dashboard's pill search, with a clear button. */
+export function SearchField({ value, onChange, label, placeholder, className, autoFocus }: { value: string; onChange: (v: string) => void; label: string; placeholder?: string; className?: string; autoFocus?: boolean }) {
   return (
     <label className={cx("flex h-9 min-w-0 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item transition-colors focus-within:border-accent", className)}>
       <SearchIcon size={14} />
@@ -202,10 +200,11 @@ export function SearchField({ value, onChange, label, className, autoFocus }: { 
         type="search"
         autoFocus={autoFocus}
         aria-label={label}
+        placeholder={placeholder ?? label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => e.key === "Escape" && value && (e.stopPropagation(), onChange(""))}
-        className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none [&::-webkit-search-cancel-button]:hidden"
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-faint [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button type="button" aria-label="Clear" onClick={() => onChange("")} className="flex h-5 w-5 items-center justify-center rounded-full text-faint hover:bg-surface-3 hover:text-ink">
@@ -229,26 +228,24 @@ export function Field({ label, hint, children, className }: { label: string; hin
   );
 }
 
-type NoPlaceholder<T> = Omit<T, "placeholder">;
-
-export function TextInput(props: NoPlaceholder<React.InputHTMLAttributes<HTMLInputElement>>) {
+export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
       className={cx(
-        "h-9.5 w-full rounded-xl border border-line bg-card px-3 text-[13.5px] text-ink shadow-item focus:border-accent focus:outline-none",
+        "h-9.5 w-full rounded-xl border border-line bg-card px-3 text-[13.5px] text-ink shadow-item placeholder:text-faint focus:border-accent focus:outline-none",
         props.className,
       )}
     />
   );
 }
 
-export function TextArea(props: NoPlaceholder<React.TextareaHTMLAttributes<HTMLTextAreaElement>>) {
+export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
       className={cx(
-        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink shadow-item focus:border-accent focus:outline-none",
+        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink shadow-item placeholder:text-faint focus:border-accent focus:outline-none",
         props.className,
       )}
     />
@@ -382,3 +379,65 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
   return <span aria-hidden className={cx("skeleton block", className)} style={style} />;
 }
 
+
+/** How many rows of `rowHeight` fit in the element; re-measured on resize.
+ *  Lets a list fill its box exactly and page instead of scrolling. */
+export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 3) {
+  // A callback ref, so measuring starts whenever the list element mounts
+  // (it may appear only after data loads).
+  const [el, ref] = useState<T | null>(null);
+  const [rows, setRows] = useState(min);
+  useEffect(() => {
+    if (!el) return;
+    const measure = () => {
+      const first = el.querySelector<HTMLElement>("[data-fit-row]");
+      const h = first?.offsetHeight || rowHeight;
+      setRows(Math.max(min, Math.floor((el.clientHeight - 2) / h)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el, rowHeight, min]);
+  return [ref, rows] as const;
+}
+
+/** Compact pager: range, previous/next and nearby page numbers. */
+export function Pagination({ page, pageSize, total, onPage, noun = "item" }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; noun?: string }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total === 0) return null;
+  const from = page * pageSize + 1;
+  const to = Math.min(total, from + pageSize - 1);
+  const around = [...new Set([0, page - 1, page, page + 1, pages - 1])].filter((p) => p >= 0 && p < pages).sort((a, b) => a - b);
+  const btn = "flex h-8 min-w-8 items-center justify-center rounded-full px-2 font-mono text-[12px] transition-colors disabled:pointer-events-none disabled:opacity-40";
+  return (
+    <nav aria-label="Pages" className="flex items-center gap-3">
+      <span className="font-mono text-[11.5px] text-faint">
+        {from.toLocaleString()}–{to.toLocaleString()} of {total.toLocaleString()} {total === 1 ? noun : `${noun}s`}
+      </span>
+      <div className="flex-1" />
+      <div className="flex items-center gap-0.5 rounded-full border border-line bg-card p-0.5 shadow-item">
+        <button type="button" aria-label="Previous page" disabled={page === 0} onClick={() => onPage(page - 1)} className={cx(btn, "text-muted hover:bg-surface-3 hover:text-ink")}>
+          <ArrowLeft size={14} />
+        </button>
+        {around.map((p, i) => (
+          <span key={p} className="flex items-center">
+            {i > 0 && p - around[i - 1] > 1 && <span className="px-1 text-faint">…</span>}
+            <button
+              type="button"
+              aria-label={`Page ${p + 1}`}
+              aria-current={p === page ? "page" : undefined}
+              onClick={() => onPage(p)}
+              className={cx(btn, p === page ? "bg-surface font-semibold text-ink shadow-item" : "text-muted hover:bg-surface-3 hover:text-ink")}
+            >
+              {p + 1}
+            </button>
+          </span>
+        ))}
+        <button type="button" aria-label="Next page" disabled={page >= pages - 1} onClick={() => onPage(page + 1)} className={cx(btn, "text-muted hover:bg-surface-3 hover:text-ink")}>
+          <ArrowRight size={14} />
+        </button>
+      </div>
+    </nav>
+  );
+}

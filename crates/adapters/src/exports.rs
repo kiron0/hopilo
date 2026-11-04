@@ -114,7 +114,7 @@ fn finish(
         missing_items: missing,
         omitted: om,
     };
-    Some((ExportConversation { id: conv_id, title, updated_at, message_count: count }, Capture { source, messages }))
+    Some((ExportConversation { id: conv_id, title, updated_at, message_count: count }, Capture { source, messages, files: Vec::new() }))
 }
 
 fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {

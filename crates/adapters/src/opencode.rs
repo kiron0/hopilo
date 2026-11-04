@@ -141,6 +141,7 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
     let source_id = new_id();
     let mut messages = Vec::new();
     let (mut reasoning, mut files, mut compactions, mut unreadable) = (0, 0, 0, 0);
+    let mut recovered = Vec::new();
     let mut model = None;
     let mut first_prompt = None;
 
@@ -194,9 +195,30 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
                     }
                 }
                 "file" => {
-                    files += 1;
                     let name = part.get("filename").and_then(Value::as_str).unwrap_or("file");
-                    blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                    let mime = part.get("mime").and_then(Value::as_str).unwrap_or("");
+                    let url = part.get("url").and_then(Value::as_str).unwrap_or("");
+                    let f = if url.starts_with("data:") {
+                        hopilo_core::CapturedFile::from_base64(name, mime, url)
+                    } else {
+                        crate::text::read_local_file(url).map(|mut f| {
+                            f.name = name.to_string();
+                            if !mime.is_empty() {
+                                f.media_type = mime.to_string();
+                            }
+                            f
+                        })
+                    };
+                    match f {
+                        Some(f) => {
+                            blocks.push(f.block());
+                            recovered.push(f);
+                        }
+                        None => {
+                            files += 1;
+                            blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                        }
+                    }
                 }
                 "compaction" => compactions += 1,
                 _ => {}
@@ -244,6 +266,7 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
             omitted: om,
         },
         messages,
+        files: recovered,
     })
 }
 

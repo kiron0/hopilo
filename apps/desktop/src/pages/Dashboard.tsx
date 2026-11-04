@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, MessagesSquare, MousePointerClick, Send, ShieldCheck, X } from "lucide-react";
 import { api, type DiscoveredRow, type SourceRow } from "../lib/api";
 import { quickHandoff } from "../lib/actions";
 import { basename, plural, provider, relativeTime } from "../lib/format";
@@ -8,7 +7,7 @@ import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Button, Card, cx, Skeleton } from "../components/ui";
 import { RowSkeleton } from "../components/Skeletons";
-import { SparkIcon } from "../components/Icons";
+import { SparkIcon, ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, MessagesSquare, MousePointerClick, Send, ShieldCheck, X } from "../components/Icons";
 
 export function CopyHandoffButton({ row, variant = "primary" }: { row: DiscoveredRow; variant?: "primary" | "secondary" }) {
   const [busy, setBusy] = useState(false);

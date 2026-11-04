@@ -9,6 +9,20 @@
   "permissions": [
     "nativeMessaging"
   ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://*.oaiusercontent.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://chat.deepseek.com/*",
+    "https://grok.com/*",
+    "https://assets.grok.com/*",
+    "https://www.perplexity.ai/*",
+    "https://perplexity.ai/*",
+    "https://*.perplexity.ai/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

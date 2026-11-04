@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { CheckCircle2, ClipboardPaste, FileArchive, FileText, FolderOpen, ScanSearch } from "lucide-react";
+import { CheckCircle2, ClipboardPaste, FileArchive, FileText, FolderOpen, ScanSearch } from "../components/Icons";
 import { open } from "@tauri-apps/plugin-dialog";
 import { errorText } from "../lib/api";
 import { api } from "../lib/api";
@@ -71,7 +71,7 @@ export function Agents() {
             { value: "agent", label: "Coding agents & editors" },
           ]}
         />
-        <SearchField label="Search tools" value={q} onChange={setQ} className="w-64" />
+        <SearchField label="Search tools" placeholder="Search AI tools" value={q} onChange={setQ} className="w-64" />
       </PageToolbar>
 
       {(["agent", "chat"] as const)

@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { AlertTriangle, Boxes, FilePlus2, GripVertical, Hammer, MessagesSquare, Paperclip, Plus, Type, X } from "lucide-react";
+import { AlertTriangle, Boxes, FilePlus2, GripVertical, Hammer, MessagesSquare, Paperclip, Plus, Type, X } from "../components/Icons";
 import { api, errorText, type PackRow, type SourceRow } from "../lib/api";
 import { pickFiles } from "../lib/actions";
 import { plural, provider, relativeTime } from "../lib/format";
@@ -165,10 +165,10 @@ function AddTextModal({ onClose, onAdded }: { onClose: () => void; onAdded: (d: 
     >
       <div className="space-y-3">
         <Field label="Title" hint="Optional">
-          <TextInput value={title} onChange={(e) => setTitle(e.target.value)} />
+          <TextInput placeholder="Untitled note" value={title} onChange={(e) => setTitle(e.target.value)} />
         </Field>
-        <Field label="Text" hint="Snippets, requirements, decisions">
-          <TextArea autoFocus rows={10} value={text} onChange={(e) => setText(e.target.value)} />
+        <Field label="Text">
+          <TextArea autoFocus rows={10} placeholder="Paste a snippet, requirements or decisions" value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
         {error && <div className="text-danger">{error}</div>}
         <p className="text-[12px] text-faint">Saved to your library as a manual source, so it can be reused.</p>
@@ -306,7 +306,7 @@ export function Builder() {
               { value: "files", label: "Files" },
             ]}
           />
-          <SearchField label="Filter library" value={filter} onChange={setFilter} className="mt-2.5" />
+          <SearchField label="Filter library" placeholder="Search library" value={filter} onChange={setFilter} className="mt-2.5" />
           <div className="-mr-2 mt-2.5 min-h-0 flex-1 space-y-2 overflow-auto pr-2 pb-1">
             {libItems.map(({ item, status }) => (
               <LibraryCard
@@ -367,11 +367,11 @@ export function Builder() {
         <aside aria-label="Pack inspector" className="-mr-2 min-h-0 overflow-auto pr-2 pb-1">
           <SectionLabel>Pack inspector</SectionLabel>
           <Card className="space-y-4 p-4">
-            <Field label="Title" hint={draft.title ? undefined : "First source if empty"}>
-              <TextInput value={draft.title} onChange={(e) => setDraft({ title: e.target.value })} />
+            <Field label="Title">
+              <TextInput placeholder="Uses the first source's title" value={draft.title} onChange={(e) => setDraft({ title: e.target.value })} />
             </Field>
-            <Field label="Note for the next AI" hint="Goal, constraints, next step">
-              <TextArea rows={4} value={draft.note} onChange={(e) => setDraft({ note: e.target.value })} />
+            <Field label="Note for the next AI">
+              <TextArea rows={4} placeholder="Goal, constraints, what to do next" value={draft.note} onChange={(e) => setDraft({ note: e.target.value })} />
             </Field>
             <div className="space-y-1.5 text-[12.5px]">
               <div className="flex justify-between">

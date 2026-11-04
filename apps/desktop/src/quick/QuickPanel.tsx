@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Loader2, Power } from "lucide-react";
 import { api, type DiscoveredRow } from "../lib/api";
 import { captureClipboard, copyHandoff, quickHandoff } from "../lib/actions";
 import { basename, provider, relativeTime } from "../lib/format";
@@ -9,7 +8,7 @@ import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
 import { IconButton, Kbd, Skeleton } from "../components/ui";
-import { CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SettingsIcon } from "../components/Icons";
+import { CaptureIcon, FilesIcon, HomeIcon, PacksIcon, SearchIcon, SendIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
 import { ProviderBadge } from "../pages/Dashboard";
 
 /** Compact menu-bar panel: capture, recent items, one-tap copy. No sidebar. */
@@ -93,6 +92,7 @@ export function QuickPanel() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             aria-label="Search recent"
+            placeholder="Search sessions and packs"
             className="min-w-0 flex-1 bg-transparent font-mono text-[11.5px] text-ink outline-none placeholder:text-faint"
           />
           <Kbd>esc</Kbd>

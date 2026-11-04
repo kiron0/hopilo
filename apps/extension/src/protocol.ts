@@ -11,6 +11,15 @@ export interface CapturedMessage {
   role: "user" | "assistant";
   text: string;
   createdAt?: string | null;
+  /** Files and images shared in this message. */
+  files?: CapturedFile[];
+}
+
+export interface CapturedFile {
+  name: string;
+  mediaType: string;
+  /** Base64 bytes; absent when the file was shown but couldn't be read. */
+  data?: string;
 }
 
 export interface CapturePayload {
@@ -45,7 +54,7 @@ export interface Draft {
 export type HostResponse<T> = { requestId: string; ok: true; result: T } | { requestId: string; ok: false; error: { code: string; message: string } };
 
 /** Popup / content script to background. */
-export type BgRequest = { kind: "host"; body: Record<string, unknown> };
+export type BgRequest = { kind: "host"; body: Record<string, unknown> } | { kind: "fetch"; url: string; maxBytes: number };
 
 /** Popup to content script. */
 export type TabRequest =

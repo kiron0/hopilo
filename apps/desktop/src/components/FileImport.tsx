@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileImage, FileText, File as FileIcon, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileImage, FileText, File as FileIcon, XCircle } from "./Icons";
 import { api, errorText, type Attachment, type FilePreflight } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useApp } from "../lib/store";

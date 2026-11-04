@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "./Icons";
 import { Button, Card } from "./ui";
 
 const CHUNK_ERROR = /dynamically imported module|Importing a module script failed|Failed to fetch|ChunkLoadError/i;

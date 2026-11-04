@@ -23,7 +23,7 @@ const Agents = lazy(() => import("./pages/Agents").then((m) => ({ default: m.Age
 const Browser = lazy(() => import("./pages/Browser").then((m) => ({ default: m.Browser })));
 const ContextMap = lazy(() => import("./pages/ContextMap").then((m) => ({ default: m.ContextMap })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
-import { FileDown } from "lucide-react";
+import { FileDown } from "./components/Icons";
 
 function Page({ route }: { route: Route }) {
   switch (route.page) {

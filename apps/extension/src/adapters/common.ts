@@ -1,6 +1,7 @@
 // Shared helpers for provider adapters: DOM to Markdown, loading older
 // messages, and inserting a draft into a composer without sending it.
 import type { CapturedMessage, CapturePayload, Provider } from "../protocol";
+import { findFiles, MAX_TOTAL_BYTES, readFiles } from "./files";
 
 export interface WebAdapter {
   id: Provider;
@@ -150,14 +151,16 @@ export async function capture(adapter: WebAdapter, doc: Document, opts: { includ
   }
   const messages: CapturedMessage[] = [];
   let unreadable = 0;
+  const budget = { left: MAX_TOTAL_BYTES };
   for (const { role, el } of adapter.messages(doc)) {
     const text = toMarkdown(adapter.body(el, role));
-    if (text) messages.push({ role, text });
+    const refs = findFiles(el);
+    const files = refs.length ? await readFiles(refs, budget) : [];
+    if (text || files.length) messages.push({ role, text, ...(files.length ? { files } : {}) });
     else unreadable++;
   }
-  if (unreadable) missing.push(`${unreadable} message(s) had no readable text (images, files or widgets)`);
-  const files = doc.querySelectorAll("[data-testid*='file'], [class*='attachment']").length;
-  if (files) missing.push("Files or images shared in the chat are not included — attach them yourself");
+  if (unreadable) missing.push(`${unreadable} message(s) had no readable text (widgets or empty turns)`);
+  if (budget.left <= 0) missing.push("Some files were left out: the capture reached its 32 MB file limit");
   return {
     title: adapter.title(doc).trim() || `${adapter.id} conversation`,
     url: pageUrl(doc),

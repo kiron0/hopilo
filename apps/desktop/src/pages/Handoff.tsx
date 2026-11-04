@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckCheck, Copy, ExternalLink, FileDown, Send } from "lucide-react";
+import { CheckCheck, Copy, ExternalLink, FileDown, Send } from "../components/Icons";
 import { api, type Level, type ToolDetail } from "../lib/api";
 import { copyHandoff, exportPack } from "../lib/actions";
 import { plural, relativeTime, sizeVerdict, tokens } from "../lib/format";

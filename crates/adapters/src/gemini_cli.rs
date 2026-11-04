@@ -106,7 +106,7 @@ fn json_session_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn parts_text(content: &Value, tally: &mut usize) -> (Vec<Block>, bool) {
+fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_core::CapturedFile>) -> (Vec<Block>, bool) {
     // Returns blocks and whether the message was only function responses.
     match content {
         Value::String(s) if !s.trim().is_empty() => (vec![Block::text(s.trim_end())], false),
@@ -133,8 +133,24 @@ fn parts_text(content: &Value, tally: &mut usize) -> (Vec<Block>, bool) {
                     });
                 } else if p.get("inlineData").is_some() || p.get("fileData").is_some() {
                     only_responses = false;
-                    *tally += 1;
-                    blocks.push(Block::Missing { description: "file shared in the conversation".into() });
+                    let n = recovered.len() + 1;
+                    let f = if let Some(d) = p.get("inlineData") {
+                        let mime = d.get("mimeType").and_then(Value::as_str).unwrap_or("");
+                        let name = d.get("displayName").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("file-{n}"));
+                        d.get("data").and_then(Value::as_str).and_then(|data| hopilo_core::CapturedFile::from_base64(name, mime, data))
+                    } else {
+                        p["fileData"].get("fileUri").and_then(Value::as_str).and_then(crate::text::read_local_file)
+                    };
+                    match f {
+                        Some(f) => {
+                            blocks.push(f.block());
+                            recovered.push(f);
+                        }
+                        None => {
+                            *tally += 1;
+                            blocks.push(Block::Missing { description: "file shared in the conversation".into() });
+                        }
+                    }
                 }
             }
             (blocks, only_responses)
@@ -210,6 +226,7 @@ fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
     let mut thoughts = 0;
     let mut info = 0;
     let mut files = 0;
+    let mut recovered = Vec::new();
     let mut model = None;
     let mut first_prompt = None;
     for r in &records {
@@ -219,7 +236,7 @@ fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
         let content = r.get("content").cloned().unwrap_or(Value::Null);
         match kind {
             "user" => {
-                let (blocks, only_responses) = parts_text(&content, &mut files);
+                let (blocks, only_responses) = parts_text(&content, &mut files, &mut recovered);
                 if blocks.is_empty() {
                     continue;
                 }
@@ -240,7 +257,7 @@ fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
                 if model.is_none() {
                     model = r.get("model").and_then(Value::as_str).map(str::to_string);
                 }
-                let (mut blocks, _) = parts_text(&content, &mut files);
+                let (mut blocks, _) = parts_text(&content, &mut files, &mut recovered);
                 let mut results = Vec::new();
                 for call in r.get("toolCalls").and_then(Value::as_array).into_iter().flatten() {
                     let name = call.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
@@ -305,6 +322,7 @@ fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
             omitted: om,
         },
         messages,
+        files: recovered,
     })
 }
 

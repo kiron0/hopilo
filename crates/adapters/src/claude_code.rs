@@ -144,6 +144,7 @@ struct Tally {
     unreadable: usize,
     images: usize,
     compacted: bool,
+    files: Vec<hopilo_core::CapturedFile>,
 }
 
 fn read_session(path: &Path) -> Result<Capture> {
@@ -255,10 +256,17 @@ fn read_session(path: &Path) -> Result<Capture> {
                             });
                         }
                         "image" | "document" => {
-                            t.images += 1;
-                            blocks.push(Block::Missing {
-                                description: format!("{} shared in the conversation", b["type"].as_str().unwrap_or("file")),
-                            });
+                            let kind = b["type"].as_str().unwrap_or("file");
+                            match recover_block_file(b, kind, t.files.len() + 1) {
+                                Some(f) => {
+                                    blocks.push(f.block());
+                                    t.files.push(f);
+                                }
+                                None => {
+                                    t.images += 1;
+                                    blocks.push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -338,7 +346,27 @@ fn read_session(path: &Path) -> Result<Capture> {
         missing_items: missing,
         omitted: om,
     };
-    Ok(Capture { source, messages })
+    Ok(Capture { source, messages, files: t.files })
+}
+
+/// Recover an Anthropic-format `image`/`document` content block: base64 data
+/// or inline text. URL and file-id sources can't be fetched offline.
+fn recover_block_file(b: &Value, kind: &str, n: usize) -> Option<hopilo_core::CapturedFile> {
+    let src = b.get("source")?;
+    let named = b.get("title").or_else(|| b.get("name")).and_then(Value::as_str).map(str::to_string);
+    let media = src.get("media_type").and_then(Value::as_str).unwrap_or("");
+    match src.get("type").and_then(Value::as_str)? {
+        "base64" => hopilo_core::CapturedFile::from_base64(named.unwrap_or_else(|| format!("{kind}-{n}")), media, src.get("data").and_then(Value::as_str)?),
+        "text" => {
+            let data = src.get("data").and_then(Value::as_str)?;
+            Some(hopilo_core::CapturedFile {
+                name: named.unwrap_or_else(|| format!("document-{n}.txt")),
+                media_type: if media.is_empty() { "text/plain".into() } else { media.into() },
+                bytes: data.as_bytes().to_vec(),
+            })
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -387,5 +415,28 @@ mod tests {
         let s = found.iter().find(|s| s.session_id == "sample-session").unwrap();
         assert_eq!(s.title, "Fix the failing login test");
         assert_eq!(s.message_count, 5);
+    }
+
+    #[test]
+    fn recovers_base64_images_and_text_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let line = serde_json::json!({
+            "type": "user", "sessionId": "abc", "cwd": "/work/x", "uuid": "u1",
+            "message": { "role": "user", "content": [
+                { "type": "text", "text": "Look at this" },
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo=" } },
+                { "type": "document", "title": "notes.txt", "source": { "type": "text", "media_type": "text/plain", "data": "hello" } },
+                { "type": "image", "source": { "type": "url", "url": "https://example.invalid/x.png" } }
+            ] }
+        });
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+        let cap = ClaudeCode.read(&path).unwrap();
+        assert_eq!(cap.files.len(), 2);
+        assert_eq!(cap.files[0].name, "image-1.png");
+        assert_eq!(cap.files[1].name, "notes.txt");
+        let blocks = &cap.messages[0].blocks;
+        assert_eq!(blocks.iter().filter(|b| matches!(b, Block::File { .. })).count(), 2);
+        assert_eq!(blocks.iter().filter(|b| matches!(b, Block::Missing { .. })).count(), 1);
     }
 }
