@@ -121,7 +121,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <main key={route.page} className="cleanly-main">
           {/* Fixed page header, scrolling content, fixed page footer */}
           <div ref={setHeaderSlot} className="page-header-slot" />
-          <div className="screen min-h-full flex flex-col gap-4">
+          <div className="screen flex-1 min-h-0 flex flex-col gap-4">
             <PageSlotsContext.Provider value={slots}>{children}</PageSlotsContext.Provider>
           </div>
           <div ref={setFooterSlot} className="page-footer-slot" />

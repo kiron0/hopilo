@@ -22,6 +22,15 @@ const SLOTS = [
   { x: 50, y: 88 },
 ];
 
+const BUBBLE_PALETTE = [
+  { c1: "#6d7bff", c2: "#a77bff", sh: "109, 123, 255" },
+  { c1: "#4f9bff", c2: "#7fd3ff", sh: "79, 155, 255" },
+  { c1: "#a77bff", c2: "#ff8fc8", sh: "167, 123, 255" },
+  { c1: "#3fd6a0", c2: "#5fc6ff", sh: "63, 190, 170" },
+  { c1: "#8e95b8", c2: "#b8a8ff", sh: "120, 125, 170" },
+  { c1: "#ff8fc8", c2: "#c48cff", sh: "220, 120, 200" },
+];
+
 /** Bubble overview of where your sessions come from (sized by count). */
 function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: boolean }) {
   const navigate = useApp((s) => s.navigate);
@@ -31,13 +40,13 @@ function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: bo
     for (const s of sessions) counts.set(s.provider, (counts.get(s.provider) ?? 0) + 1);
     const list = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, SLOTS.length);
     const max = Math.max(1, ...list.map(([, n]) => n));
-    return list.map(([id, n], i) => ({ id, n, slot: SLOTS[i], size: 58 + Math.sqrt(n / max) * (i === 0 ? 70 : 46) }));
+    return list.map(([id, n], i) => ({ id, n, slot: SLOTS[i], size: 62 + Math.sqrt(n / max) * (i === 0 ? 68 : 42) }));
   }, [sessions]);
 
   return (
-    <Card className="card-soft flex flex-col p-5">
+    <Card className="card-w flex flex-col p-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-semibold">Sources map</h2>
+        <h2 className="font-semibold text-[15px]">Sources map</h2>
         <button
           type="button"
           onClick={() => navigate({ page: "sessions", filter: "all" })}
@@ -47,44 +56,81 @@ function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: bo
           <ChevronRight size={13} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
         </button>
       </div>
-      <div className="relative mt-2 min-h-[210px] flex-1" role="list" aria-label="Sessions by tool">
+      <div className="bubbles relative mt-2 min-h-[210px] flex-1" role="list" aria-label="Sessions by tool">
         {loading && bubbles.length === 0 && (
-          <div role="status" aria-label="Loading sources">
+          <div className="map-skel" aria-hidden="true">
             {SLOTS.slice(0, 5).map((sl, i) => (
-              <Skeleton key={i} className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: `${sl.x}%`, top: `${sl.y}%`, width: i === 0 ? 128 : 84 - i * 4, height: i === 0 ? 128 : 84 - i * 4 }} />
+              <i
+                key={i}
+                style={{
+                  left: `${sl.x}%`,
+                  top: `${sl.y}%`,
+                  width: i === 0 ? 120 : 80 - i * 6,
+                  height: i === 0 ? 120 : 80 - i * 6,
+                  animationDelay: `${-i * 0.4}s`,
+                }}
+              />
             ))}
           </div>
         )}
-        {!loading && bubbles.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-center text-muted">Your sources appear here after the first scan.</div>}
-        {bubbles.map((b) => (
-          <button
-            key={b.id}
-            role="listitem"
-            type="button"
-            onClick={() => {
-              navigate({ page: "sessions", filter: "all" });
-              setListView({ q: provider(b.id).label });
-            }}
-            className="bubble absolute flex flex-col items-center justify-center rounded-full border border-white/70 bg-[radial-gradient(circle_at_35%_30%,var(--surface),color-mix(in_oklab,var(--surface)_82%,transparent))] transition-[scale] hover:scale-105 dark:border-white/10"
-            style={{
-              left: `${b.slot.x}%`,
-              top: `${b.slot.y}%`,
-              width: b.size,
-              height: b.size,
-              animationDuration: `${5.5 + (b.slot.x % 3) * 0.8}s`,
-              animationDelay: `${-(b.slot.y % 5) * 0.7}s`,
-              boxShadow: `inset 0 1px 2px var(--bubble-hi), 0 14px 30px -14px color-mix(in oklab, ${provider(b.id).color} var(--glow-mix), transparent), var(--elev-item)`,
-            }}
-            aria-label={`${provider(b.id).label}: ${plural(b.n, "session")}`}
-          >
-            <ProviderBadge id={b.id} size={b.size > 90 ? 28 : 22} />
-            <span className="mt-1 max-w-[90%] truncate text-[11px] font-semibold">{provider(b.id).label}</span>
-            <span className="font-mono text-[10px] text-faint">{b.n}</span>
-          </button>
-        ))}
+        {!loading && bubbles.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-center text-muted">
+            Your sources appear here after the first scan.
+          </div>
+        )}
+        {bubbles.map((b, i) => {
+          const pal = BUBBLE_PALETTE[i % BUBBLE_PALETTE.length];
+          const d = b.size;
+          const style = {
+            left: `${b.slot.x}%`,
+            top: `${b.slot.y}%`,
+            width: `${d}px`,
+            height: `${d}px`,
+            transform: "translate(-50%, -50%)",
+            "--c1": pal.c1,
+            "--c2": pal.c2,
+            "--rgb": pal.sh,
+            "--bsh": `rgba(${pal.sh}, 0.25)`,
+            "--shadow": `rgba(${pal.sh}, 0.25)`,
+            "--inner": `rgba(${pal.sh}, 0.08)`,
+            "--chip": `${Math.round(Math.max(24, Math.min(42, d * 0.28)))}px`,
+            "--spin": `${11 + (i % 3) * 2.5}s`,
+            "--dur": `${5.5 + (i % 3) * 0.8}s`,
+            "--delay": `${-i * 0.7}s`,
+          } as React.CSSProperties;
+          const small = d < 80;
+
+          return (
+            <div
+              key={b.id}
+              role="listitem"
+              className={cx("bubble", small && "small")}
+              style={style}
+            >
+              <div className="b-float">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate({ page: "sessions", filter: "all" });
+                    setListView({ q: provider(b.id).label });
+                  }}
+                  className="disc"
+                  title={`${provider(b.id).label}: ${plural(b.n, "session")}`}
+                >
+                  <span className="b-ico img">
+                    <ProviderBadge id={b.id} size={d > 95 ? 24 : 18} />
+                  </span>
+                  <b>{provider(b.id).label}</b>
+                  <span className="sz">{b.n}</span>
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-faint">
-        <span className="bg-brand h-2 w-4 rounded-full" /> Bubble size = number of sessions
+      <div className="map-foot mt-auto flex items-center gap-2 pt-3 text-[12px] text-faint">
+        <span className="hot-key" />
+        <span>Bubble size = number of sessions</span>
       </div>
     </Card>
   );
