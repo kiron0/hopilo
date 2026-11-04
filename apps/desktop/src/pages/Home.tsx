@@ -10,7 +10,7 @@ import { Button, Card, cx, ProviderBadge, Skeleton } from "../components/ui";
 import { RowSkeleton } from "../components/Skeletons";
 import { AddSessionModal } from "../components/AddSession";
 import { sessionLoader } from "./Sessions";
-import { SparkIcon, ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, MousePointerClick, Send, ShieldCheck, X } from "../components/Icons";
+import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, MousePointerClick, Send, ShieldCheck, X } from "../components/Icons";
 import { Flow } from "../components/Flow";
 
 const SLOTS = [
@@ -291,9 +291,12 @@ export function Home() {
     <div className="space-y-5 pb-6">
       {!settings.onboarded && (
         <Card className="flex items-start gap-3 p-4">
-          <span className="bg-brand flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-white">
-            <SparkIcon size={16} />
-          </span>
+          <img
+            src="/hopilo-mark.svg"
+            alt="Hopilo"
+            className="h-8 w-8 shrink-0 drop-shadow-[0_2px_6px_rgb(40_30_120/0.25)]"
+            draggable={false}
+          />
           <div className="flex-1">
             <div className="font-semibold">Welcome to Hopilo</div>
             <p className="mt-0.5 text-muted">
