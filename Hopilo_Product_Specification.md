@@ -171,7 +171,7 @@ The selected product name is **Hopilo** (pronunciation: **HOP-ee-lo**). Use this
 
 **Icon production QA:** Test at 16, 24, 32, 64, 128 and 1024 px on dark and light backgrounds; simplify the transfer arrows and message bars for small sizes. The provided icon uses a light external canvas, so the design team must produce proper transparent/masked exports rather than treating the white corners as alpha. Verify Apple's current icon requirements and other platform packaging rules at build time.
 
-**Naming in code:** Use `hopilo` for the repository folder, CLI executable, packages and internal prefixes. Example application identifier: `dev.hopilo.desktop` is **illustrative only**, not a claimed registered domain or a finalized production bundle identifier. Do not hardcode a future website/domain until ownership is confirmed.
+**Naming in code:** Use `hopilo` for the repository folder, CLI executable, packages and internal prefixes. Production bundle identifier: `io.coreify.hopilo`.
 
 ---
 

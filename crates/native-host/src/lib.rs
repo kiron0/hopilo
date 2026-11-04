@@ -72,7 +72,16 @@ pub fn default_data_dir() -> Option<std::path::PathBuf> {
     } else {
         std::env::var_os("XDG_DATA_HOME").map(Into::into).or_else(|| home.map(|h| h.join(".local").join("share")))
     };
-    base.map(|b| b.join("dev.hopilo.desktop"))
+    base.map(|b| {
+        let primary = b.join("io.coreify.hopilo");
+        if primary.exists() {
+            primary
+        } else if b.join("dev.hopilo.desktop").exists() {
+            b.join("dev.hopilo.desktop")
+        } else {
+            primary
+        }
+    })
 }
 
 pub fn allowed_ids(store: &Store) -> Vec<String> {

@@ -35,7 +35,7 @@ Local-first and verifiable rather than a black-box summary: raw sessions are rea
 - Agent session files and exports are never modified. Immutable pack versions; restoring creates a new version.
 - The Quick Panel and Drop Shelf are transparent windows (for rounded corners), which needs Tauri `macOSPrivateApi`; that excludes a Mac App Store build. No vibrancy/glass is used.
 - Terminology: Session (a conversation found or captured), Capture (bringing one in), Pack / Context Pack (shareable bundle with versions), Handoff (copy or export to continue elsewhere).
-- The name "Hopilo" still needs trademark, domain and store-name clearance; `dev.hopilo.desktop` is illustrative.
+- Production bundle identifier: `io.coreify.hopilo`.
 
 ## Brand Commitments
 

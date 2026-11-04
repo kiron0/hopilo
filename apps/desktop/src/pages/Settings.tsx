@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { FolderOpen } from "../components/Icons";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CheckIcon,
+  Coffee,
+  ExternalLink,
+  FolderOpen,
+  Github,
+  Heart,
+  Loader2,
+  RefreshCw,
+  SparkIcon,
+} from "../components/Icons";
 import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
@@ -14,6 +26,17 @@ import {
   fileManagerLabel,
   autostartLabel,
 } from "../lib/platform";
+import {
+  AUTHOR_NAME,
+  AUTHOR_PORTFOLIO,
+  BUY_ME_A_COFFEE_URL,
+  REPOSITORY_URL,
+  ISSUES_URL,
+  checkGitHubRelease,
+  openExternal,
+  type UpdateCheckResult,
+} from "../lib/updates";
+import { UpdateModal } from "../components/UpdateModal";
 import { AlertDialog, Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
@@ -60,10 +83,35 @@ export function Settings() {
   const stats = useLoad(() => api.stats());
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [confirmErase, setConfirmErase] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateCheckResult>({
+    status: "idle",
+    currentVersion: "0.1.0",
+  });
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   useEffect(() => {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
   }, []);
+
+  useEffect(() => {
+    if (info.data?.version) {
+      setUpdateState((prev) => ({ ...prev, currentVersion: info.data!.version }));
+    }
+  }, [info.data?.version]);
+
+  const runUpdateCheck = async () => {
+    setUpdateState((prev) => ({ ...prev, status: "checking" }));
+    const ver = info.data?.version ?? "0.1.0";
+    const res = await checkGitHubRelease(ver);
+    setUpdateState(res);
+    if (res.status === "available") {
+      setShowUpdateModal(true);
+    } else if (res.status === "upToDate") {
+      toast({ kind: "success", text: `Hopilo is up to date (v${ver}).` });
+    } else if (res.status === "error") {
+      toast({ kind: "warning", text: res.error ?? "Could not reach GitHub." });
+    }
+  };
 
   const section = useApp((st) => (st.route.page === "settings" ? st.route.section : undefined));
   useEffect(() => {
@@ -258,14 +306,211 @@ export function Settings() {
         </Group>
 
         <Group id="about" title="About" description="Hopilo: every AI session in one place.">
-          <Row label="Version">
-            {info.data ? <span className="font-mono text-[12.5px] text-muted">{info.data.version}</span> : <Skeleton className="h-3 w-12" />}
-          </Row>
-          <Row label="Export format" hint="Markdown, JSON and the .handoff archive (v1)">
-            <span className="text-[12.5px] text-muted">Open, documented</span>
-          </Row>
+          <div className="py-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-line bg-gradient-to-br from-accent-soft/30 via-surface to-surface p-4 shadow-item">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <img
+                  src="/hopilo-mark.svg"
+                  alt="Hopilo"
+                  className="h-12 w-12 shrink-0 rounded-2xl drop-shadow-[0_4px_10px_rgb(40_30_120/0.2)]"
+                  draggable={false}
+                />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-display text-[18px] font-bold tracking-tight">Hopilo</span>
+                    <span className="rounded-full bg-accent-soft px-2.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">
+                      VERSION {info.data ? info.data.version : "0.1.0"}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-muted">
+                    Every AI session in one place, with its files.
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
+                    {updateState.status === "checking" && (
+                      <>
+                        <Loader2 size={12} className="animate-spin text-accent" />
+                        <span>Checking for updates…</span>
+                      </>
+                    )}
+                    {updateState.status === "upToDate" && (
+                      <>
+                        <CheckCircle2 size={12} className="text-success" />
+                        <span className="text-success">Up to date</span>
+                      </>
+                    )}
+                    {updateState.status === "available" && (
+                      <>
+                        <SparkIcon size={12} className="text-accent" />
+                        <span className="font-semibold text-accent">Version {updateState.update?.version} available</span>
+                      </>
+                    )}
+                    {updateState.status === "error" && (
+                      <>
+                        <AlertTriangle size={12} className="text-warning" />
+                        <span>Check unavailable</span>
+                      </>
+                    )}
+                    {updateState.status === "idle" && (
+                      <>
+                        <CheckIcon size={12} className="text-muted" />
+                        <span>GitHub releases</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {updateState.status === "available" ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<SparkIcon size={13} />}
+                    onClick={() => setShowUpdateModal(true)}
+                  >
+                    View Update
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    busy={updateState.status === "checking"}
+                    icon={<RefreshCw size={13} className={updateState.status === "checking" ? "animate-spin" : ""} />}
+                    onClick={runUpdateCheck}
+                  >
+                    Check for Updates
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="py-4">
+            <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Why Hopilo</div>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+              <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
+                <div className="font-semibold text-[12.5px]">Native & Local</div>
+                <div className="mt-1 text-[11px] leading-relaxed text-muted">
+                  Fast SQLite database, zero cloud latency.
+                </div>
+              </div>
+              <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
+                <div className="font-semibold text-[12.5px]">100% Private</div>
+                <div className="mt-1 text-[11px] leading-relaxed text-muted">
+                  {`No accounts, no telemetry, stays on your ${deviceNoun}.`}
+                </div>
+              </div>
+              <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
+                <div className="font-semibold text-[12.5px]">Open & Documented</div>
+                <div className="mt-1 text-[11px] leading-relaxed text-muted">
+                  Open source with standard Markdown & .handoff files.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="py-4">
+            <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Resources & Support</div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => openExternal(BUY_ME_A_COFFEE_URL)}
+                className="group flex flex-col justify-between rounded-xl border border-line bg-card p-3.5 text-left shadow-item transition-all hover:-translate-y-0.5 hover:border-amber-400/50 hover:shadow-card cursor-pointer"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500 transition-colors group-hover:bg-amber-500 group-hover:text-white">
+                    <Coffee size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 font-semibold text-[13px]">
+                      <span>Buy Me a Coffee</span>
+                      <ExternalLink size={12} className="text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+                    </div>
+                    <p className="mt-0.5 text-[11.5px] text-muted">
+                      Support independent open-source development.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 font-mono text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                  buymeacoffee.com/_thk
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openExternal(ISSUES_URL)}
+                className="group flex flex-col justify-between rounded-xl border border-line bg-card p-3.5 text-left shadow-item transition-all hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-card cursor-pointer"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-white">
+                    <Github size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 font-semibold text-[13px]">
+                      <span>GitHub & Issues</span>
+                      <ExternalLink size={12} className="text-faint opacity-0 transition-opacity group-hover:opacity-100" />
+                    </div>
+                    <p className="mt-0.5 text-[11.5px] text-muted">
+                      Report a bug, suggest features, or star the repo.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 font-mono text-[11px] font-medium text-accent">
+                  github.com/kiron0/hopilo
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 py-3 text-[12px] text-muted border-t border-line">
+            <div className="flex items-center gap-1.5">
+              <span>Designed and built with</span>
+              <Heart size={13} className="text-red-500 fill-red-500 inline" />
+              <span>by</span>
+              <button
+                type="button"
+                onClick={() => openExternal(AUTHOR_PORTFOLIO)}
+                className="font-semibold text-ink underline decoration-line-strong underline-offset-2 transition-colors hover:text-accent cursor-pointer"
+              >
+                {AUTHOR_NAME}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 text-[11.5px]">
+              <button
+                type="button"
+                onClick={() => openExternal(AUTHOR_PORTFOLIO)}
+                className="text-muted transition-colors hover:text-ink cursor-pointer"
+              >
+                Portfolio
+              </button>
+              <span className="text-faint">•</span>
+              <button
+                type="button"
+                onClick={() => openExternal(REPOSITORY_URL)}
+                className="text-muted transition-colors hover:text-ink cursor-pointer"
+              >
+                GitHub
+              </button>
+              <span className="text-faint">•</span>
+              <button
+                type="button"
+                onClick={() => openExternal(BUY_ME_A_COFFEE_URL)}
+                className="text-muted transition-colors hover:text-ink cursor-pointer"
+              >
+                Buy Me a Coffee
+              </button>
+            </div>
+          </div>
         </Group>
       </div>
+
+      {showUpdateModal && updateState.update && (
+        <UpdateModal
+          update={updateState.update}
+          currentVersion={info.data?.version ?? "0.1.0"}
+          onClose={() => setShowUpdateModal(false)}
+        />
+      )}
 
       {confirmErase && (
         <AlertDialog

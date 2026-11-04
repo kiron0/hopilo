@@ -90,7 +90,7 @@ export function installMockIpc() {
           adapters: { claude: { adapterVersion: "claude-web@1", ok: true, messageCount: 42, detail: null, testedAt: ago(3) }, chatgpt: { adapterVersion: "chatgpt-web@1", ok: false, messageCount: 0, detail: "No messages were found on this page.", testedAt: ago(60) } },
         };
       case "app_info":
-        return { version: "0.1.0", dataDir: "~/Library/Application Support/dev.hopilo.desktop", platform: "macos", adapters: [{ id: "claude-code", displayName: "Claude Code", roots: ["~/.claude/projects"], available: true }, { id: "codex", displayName: "Codex CLI", roots: ["~/.codex/sessions"], available: true }, { id: "gemini-cli", displayName: "Gemini CLI", roots: ["~/.gemini/tmp"], available: true }, { id: "opencode", displayName: "OpenCode", roots: ["~/.local/share/opencode"], available: true }] };
+        return { version: "0.1.0", dataDir: "~/Library/Application Support/io.coreify.hopilo", platform: "macos", adapters: [{ id: "claude-code", displayName: "Claude Code", roots: ["~/.claude/projects"], available: true }, { id: "codex", displayName: "Codex CLI", roots: ["~/.codex/sessions"], available: true }, { id: "gemini-cli", displayName: "Gemini CLI", roots: ["~/.gemini/tmp"], available: true }, { id: "opencode", displayName: "OpenCode", roots: ["~/.local/share/opencode"], available: true }] };
       case "plugin:event|listen":
         return 1;
       default:
