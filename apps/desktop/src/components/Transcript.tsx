@@ -69,7 +69,7 @@ export function Transcript({
   messages,
   selected,
   onToggle,
-  renderMarkdown = false,
+  renderMarkdown = true,
 }: {
   messages: Message[];
   selected?: Set<string>;
@@ -89,17 +89,16 @@ export function Transcript({
 
   return (
     <>
-      <ol className={cx(renderMarkdown ? "space-y-5" : "space-y-3")}>
+      <ol className="space-y-3">
         {visible.map((m) => {
           const isSel = selected?.has(m.id);
           return (
             <li
               key={m.id + m.sourceId}
               className={cx(
-                "flex gap-3 transition-colors [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
-                renderMarkdown ? "border-b border-line px-1 pb-5 last:border-b-0" : "rounded-xl border px-3.5 py-3",
-                !renderMarkdown && (isSel ? "border-accent/50 bg-accent-soft/50" : "border-transparent"),
-                !renderMarkdown && m.role === "user" && !isSel && "bg-surface-2",
+                "flex gap-3 rounded-xl border px-3.5 py-3 transition-colors [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
+                isSel ? "border-accent/50 bg-accent-soft/50" : "border-transparent",
+                m.role === "user" && !isSel && "bg-surface-2",
               )}
             >
               {onToggle && (

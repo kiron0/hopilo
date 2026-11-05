@@ -1,14 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use hopilo_core::{
-    new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind,
-};
+use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
 use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, open_lines, AdapterError, Capture, DiscoveredSession,
-    LocalAgentAdapter, Result,
+    file_meta, home, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter,
+    Result,
 };
 
 pub struct Antigravity;
@@ -72,18 +70,31 @@ impl LocalAgentAdapter for Antigravity {
                 continue;
             }
 
-            let candidate1 = path.join(".system_generated").join("logs").join("transcript.jsonl");
+            let candidate1 = path
+                .join(".system_generated")
+                .join("logs")
+                .join("transcript.jsonl");
             let candidate2 = path.join("transcript.jsonl");
-            let candidate3 = path.join(".system_generated").join("logs").join("transcript_full.jsonl");
+            let candidate3 = path
+                .join(".system_generated")
+                .join("logs")
+                .join("transcript_full.jsonl");
 
-            let candidate4 = path.join(".system_generated").join("logs").join("overview.txt");
-            let transcript = [candidate1, candidate2, candidate3, candidate4].into_iter().find(|c| c.is_file());
+            let candidate4 = path
+                .join(".system_generated")
+                .join("logs")
+                .join("overview.txt");
+            let transcript = [candidate1, candidate2, candidate3, candidate4]
+                .into_iter()
+                .find(|c| c.is_file());
 
             transcripts.extend(transcript);
         }
 
         let mut out = crate::par_scan(&transcripts, |t| {
-            let dir = t.ancestors().find(|a| a.parent() == Some(target.as_path()))?;
+            let dir = t
+                .ancestors()
+                .find(|a| a.parent() == Some(target.as_path()))?;
             quick_scan(t, dir)
         });
         out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
@@ -126,6 +137,17 @@ fn extract_project(s: &str) -> Option<String> {
             }
         }
     }
+    if let Some(pos) = s.find("Command Working Directory:") {
+        let after = &s[pos + "Command Working Directory:".len()..];
+        if let Some(line) = after.lines().next() {
+            let cwd = line.trim();
+            if !cwd.is_empty() {
+                if let Some(root) = project_root(Path::new(cwd)) {
+                    return Some(root.display().to_string());
+                }
+            }
+        }
+    }
     if let Some(pos) = s.find("Active Document:") {
         let after = &s[pos + "Active Document:".len()..];
         if let Some(line) = after.lines().next() {
@@ -135,27 +157,54 @@ fn extract_project(s: &str) -> Option<String> {
             }
         }
     }
+    if let Some(pos) = s.find("Other open documents:") {
+        let after = &s[pos + "Other open documents:".len()..];
+        for line in after.lines() {
+            let t = line.trim();
+            if let Some(p) = t.strip_prefix("- ") {
+                let path_str = p.split(" (").next().unwrap_or(p).trim();
+                if let Some(root) = project_root(Path::new(path_str)) {
+                    return Some(root.display().to_string());
+                }
+            }
+        }
+    }
     None
 }
 
 fn project_root(document: &Path) -> Option<PathBuf> {
-    let start = if document.is_dir() { document } else { document.parent()? };
+    let start = if document.is_dir() {
+        document
+    } else {
+        document.parent()?
+    };
 
     for dir in start.ancestors() {
-        if [".git", ".hg", ".svn"].iter().any(|marker| dir.join(marker).exists()) {
+        if [".git", ".hg", ".svn"]
+            .iter()
+            .any(|marker| dir.join(marker).exists())
+        {
             return Some(dir.to_path_buf());
         }
     }
 
     for dir in start.ancestors() {
-        if ["pnpm-workspace.yaml", "go.work", "lerna.json", "nx.json", "turbo.json"]
-            .iter()
-            .any(|marker| dir.join(marker).is_file())
+        if [
+            "pnpm-workspace.yaml",
+            "go.work",
+            "lerna.json",
+            "nx.json",
+            "turbo.json",
+        ]
+        .iter()
+        .any(|marker| dir.join(marker).is_file())
         {
             return Some(dir.to_path_buf());
         }
         let cargo = dir.join("Cargo.toml");
-        if cargo.is_file() && std::fs::read_to_string(cargo).is_ok_and(|text| text.contains("[workspace]")) {
+        if cargo.is_file()
+            && std::fs::read_to_string(cargo).is_ok_and(|text| text.contains("[workspace]"))
+        {
             return Some(dir.to_path_buf());
         }
     }
@@ -170,7 +219,9 @@ fn quick_scan(transcript: &Path, session_dir: &Path) -> Option<DiscoveredSession
     let mut model = None;
     let mut count = 0;
     for line in open_lines(transcript).ok()?.map_while(|l| l.ok()) {
-        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
         match kind {
             "USER_INPUT" => {
@@ -201,12 +252,19 @@ fn quick_scan(transcript: &Path, session_dir: &Path) -> Option<DiscoveredSession
     let session_id = session_dir
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| transcript.file_stem().unwrap().to_string_lossy().to_string());
+        .unwrap_or_else(|| {
+            transcript
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        });
     Some(DiscoveredSession {
         adapter: "antigravity".into(),
         path: transcript.display().to_string(),
         session_id: session_id.clone(),
-        title: title.unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())])),
+        title: title
+            .unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())])),
         project,
         model,
         modified_at,
@@ -219,7 +277,10 @@ fn resolve_transcript(path: &Path) -> Result<PathBuf> {
     if path.is_file() {
         return Ok(path.to_path_buf());
     }
-    let p1 = path.join(".system_generated").join("logs").join("transcript.jsonl");
+    let p1 = path
+        .join(".system_generated")
+        .join("logs")
+        .join("transcript.jsonl");
     if p1.is_file() {
         return Ok(p1);
     }
@@ -227,7 +288,10 @@ fn resolve_transcript(path: &Path) -> Result<PathBuf> {
     if p2.is_file() {
         return Ok(p2);
     }
-    let p3 = path.join(".system_generated").join("logs").join("transcript_full.jsonl");
+    let p3 = path
+        .join(".system_generated")
+        .join("logs")
+        .join("transcript_full.jsonl");
     if p3.is_file() {
         return Ok(p3);
     }
@@ -243,11 +307,18 @@ fn read_session(path: &Path) -> Result<Capture> {
     let mut model = None;
 
     for line in open_lines(&transcript)?.map_while(|l| l.ok()) {
-        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
-        let created_at = v.get("created_at").and_then(Value::as_str).map(str::to_string);
+        let created_at = v
+            .get("created_at")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let step_idx = v.get("step_index").and_then(Value::as_u64);
-        let id = step_idx.map(|idx| format!("step-{}", idx)).unwrap_or_else(new_id);
+        let id = step_idx
+            .map(|idx| format!("step-{}", idx))
+            .unwrap_or_else(new_id);
 
         match kind {
             "USER_INPUT" => {
@@ -275,12 +346,20 @@ fn read_session(path: &Path) -> Result<Capture> {
                     model = Some("Gemini".to_string());
                 }
                 let mut blocks = Vec::new();
-                if let Some(text) = v.get("content").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+                if let Some(text) = v
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                {
                     blocks.push(Block::text(text.trim()));
                 }
                 if let Some(tools) = v.get("tool_calls").and_then(Value::as_array) {
                     for tc in tools {
-                        let name = tc.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
+                        let name = tc
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("tool")
+                            .to_string();
                         let input = tc
                             .get("args")
                             .map(|a| serde_json::to_string_pretty(a).unwrap_or_default())
@@ -324,13 +403,25 @@ fn read_session(path: &Path) -> Result<Capture> {
         return Err(AdapterError::Unrecognized(transcript.display().to_string()));
     }
 
-    let session_dir = if transcript.is_file() && transcript.file_name().is_some_and(|n| n == "transcript.jsonl" || n == "transcript_full.jsonl") {
-        transcript.parent().and_then(Path::parent).and_then(Path::parent).unwrap_or(&transcript)
+    let session_dir = if transcript.is_file()
+        && transcript
+            .file_name()
+            .is_some_and(|n| n == "transcript.jsonl" || n == "transcript_full.jsonl")
+    {
+        transcript
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .unwrap_or(&transcript)
     } else {
         path
     };
-    let session_id = session_dir.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(new_id);
-    let title = first_prompt.unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())]));
+    let session_id = session_dir
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(new_id);
+    let title = first_prompt
+        .unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())]));
 
     let source = Source {
         source_id: source_id.clone(),
@@ -395,7 +486,38 @@ mod tests {
         let document = pages.join("Sessions.tsx");
         std::fs::write(&document, "").unwrap();
 
-        let metadata = format!("Active Document: {} (LANGUAGE_TYPESCRIPT)", document.display());
+        let metadata = format!(
+            "Active Document: {} (LANGUAGE_TYPESCRIPT)",
+            document.display()
+        );
+        assert_eq!(
+            extract_project(&metadata),
+            Some(dir.path().display().to_string())
+        );
+    }
+
+    #[test]
+    fn command_working_directory_resolves_to_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let sub = dir.path().join("sub/folder");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let metadata = format!("Command Working Directory: {}", sub.display());
+        assert_eq!(
+            extract_project(&metadata),
+            Some(dir.path().display().to_string())
+        );
+    }
+
+    #[test]
+    fn command_working_directory_resolves_to_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let sub = dir.path().join("sub/folder");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let metadata = format!("Command Working Directory: {}", sub.display());
         assert_eq!(extract_project(&metadata), Some(dir.path().display().to_string()));
     }
 }

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Bot,
+  CheckIcon,
   Copy,
   Download,
   FileImage,
@@ -748,6 +749,112 @@ function FilesTab({ files }: { files: Attachment[] }) {
   );
 }
 
+const MarkdownBlock = lazy(() => import("../components/MarkdownViewer").then((m) => ({ default: m.MarkdownBlock })));
+
+function SessionMarkdownDocument({
+  row,
+  messages,
+  onCopyMarkdown,
+}: {
+  row: SessionRow;
+  messages: import("../lib/api").Message[];
+  onCopyMarkdown: () => void;
+}) {
+  const [view, setView] = useState<"rendered" | "raw">("rendered");
+  const [copied, setCopied] = useState(false);
+
+  const doc = useMemo(() => {
+    const lines: string[] = [];
+    lines.push(`# ${row.title || "Untitled Session"}\n`);
+    lines.push(`_${row.updatedAt || new Date().toISOString()} · exported by Hopilo_\n`);
+    lines.push("## Sources\n");
+    const meta: string[] = [];
+    if (row.project) meta.push(`project \`${row.project}\``);
+    if (row.model) meta.push(`model \`${row.model}\``);
+    lines.push(
+      `- **${row.title || "Session"}** (${row.provider}) — capture ${row.captureStatus}${meta.length ? ` · ${meta.join(" · ")}` : ""}\n`,
+    );
+
+    if (messages.length > 0) {
+      lines.push("## Transcript\n");
+      for (const m of messages) {
+        const roleLabel =
+          m.role === "user" ? "User" : m.role === "assistant" ? "Assistant" : m.role === "system" ? "System" : "Tool";
+        const timeStr = m.createdAt ? ` · ${m.createdAt}` : "";
+        lines.push(`### ${roleLabel}${timeStr}\n`);
+        for (const b of m.blocks) {
+          if (b.type === "text") {
+            lines.push(b.text.trimEnd() + "\n");
+          } else if (b.type === "toolCall") {
+            lines.push(`\`\`\`\n// Tool call: ${b.name}\n${b.input}\n\`\`\`\n`);
+          } else if (b.type === "toolResult") {
+            lines.push(`\`\`\`\n// Tool ${b.isError ? "error" : "result"}${b.name ? `: ${b.name}` : ""}\n${b.output}\n\`\`\`\n`);
+          } else if (b.type === "missing") {
+            lines.push(`> ⚠️ Referenced but not recovered: ${b.description}\n`);
+          } else if (b.type === "file") {
+            lines.push(`> 📎 Attachment: \`${b.name}\` (${b.mediaType})\n`);
+          }
+        }
+      }
+    }
+    return lines.join("\n");
+  }, [row, messages]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(doc);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+      onCopyMarkdown();
+    } catch {
+      onCopyMarkdown();
+    }
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between border-b border-line bg-surface-2/60 px-5 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="rounded-md border border-accent/30 bg-accent-soft px-2 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-accent">
+            Markdown Document
+          </span>
+          <span className="text-[12px] text-muted">Full session export format</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Segmented
+            label="Format"
+            value={view}
+            onChange={(v) => setView(v as "rendered" | "raw")}
+            options={[
+              { value: "rendered", label: "Rendered" },
+              { value: "raw", label: "Raw text" },
+            ]}
+          />
+          <Button size="sm" icon={copied ? <CheckIcon size={12} className="text-success" /> : <Copy size={12} />} onClick={handleCopy}>
+            {copied ? "Copied" : "Copy Markdown"}
+          </Button>
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-6">
+        {view === "rendered" ? (
+          <div className="mx-auto w-full max-w-4xl rounded-2xl border border-line bg-card p-8 shadow-card">
+            <Suspense fallback={<div className="font-mono text-[12px] whitespace-pre-wrap">{doc}</div>}>
+              <MarkdownBlock text={doc} />
+            </Suspense>
+          </div>
+        ) : (
+          <pre
+            data-selectable
+            className="mx-auto w-full max-w-4xl overflow-auto rounded-2xl border border-line bg-surface-2 p-6 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink select-all"
+          >
+            {doc}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SessionPage({ id }: { id: string }) {
   const { data, error, loading } = useLoad(sessionLoader(id), [id]);
   const navigate = useApp((s) => s.navigate);
@@ -892,7 +999,7 @@ function SessionPage({ id }: { id: string }) {
             onChange={(v) => setTab(v as "conversation" | "markdown" | "files")}
             options={[
               { value: "conversation", label: "Conversation" },
-              { value: "markdown", label: "Markdown preview" },
+              { value: "markdown", label: "Markdown" },
               { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
             ]}
           />
@@ -900,16 +1007,10 @@ function SessionPage({ id }: { id: string }) {
         </div>
         {tab === "conversation" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-            <Transcript key={`${id}-conversation`} messages={messages} />
+            <Transcript key={`${id}-conversation`} messages={messages} renderMarkdown />
           </div>
         ) : tab === "markdown" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-auto px-6 py-5">
-            <div className="mb-4 flex items-center gap-2 border-b border-line pb-3">
-              <span className="rounded-md border border-accent/30 bg-accent-soft px-2 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-accent">Preview</span>
-              <span className="text-[12px] text-muted">Rendered Markdown · code highlighting enabled</span>
-            </div>
-            <Transcript key={`${id}-markdown`} messages={messages} renderMarkdown />
-          </div>
+          <SessionMarkdownDocument row={row} messages={messages} onCopyMarkdown={() => copy(true)} />
         ) : (
           <FilesTab files={files} />
         )}
