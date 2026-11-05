@@ -126,6 +126,28 @@ fn attachments_are_content_addressed() {
 }
 
 #[test]
+fn deleting_attachment_keeps_blob_still_referenced_by_a_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/f.jsonl", "look at this");
+    let id = db.insert_capture(&s, &m).unwrap().source_id;
+    let att = Attachment {
+        id: new_id(),
+        file_name: "notes.txt".into(),
+        media_type: "text/plain".into(),
+        size: 5,
+        sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into(),
+        origin_path: None,
+        text: Some("hello".into()),
+    };
+    db.insert_attachment(&att, b"hello").unwrap();
+    db.add_files(Some(&id), std::slice::from_ref(&att)).unwrap();
+
+    db.delete_attachment(&att.id).unwrap();
+    assert_eq!(db.attachment_bytes(&att.sha256).unwrap(), b"hello");
+}
+
+#[test]
 fn reopen_keeps_data_and_schema() {
     let dir = tempfile::tempdir().unwrap();
     {
@@ -143,6 +165,42 @@ fn reopen_keeps_data_and_schema() {
 fn fts_query_is_injection_safe() {
     assert_eq!(fts_query("auth \"OR\" x"), Some("\"auth\"* \"OR\"* \"x\"*".into()));
     assert_eq!(fts_query("   "), None);
+}
+
+#[test]
+fn legacy_content_hash_matches_pre_camel_case_serialization() {
+    use sha2::{Digest, Sha256};
+
+    let msg = Message {
+        id: "m1".into(),
+        source_id: "s1".into(),
+        role: Role::User,
+        created_at: None,
+        blocks: vec![
+            Block::ToolCall { name: "Bash".into(), input: "{}".into() },
+            Block::ToolResult { name: Some("Bash".into()), output: "failed".into(), is_error: true },
+            Block::File {
+                name: "a.txt".into(),
+                media_type: "text/plain".into(),
+                sha256: "abc".into(),
+                size: 3,
+            },
+            Block::Missing { description: "gone".into() },
+            Block::text("after"),
+        ],
+    };
+    let serialized = concat!(
+        r#"["user",[{"type":"toolCall","name":"Bash","input":"{}"},"#,
+        r#"{"type":"toolResult","name":"Bash","output":"failed","is_error":true},"#,
+        r#"{"type":"file","name":"a.txt","mediaType":"text/plain","sha256":"abc","size":3},"#,
+        r#"{"type":"missing","description":"gone"},"#,
+        r#"{"type":"text","text":"after"}]]"#
+    );
+    let mut hasher = Sha256::new();
+    hasher.update(serialized.as_bytes());
+    hasher.update([0u8]);
+
+    assert_eq!(legacy_content_hash(&[msg]).unwrap(), hex::encode(hasher.finalize()));
 }
 
 #[test]
@@ -231,7 +289,7 @@ fn compose_combines_sessions_with_their_files_and_logs_copies() {
         text: Some("hello".into()),
     };
     db.insert_attachment(&att, b"hello").unwrap();
-    assert_eq!(db.add_files(Some(&b), &[att.clone()]).unwrap(), b);
+    assert_eq!(db.add_files(Some(&b), std::slice::from_ref(&att)).unwrap(), b);
     assert_eq!(db.session_row(&b).unwrap().file_count, 1);
 
     let pack = db.compose(&[a.clone(), b.clone()]).unwrap();
@@ -240,7 +298,7 @@ fn compose_combines_sessions_with_their_files_and_logs_copies() {
     assert_eq!(pack.attachments.len(), 1);
     assert!(pack.title.starts_with("2 sessions"));
 
-    db.record_copy(&[a.clone()], "chatgpt", "clipboard", "copied").unwrap();
+    db.record_copy(std::slice::from_ref(&a), "chatgpt", "clipboard", "copied").unwrap();
     assert!(db.session_row(&a).unwrap().last_copied_at.is_some());
     assert_eq!(db.list_handoffs(1).unwrap()[0].pack_title.as_deref(), Some("Auth migration"));
 
@@ -290,4 +348,22 @@ fn upgrade_folds_packs_and_loose_files_into_sessions() {
     assert!(titles.contains(&"Project X — Auth Migration"), "{titles:?}");
     assert!(titles.contains(&"Added files"), "{titles:?}");
     assert!(rows.iter().any(|r| r.origin.as_deref() == Some("/gone.jsonl")));
+}
+
+#[test]
+fn renamed_session_keeps_its_title_when_the_agent_file_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/r.jsonl", "first draft");
+    let id = db.upsert_session(&s, &m, Some("2030-01-01T00:00:00Z")).unwrap().source_id;
+    db.update_session(&id, &SessionPatch { title: Some("My name".into()), ..Default::default() }).unwrap();
+    assert_eq!(db.get_source(&id).unwrap().0.title, "My name");
+
+    let (s2, m2) = capture("/r.jsonl", "first draft, then more work");
+    let again = db.upsert_session(&s2, &m2, Some("2030-01-02T00:00:00Z")).unwrap();
+    assert!(again.duplicate_of.is_none());
+    assert_eq!(again.source_id, id);
+    assert_eq!(db.session_row(&id).unwrap().title, "My name");
+    assert_eq!(db.get_source(&id).unwrap().0.title, "My name");
+    assert_eq!(db.search("name", 5).unwrap().iter().filter(|h| h.ref_id == id).count(), 1);
 }

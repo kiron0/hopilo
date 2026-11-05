@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, open_lines, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, memo_scan, open_lines, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -32,13 +32,21 @@ impl LocalAgentAdapter for Antigravity {
             roots.push(PathBuf::from(dir).join("brain"));
         }
         if let Some(h) = home() {
-            roots.push(h.join(".gemini").join("antigravity").join("brain"));
+            // The desktop app, the standalone IDE build and the `agy` CLI each
+            // keep their own brain folder next to each other.
+            for flavor in ["antigravity", "antigravity-ide", "antigravity-cli"] {
+                roots.push(h.join(".gemini").join(flavor).join("brain"));
+            }
             roots.push(h.join(".antigravity").join("brain"));
         }
         if let Some(appdata) = std::env::var_os("APPDATA") {
             roots.push(PathBuf::from(appdata).join("antigravity").join("brain"));
         }
         roots
+    }
+
+    fn scan_depth(&self) -> usize {
+        3
     }
 
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
@@ -70,18 +78,12 @@ impl LocalAgentAdapter for Antigravity {
             let candidate2 = path.join("transcript.jsonl");
             let candidate3 = path.join(".system_generated").join("logs").join("transcript_full.jsonl");
 
-            let transcript = if candidate1.is_file() {
-                Some(candidate1)
-            } else if candidate2.is_file() {
-                Some(candidate2)
-            } else if candidate3.is_file() {
-                Some(candidate3)
-            } else {
-                None
-            };
+            // Older builds only kept a step overview, in the same JSONL shape.
+            let candidate4 = path.join(".system_generated").join("logs").join("overview.txt");
+            let transcript = [candidate1, candidate2, candidate3, candidate4].into_iter().find(|c| c.is_file());
 
             if let Some(t) = transcript {
-                if let Some(s) = quick_scan(&t, &path) {
+                if let Some(s) = memo_scan(&t, |t| quick_scan(t, &path)) {
                     out.push(s);
                 }
             }

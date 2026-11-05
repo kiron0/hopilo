@@ -10,10 +10,13 @@ pub mod antigravity;
 pub mod claude_code;
 pub mod codex;
 pub mod cursor;
+pub mod cursor_cli;
 pub mod exports;
 pub mod gemini_cli;
+pub mod generic;
 pub mod opencode;
 mod text;
+pub mod vscode_chat;
 pub mod zed;
 
 #[derive(Debug, thiserror::Error)]
@@ -67,6 +70,13 @@ pub trait LocalAgentAdapter: Send + Sync {
     fn display_name(&self) -> &'static str;
 
     fn default_roots(&self) -> Vec<PathBuf>;
+
+    /// How many directory levels below a root can hold session data. Used to
+    /// fingerprint a root cheaply so unchanged folders are not rescanned.
+    fn scan_depth(&self) -> usize {
+        4
+    }
+
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>>;
     fn read(&self, path: &Path) -> Result<Capture>;
 
@@ -87,9 +97,19 @@ pub fn all_adapters() -> Vec<Box<dyn LocalAgentAdapter>> {
         Box::new(antigravity::Antigravity),
         Box::new(codex::Codex),
         Box::new(cursor::Cursor),
+        Box::new(cursor_cli::CursorCli),
         Box::new(gemini_cli::GEMINI_CLI),
         Box::new(opencode::OpenCode),
         Box::new(gemini_cli::QWEN_CODE),
+        Box::new(vscode_chat::VsCodeChat),
+        Box::new(generic::COPILOT_CLI),
+        Box::new(generic::CLINE),
+        Box::new(generic::ROO_CODE),
+        Box::new(generic::KILO_CODE),
+        Box::new(generic::DROID),
+        Box::new(generic::PI),
+        Box::new(generic::KIMI),
+        Box::new(generic::GOOSE),
         Box::new(zed::Zed),
     ]
 }
@@ -104,13 +124,58 @@ fn home() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-pub(crate) fn open_lines(path: &Path) -> Result<impl Iterator<Item = std::io::Result<String>>> {
+pub(crate) fn open_lines(path: &Path) -> Result<Box<dyn Iterator<Item = std::io::Result<String>>>> {
+    let io = |source| AdapterError::Io { path: path.display().to_string(), source };
+    let f = File::open(path).map_err(io)?;
+    // Archived Codex rollouts (and some other agents) are zstd-compressed.
+    if path.extension().is_some_and(|e| e == "zst") {
+        let dec = zstd::stream::read::Decoder::new(f).map_err(io)?;
+        return Ok(Box::new(BufReader::new(dec).lines()));
+    }
+    Ok(Box::new(BufReader::new(f).lines()))
+}
 
-    let f = File::open(path).map_err(|source| AdapterError::Io {
-        path: path.display().to_string(),
-        source,
-    })?;
-    Ok(BufReader::new(f).lines())
+/// `true` for `*.jsonl` and zstd-compressed `*.jsonl.zst` files.
+pub(crate) fn is_jsonl(p: &Path) -> bool {
+    let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    name.ends_with(".jsonl") || name.ends_with(".jsonl.zst")
+}
+
+/// File name without `.jsonl` / `.json` / `.jsonl.zst`.
+pub(crate) fn session_stem(p: &Path) -> String {
+    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    for ext in [".jsonl.zst", ".jsonl", ".json"] {
+        if let Some(stem) = name.strip_suffix(ext) {
+            return stem.to_string();
+        }
+    }
+    p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+}
+
+type MemoKey = (PathBuf, u64, Option<std::time::SystemTime>);
+type Memo = std::sync::Mutex<std::collections::HashMap<PathBuf, (MemoKey, Option<DiscoveredSession>)>>;
+
+fn memo() -> &'static Memo {
+    static MEMO: std::sync::OnceLock<Memo> = std::sync::OnceLock::new();
+    MEMO.get_or_init(Default::default)
+}
+
+/// Runs `scan` for a session file only when its size or mtime changed since the
+/// last call. Discovery runs on every window focus, and re-parsing hundreds of
+/// multi-megabyte transcripts because one of them grew was the main cost.
+pub(crate) fn memo_scan(path: &Path, scan: impl FnOnce(&Path) -> Option<DiscoveredSession>) -> Option<DiscoveredSession> {
+    let md = std::fs::metadata(path).ok()?;
+    let key: MemoKey = (path.to_path_buf(), md.len(), md.modified().ok());
+    if let Some((k, v)) = memo().lock().ok().and_then(|m| m.get(path).cloned()) {
+        if k == key {
+            return v;
+        }
+    }
+    let v = scan(path);
+    if let Ok(mut m) = memo().lock() {
+        m.insert(path.to_path_buf(), (key, v.clone()));
+    }
+    v
 }
 
 pub(crate) fn file_meta(path: &Path) -> Result<(u64, String)> {
@@ -136,7 +201,7 @@ pub(crate) fn jsonl_files(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
         }
         if ft.is_dir() && depth > 0 {
             jsonl_files(&p, depth - 1, out);
-        } else if ft.is_file() && p.extension().is_some_and(|e| e == "jsonl") {
+        } else if ft.is_file() && is_jsonl(&p) {
             out.push(p);
         }
     }

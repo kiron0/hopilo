@@ -13,7 +13,7 @@ hopilo-adapters = { path = "crates/adapters" }
 hopilo-pack-format = { path = "crates/pack-format" }
 hopilo-database = { path = "crates/database" }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 thiserror = "2"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }

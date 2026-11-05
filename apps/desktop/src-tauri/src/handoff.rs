@@ -112,30 +112,49 @@ pub fn copy_sessions(app: AppHandle, ids: Vec<String>, opts: Option<CopyOptions>
 
 #[tauri::command]
 pub fn suggest_export_name(state: State<AppState>, ids: Vec<String>, ext: String) -> CmdResult<String> {
-    with_store(&state, |s| Ok(hopilo_pack_format::export_filename(&s.compose(&ids).map_err(err)?, &ext)))
+    with_store(&state, |s| {
+        let title = s.composed_title(&ids).map_err(err)?;
+        Ok(hopilo_pack_format::export_filename_for(&title, 0, &ext))
+    })
 }
 
 #[tauri::command]
 pub fn export_sessions(app: AppHandle, state: State<AppState>, ids: Vec<String>, format: String, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
+    if !matches!(format.as_str(), "md" | "txt" | "json" | "handoff") {
+        return Err(format!("unknown export format {format}"));
+    }
     let opts = opts.unwrap_or_default();
     let d = defaults(&state);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
     let dest = PathBuf::from(&path);
-    with_store(&state, |s| {
+
+    // Snapshot what we need while holding the library lock, then render and
+    // write outside it so a large export never freezes the rest of the UI.
+    let (pack, blobs) = with_store(&state, |s| {
         let pack = s.compose(&ids).map_err(err)?;
-        match format.as_str() {
-            "md" => write_atomic(&dest, render_markdown(&pack, &ropts).as_bytes())?,
-            "txt" => write_atomic(&dest, render_handoff_prompt(&pack, &ropts).as_bytes())?,
-            "json" => write_atomic(&dest, hopilo_pack_format::to_json(&pack).map_err(err)?.as_bytes())?,
-            "handoff" => {
-                let mut buf = std::io::Cursor::new(Vec::new());
-                hopilo_pack_format::write_handoff(&pack, &ropts, &|a| s.attachment_bytes(&a.sha256), &mut buf).map_err(err)?;
-                write_atomic(&dest, &buf.into_inner())?;
+        let mut blobs: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
+        if format == "handoff" {
+            for a in &pack.attachments {
+                if let Some(bytes) = s.attachment_bytes(&a.sha256) {
+                    blobs.insert(a.sha256.clone(), bytes);
+                }
             }
-            other => return Err(format!("unknown export format {other}")),
         }
-        s.record_copy(&ids, "file", &format!("export-{format}"), "exported").map_err(err)
+        Ok((pack, blobs))
     })?;
+
+    match format.as_str() {
+        "md" => write_atomic(&dest, render_markdown(&pack, &ropts).as_bytes())?,
+        "txt" => write_atomic(&dest, render_handoff_prompt(&pack, &ropts).as_bytes())?,
+        "json" => write_atomic(&dest, hopilo_pack_format::to_json(&pack).map_err(err)?.as_bytes())?,
+        "handoff" => {
+            let mut buf = std::io::Cursor::new(Vec::new());
+            hopilo_pack_format::write_handoff(&pack, &ropts, &|a| blobs.get(&a.sha256).cloned(), &mut buf).map_err(err)?;
+            write_atomic(&dest, &buf.into_inner())?;
+        }
+        _ => unreachable!(),
+    }
+    with_store(&state, |s| s.record_copy(&ids, "file", &format!("export-{format}"), "exported").map_err(err))?;
     notify(&app);
     Ok(dest.display().to_string())
 }

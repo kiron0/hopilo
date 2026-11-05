@@ -20,16 +20,6 @@ pub struct AppState {
     pub syncing: AtomicBool,
 }
 
-fn scan_depth(adapter: &str) -> usize {
-    match adapter {
-        "opencode" | "zed" | "cursor" => 0,
-        "claude-code" => 1,
-        "gemini-cli" | "qwen-code" => 2,
-        "antigravity" => 3,
-        _ => 4,
-    }
-}
-
 fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
     use std::hash::{Hash, Hasher};
     fn walk(dir: &Path, depth: usize, h: &mut std::collections::hash_map::DefaultHasher) {
@@ -106,13 +96,13 @@ pub(crate) fn notify(app: &AppHandle) {
 
 fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
     let state = app.state::<AppState>();
-    let mut out = Vec::new();
+    let mut out: Vec<DiscoveredSession> = Vec::new();
     for a in all_adapters() {
         for root in a.default_roots() {
             if !root.is_dir() {
                 continue;
             }
-            let fp = folder_fingerprint(&root, scan_depth(a.id()));
+            let fp = folder_fingerprint(&root, a.scan_depth());
             let cached = state.discovery.lock().ok().and_then(|c| c.get(&root).filter(|(f, _)| *f == fp).map(|(_, v)| v.clone()));
             let sessions = match cached {
                 Some(v) => v,
@@ -127,7 +117,17 @@ fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
             out.extend(sessions);
         }
     }
-    out
+    dedupe_discovered(out)
+}
+
+/// The same conversation can be visible under two roots (Antigravity's app and
+/// IDE builds share brain ids, Codex archives a session it already listed).
+/// Keep only the most recently modified copy so it is listed once.
+fn dedupe_discovered(mut found: Vec<DiscoveredSession>) -> Vec<DiscoveredSession> {
+    found.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+    let mut seen = HashSet::new();
+    found.retain(|d| seen.insert((d.adapter.clone(), d.session_id.clone())));
+    found
 }
 
 fn checked_session_path(adapter: &dyn hopilo_adapters::LocalAgentAdapter, path: &str) -> CmdResult<PathBuf> {
@@ -175,10 +175,19 @@ pub struct SyncResult {
 }
 
 pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
+    struct Busy<'a>(&'a AtomicBool);
+    impl Drop for Busy<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::SeqCst);
+        }
+    }
+
     let state = app.state::<AppState>();
     if state.syncing.swap(true, Ordering::SeqCst) {
         return SyncResult::default();
     }
+    // Clears the flag even if an adapter panics, so sync is never stuck off.
+    let _busy = Busy(&state.syncing);
     let mut result = SyncResult::default();
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
     for d in discover_all(app) {
@@ -199,7 +208,6 @@ pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
             Err(_) => result.failed += 1,
         }
     }
-    state.syncing.store(false, Ordering::SeqCst);
     if result.added + result.updated > 0 {
         notify(app);
     }
@@ -340,15 +348,17 @@ pub fn import_aider_history(app: AppHandle, state: State<AppState>, path: String
 pub fn import_handoff_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<Vec<String>> {
     let p = Path::new(&path);
     let is_json = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
+    // Parsing a large archive can take a while, so do it before taking the
+    // library lock; only the database writes need to be serialized.
+    let (pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, Vec<u8>>) = if is_json {
+        let text = std::fs::read_to_string(p).map_err(err)?;
+        (hopilo_pack_format::from_json(&text).map_err(err)?, Default::default())
+    } else {
+        let f = std::fs::File::open(p).map_err(err)?;
+        let h = hopilo_pack_format::read_handoff(f).map_err(err)?;
+        (h.pack, h.attachments)
+    };
     let ids = with_store(&state, |s| {
-        let (pack, blobs) = if is_json {
-            let text = std::fs::read_to_string(p).map_err(err)?;
-            (hopilo_pack_format::from_json(&text).map_err(err)?, Default::default())
-        } else {
-            let f = std::fs::File::open(p).map_err(err)?;
-            let h = hopilo_pack_format::read_handoff(f).map_err(err)?;
-            (h.pack, h.attachments)
-        };
         for a in &pack.attachments {
             if let Some(bytes) = blobs.get(&a.id) {
                 s.insert_attachment(a, bytes).map_err(err)?;
@@ -541,6 +551,32 @@ pub fn unregister_browser_host(ids: Vec<String>) -> CmdResult<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn found(adapter: &str, id: &str, modified: &str, path: &str) -> DiscoveredSession {
+        DiscoveredSession {
+            adapter: adapter.into(),
+            path: path.into(),
+            session_id: id.into(),
+            title: String::new(),
+            project: None,
+            model: None,
+            modified_at: modified.into(),
+            size_bytes: 0,
+            message_count: 1,
+        }
+    }
+
+    #[test]
+    fn duplicate_sessions_across_roots_keep_newest() {
+        let out = dedupe_discovered(vec![
+            found("antigravity", "a", "2026-01-01T00:00:00Z", "/old"),
+            found("antigravity", "a", "2026-02-01T00:00:00Z", "/new"),
+            found("codex", "a", "2026-01-01T00:00:00Z", "/codex"),
+        ]);
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().any(|d| d.path == "/new"));
+        assert!(!out.iter().any(|d| d.path == "/old"));
+    }
 
     #[test]
     fn session_path_must_be_inside_agent_root() {

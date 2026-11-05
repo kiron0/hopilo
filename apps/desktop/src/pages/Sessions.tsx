@@ -154,7 +154,8 @@ function SessionList() {
     );
   }, [data, q, filter]);
   const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
-  const ids = [...selected].filter((id) => data?.some((r) => r.id === id));
+  const known = useMemo(() => new Set((data ?? []).map((r) => r.id)), [data]);
+  const ids = [...selected].filter((id) => known.has(id));
 
   const toggle = (id: string) => {
     const n = new Set(selected);
@@ -197,7 +198,7 @@ function SessionList() {
             body={
               q || filter !== "all"
                 ? "Try a different search or filter."
-                : "Sessions from Antigravity, Claude Code, Codex, Gemini CLI, OpenCode and Qwen Code appear here on their own. Save web chats with the browser extension, or use Add."
+                : "Sessions from Claude Code, Codex, Gemini CLI, Antigravity, Cursor, VS Code Copilot, OpenCode and other coding agents appear here on their own. Save web chats with the browser extension, or use Add."
             }
           />
         </Card>

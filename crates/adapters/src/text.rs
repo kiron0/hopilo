@@ -25,9 +25,11 @@ pub fn title_from(text: &str) -> String {
     let (clean, _) = strip_injected(text);
     let mut s = String::new();
     let mut in_tag = false;
-    for c in clean.chars() {
+    let mut chars = clean.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
-            '<' => in_tag = true,
+            // Only `<tag`, `</tag` or `<!...` open a tag, so "a < b" survives.
+            '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/' || *n == '!') => in_tag = true,
             '>' if in_tag => {
                 in_tag = false;
                 s.push(' ');
@@ -41,24 +43,6 @@ pub fn title_from(text: &str) -> String {
         format!("{}…", collapsed.chars().take(79).collect::<String>())
     } else {
         collapsed
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strips_reminders() {
-        let (t, n) = strip_injected("hi <system-reminder>x</system-reminder> there");
-        assert_eq!(t, "hi  there");
-        assert_eq!(n, 1);
-    }
-
-    #[test]
-    fn titles_are_short_and_tag_free() {
-        assert_eq!(title_from("<command-name>/x</command-name> fix   bug"), "/x fix bug");
-        assert_eq!(title_from(&"a".repeat(100)).chars().count(), 80);
     }
 }
 
@@ -83,14 +67,23 @@ pub fn read_local_file(reference: &str) -> Option<hopilo_core::CapturedFile> {
     Some(hopilo_core::CapturedFile { media_type: media_type_for(&name).into(), name, bytes })
 }
 
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
+            if let (Some(hi), Some(lo)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((hi << 4) | lo);
                 i += 3;
                 continue;
             }
@@ -117,5 +110,32 @@ pub fn media_type_for(name: &str) -> &'static str {
         "html" | "htm" => "text/html",
         "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "rb" | "c" | "h" | "cpp" | "swift" | "kt" | "sh" | "toml" | "yaml" | "yml" | "css" | "sql" => "text/plain",
         _ => "application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_reminders() {
+        let (t, n) = strip_injected("hi <system-reminder>x</system-reminder> there");
+        assert_eq!(t, "hi  there");
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn titles_are_short_and_tag_free() {
+        assert_eq!(title_from("<command-name>/x</command-name> fix   bug"), "/x fix bug");
+        assert_eq!(title_from(&"a".repeat(100)).chars().count(), 80);
+        assert_eq!(title_from("why is a < b false"), "why is a < b false");
+    }
+
+    #[test]
+    fn decodes_percent_escapes_without_panicking_on_unicode() {
+        assert_eq!(percent_decode("/tmp/a%20b.png"), "/tmp/a b.png");
+        assert_eq!(percent_decode("/tmp/%C3%A9.txt"), "/tmp/é.txt");
+        assert_eq!(percent_decode("/tmp/%aé.txt"), "/tmp/%aé.txt");
+        assert_eq!(percent_decode("/tmp/100%"), "/tmp/100%");
     }
 }

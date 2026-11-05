@@ -52,9 +52,26 @@ export function CommandPalette() {
   }, [open]);
 
   useEffect(() => {
-    if (q.trim().length < 2) return setHits([]);
-    const t = setTimeout(() => api.search(q).then(setHits).catch(() => setHits([])), 120);
-    return () => clearTimeout(t);
+    const query = q.trim();
+    if (query.length < 2) {
+      setHits([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api
+        .search(query)
+        .then((next) => {
+          if (!cancelled) setHits(next);
+        })
+        .catch(() => {
+          if (!cancelled) setHits([]);
+        });
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
   }, [q]);
 
   if (!active || typeof document === "undefined") return null;

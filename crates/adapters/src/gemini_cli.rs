@@ -55,7 +55,7 @@ impl LocalAgentAdapter for GeminiCli {
         });
         let mut out = Vec::new();
         for path in files {
-            let Ok(cap) = read_session(&path, self) else { continue };
+            let Ok(cap) = read_session(&path, self, true) else { continue };
             let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
             if count == 0 {
                 continue;
@@ -77,7 +77,7 @@ impl LocalAgentAdapter for GeminiCli {
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
-        read_session(path, self)
+        read_session(path, self, false)
     }
 }
 
@@ -96,7 +96,7 @@ fn json_session_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_core::CapturedFile>) -> (Vec<Block>, bool) {
+fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_core::CapturedFile>, quick: bool) -> (Vec<Block>, bool) {
 
     match content {
         Value::String(s) if !s.trim().is_empty() => (vec![Block::text(s.trim_end())], false),
@@ -113,16 +113,27 @@ fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_cor
                     only_responses = false;
                     blocks.push(Block::ToolCall {
                         name: fc.get("name").and_then(Value::as_str).unwrap_or("tool").to_string(),
-                        input: fc.get("args").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default(),
+                        input: if quick {
+                            String::new()
+                        } else {
+                            fc.get("args").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default()
+                        },
                     });
                 } else if let Some(fr) = p.get("functionResponse") {
                     blocks.push(Block::ToolResult {
                         name: fr.get("name").and_then(Value::as_str).map(str::to_string),
-                        output: response_text(fr.get("response")),
+                        output: if quick { String::new() } else { response_text(fr.get("response")) },
                         is_error: false,
                     });
                 } else if p.get("inlineData").is_some() || p.get("fileData").is_some() {
                     only_responses = false;
+                    if quick {
+                        // Discovery only needs the message count, so don't
+                        // decode base64 payloads or read referenced files.
+                        *tally += 1;
+                        blocks.push(Block::Missing { description: "file shared in the conversation".into() });
+                        continue;
+                    }
                     let n = recovered.len() + 1;
                     let f = if let Some(d) = p.get("inlineData") {
                         let mime = d.get("mimeType").and_then(Value::as_str).unwrap_or("");
@@ -163,7 +174,7 @@ fn response_text(v: Option<&Value>) -> String {
     }
 }
 
-fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
+fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
     let mut header: Option<Value> = None;
     let mut records: Vec<Value> = Vec::new();
     let mut unreadable = 0;
@@ -226,7 +237,7 @@ fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
         let content = r.get("content").cloned().unwrap_or(Value::Null);
         match kind {
             "user" => {
-                let (blocks, only_responses) = parts_text(&content, &mut files, &mut recovered);
+                let (blocks, only_responses) = parts_text(&content, &mut files, &mut recovered, quick);
                 if blocks.is_empty() {
                     continue;
                 }
@@ -247,22 +258,30 @@ fn read_session(path: &Path, fmt: &GeminiCli) -> Result<Capture> {
                 if model.is_none() {
                     model = r.get("model").and_then(Value::as_str).map(str::to_string);
                 }
-                let (mut blocks, _) = parts_text(&content, &mut files, &mut recovered);
+                let (mut blocks, _) = parts_text(&content, &mut files, &mut recovered, quick);
                 let mut results = Vec::new();
                 for call in r.get("toolCalls").and_then(Value::as_array).into_iter().flatten() {
                     let name = call.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
                     blocks.push(Block::ToolCall {
                         name: name.clone(),
-                        input: call.get("args").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default(),
+                        input: if quick {
+                            String::new()
+                        } else {
+                            call.get("args").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default()
+                        },
                     });
                     if let Some(res) = call.get("result") {
-                        let output = match res {
-                            Value::Array(items) => items
-                                .iter()
-                                .map(|i| response_text(i.get("functionResponse").and_then(|f| f.get("response"))))
-                                .collect::<Vec<_>>()
-                                .join("\n"),
-                            other => response_text(Some(other)),
+                        let output = if quick {
+                            String::new()
+                        } else {
+                            match res {
+                                Value::Array(items) => items
+                                    .iter()
+                                    .map(|i| response_text(i.get("functionResponse").and_then(|f| f.get("response"))))
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                other => response_text(Some(other)),
+                            }
                         };
                         let is_error = call.get("status").and_then(Value::as_str) == Some("error");
                         results.push(Block::ToolResult { name: Some(name), output, is_error });

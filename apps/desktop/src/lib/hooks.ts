@@ -5,13 +5,24 @@ import { api, errorText } from "./api";
 import { DEFAULT_SETTINGS, type Settings, useApp } from "./store";
 
 const queryCache = new Map<string, unknown>();
+const MAX_CACHED_QUERIES = 24;
+
+function remember(key: string, value: unknown) {
+  queryCache.delete(key);
+  queryCache.set(key, value);
+  while (queryCache.size > MAX_CACHED_QUERIES) {
+    const oldest = queryCache.keys().next().value;
+    if (oldest === undefined) break;
+    queryCache.delete(oldest);
+  }
+}
 
 export function prefetch<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const key = loader.toString() + JSON.stringify(deps);
   if (queryCache.has(key) || inflight.has(key)) return;
   inflight.add(key);
   loader()
-    .then((d) => queryCache.set(key, d))
+    .then((d) => remember(key, d))
     .catch(() => undefined)
     .finally(() => inflight.delete(key));
 }
@@ -26,14 +37,20 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => !queryCache.has(key));
   const seq = useRef(0);
+  const shownKey = useRef(key);
   const reload = useCallback(() => {
     const n = ++seq.current;
     const cached = queryCache.get(key) as T | undefined;
     if (cached !== undefined) setData(cached);
+    // Switching to a different query (e.g. another session) must not keep
+    // showing the previous one's data while the new one loads.
+    else if (shownKey.current !== key) setData(null);
+    shownKey.current = key;
+    setError(null);
     setLoading(cached === undefined);
     loader()
       .then((d) => {
-        queryCache.set(key, d);
+        remember(key, d);
         if (n === seq.current) {
           setData(d);
           setError(null);

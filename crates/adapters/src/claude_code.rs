@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::text::{strip_injected, title_from};
 use crate::{
-    file_meta, home, jsonl_files, omitted, open_lines, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, jsonl_files, memo_scan, omitted, open_lines, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -24,7 +24,9 @@ struct LineHead {
     summary: Option<String>,
     is_meta: bool,
     is_sidechain: bool,
-    message: Option<Value>,
+    // Kept raw: most lines only need counting, and fully parsing every
+    // message (tool output can be megabytes) dominated discovery time.
+    message: Option<Box<serde_json::value::RawValue>>,
 }
 
 impl LocalAgentAdapter for ClaudeCode {
@@ -38,21 +40,38 @@ impl LocalAgentAdapter for ClaudeCode {
 
     fn default_roots(&self) -> Vec<PathBuf> {
         if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
-            return vec![PathBuf::from(dir).join("projects")];
+            // Accepts a comma-separated list, like Claude Code itself.
+            return dir
+                .to_string_lossy()
+                .split(',')
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(|d| PathBuf::from(d).join("projects"))
+                .collect();
         }
-        home().map(|h| vec![h.join(".claude").join("projects")]).unwrap_or_default()
+        let mut roots = Vec::new();
+        if let Some(h) = home() {
+            roots.push(h.join(".claude").join("projects"));
+            // Newer releases follow XDG and write here instead.
+            roots.push(h.join(".config").join("claude").join("projects"));
+        }
+        if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {
+            let p = PathBuf::from(x).join("claude").join("projects");
+            if !roots.contains(&p) {
+                roots.push(p);
+            }
+        }
+        roots
+    }
+
+    fn scan_depth(&self) -> usize {
+        1
     }
 
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
         let mut files = Vec::new();
         jsonl_files(root, 1, &mut files);
-        let mut out = Vec::new();
-        for path in files {
-            if let Some(s) = quick_scan(&path) {
-                out.push(s);
-            }
-        }
-        Ok(out)
+        Ok(files.iter().filter_map(|p| memo_scan(p, quick_scan)).collect())
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
@@ -77,12 +96,16 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
                 if project.is_none() {
                     project = h.cwd;
                 }
-                let msg = h.message.unwrap_or_default();
-                if model.is_none() {
-                    model = msg.get("model").and_then(Value::as_str).map(str::to_string);
-                }
-                if first_prompt.is_none() && h.kind == "user" {
-                    first_prompt = first_text(&msg).map(|t| title_from(&t)).filter(|t| !t.is_empty());
+                let want_model = model.is_none() && h.kind == "assistant";
+                let want_prompt = first_prompt.is_none() && h.kind == "user";
+                if want_model || want_prompt {
+                    let msg: Value = h.message.and_then(|r| serde_json::from_str(r.get()).ok()).unwrap_or_default();
+                    if want_model {
+                        model = msg.get("model").and_then(Value::as_str).map(str::to_string);
+                    }
+                    if want_prompt {
+                        first_prompt = first_text(&msg).map(|t| title_from(&t)).filter(|t| !t.is_empty());
+                    }
                 }
             }
             _ => {}

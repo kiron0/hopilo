@@ -262,6 +262,7 @@ const LOGO_MAP: Record<string, (props: LogoProps) => ReactNode> = {
   grok: GrokLogo,
   aider: AiderLogo,
   cursor: CursorLogo,
+  "cursor-cli": CursorLogo,
   zed: ZedLogo,
   clipboard: ClipboardLogo,
   manual: NoteLogo,

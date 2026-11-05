@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, jsonl_files, omitted, open_lines, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, jsonl_files, memo_scan, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -27,47 +27,83 @@ impl LocalAgentAdapter for Codex {
         let base = std::env::var_os("CODEX_HOME")
             .map(PathBuf::from)
             .or_else(|| home().map(|h| h.join(".codex")));
-        base.map(|b| vec![b.join("sessions")]).unwrap_or_default()
+        // `codex resume` archives finished sessions, compressed, under
+        // archived_sessions; they are still the user's history.
+        base.map(|b| vec![b.join("sessions"), b.join("archived_sessions")]).unwrap_or_default()
     }
 
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
         let mut files = Vec::new();
         jsonl_files(root, 4, &mut files);
-        let mut out = Vec::new();
-        for path in files {
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            if !name.starts_with("rollout-") {
-                continue;
-            }
-
-            let Ok(cap) = read_rollout(&path) else { continue };
-            let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
-            if count == 0 {
-                continue;
-            }
-            let Ok((size_bytes, modified_at)) = file_meta(&path) else { continue };
-            out.push(DiscoveredSession {
-                adapter: "codex".into(),
-                path: path.display().to_string(),
-                session_id: session_id_from(&path),
-                title: cap.source.title,
-                project: cap.source.project,
-                model: cap.source.model,
-                modified_at,
-                size_bytes,
-                message_count: count,
-            });
-        }
-        Ok(out)
+        files.retain(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("rollout-")));
+        let names = root.parent().map(thread_names).unwrap_or_default();
+        Ok(files
+            .iter()
+            .filter_map(|p| memo_scan(p, quick_scan))
+            .map(|mut s| {
+                if let Some(name) = names.get(thread_id(&s.session_id)) {
+                    s.title = name.clone();
+                }
+                s
+            })
+            .collect())
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
-        read_rollout(path)
+        let mut cap = read_rollout(path, false)?;
+        // sessions/YYYY/MM/DD/<file> or archived_sessions/<file>
+        let base = path.ancestors().find(|a| a.join("session_index.jsonl").is_file());
+        if let Some(name) = base.map(thread_names).and_then(|n| n.get(thread_id(&session_stem(path))).cloned()) {
+            cap.source.title = name;
+        }
+        Ok(cap)
     }
 }
 
-fn session_id_from(path: &Path) -> String {
-    path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+/// The thread UUID at the end of `rollout-<timestamp>-<uuid>`.
+fn thread_id(stem: &str) -> &str {
+    let n = stem.len();
+    if n >= 36 && stem.is_char_boundary(n - 36) {
+        &stem[n - 36..]
+    } else {
+        stem
+    }
+}
+
+/// Names the user gave threads (or Codex generated) in `session_index.jsonl`.
+fn thread_names(base: &Path) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let Ok(lines) = open_lines(&base.join("session_index.jsonl")) else { return out };
+    for line in lines.map_while(|l| l.ok()) {
+        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+        if let (Some(id), Some(name)) = (v.get("id").and_then(Value::as_str), v.get("thread_name").and_then(Value::as_str)) {
+            let name = name.trim();
+            if !name.is_empty() {
+                out.insert(id.to_string(), title_from(name));
+            }
+        }
+    }
+    out
+}
+
+fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
+    let cap = read_rollout(path, true).ok()?;
+    let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
+    if count == 0 {
+        return None;
+    }
+    let (size_bytes, modified_at) = file_meta(path).ok()?;
+    Some(DiscoveredSession {
+        adapter: "codex".into(),
+        path: path.display().to_string(),
+        session_id: session_stem(path),
+        title: cap.source.title,
+        project: cap.source.project,
+        model: cap.source.model,
+        modified_at,
+        size_bytes,
+        message_count: count,
+    })
 }
 
 fn is_injected_user_text(t: &str) -> bool {
@@ -114,7 +150,7 @@ struct Tally {
     files: Vec<hopilo_core::CapturedFile>,
 }
 
-fn read_rollout(path: &Path) -> Result<Capture> {
+fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
     let source_id = new_id();
     let mut messages = Vec::new();
     let mut names: HashMap<String, String> = HashMap::new();
@@ -156,7 +192,7 @@ fn read_rollout(path: &Path) -> Result<Capture> {
                         source_id: source_id.clone(),
                         role: Role::System,
                         created_at: ts,
-                        blocks: vec![Block::text(format!("Codex compaction summary:\n\n{summary}"))],
+                        blocks: vec![Block::text(if quick { String::new() } else { format!("Codex compaction summary:\n\n{summary}") })],
                     });
                 }
                 continue;
@@ -191,6 +227,13 @@ fn read_rollout(path: &Path) -> Result<Capture> {
                             }
                         }
                         Some("input_image") => {
+                            if quick {
+                                // Discovery only needs the message count, so
+                                // don't decode embedded images or read files.
+                                t.images += 1;
+                                blocks.push(Block::Missing { description: "image shared in the conversation".into() });
+                                continue;
+                            }
                             let url = c.get("image_url").and_then(|u| u.as_str().or_else(|| u.get("url").and_then(Value::as_str))).unwrap_or("");
                             let n = t.files.len() + 1;
                             let recovered = if url.starts_with("data:") {
@@ -228,16 +271,20 @@ fn read_rollout(path: &Path) -> Result<Capture> {
                 if let Some(cid) = item.get("call_id").and_then(Value::as_str) {
                     names.insert(cid.to_string(), name.clone());
                 }
-                let input = match kind {
-                    "function_call" => pretty_args(item.get("arguments").and_then(Value::as_str).unwrap_or("")),
-                    "custom_tool_call" => item.get("input").and_then(Value::as_str).unwrap_or("").to_string(),
-                    _ => item.get("action").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default(),
+                let input = if quick {
+                    String::new()
+                } else {
+                    match kind {
+                        "function_call" => pretty_args(item.get("arguments").and_then(Value::as_str).unwrap_or("")),
+                        "custom_tool_call" => item.get("input").and_then(Value::as_str).unwrap_or("").to_string(),
+                        _ => item.get("action").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default(),
+                    }
                 };
                 push(&mut messages, Role::Assistant, vec![Block::ToolCall { name, input }]);
             }
             "function_call_output" | "custom_tool_call_output" | "local_shell_call_output" => {
                 let name = item.get("call_id").and_then(Value::as_str).and_then(|c| names.get(c).cloned());
-                let output = output_text(item.get("output"));
+                let output = if quick { String::new() } else { output_text(item.get("output")) };
                 push(&mut messages, Role::Tool, vec![Block::ToolResult { name, output, is_error: false }]);
             }
             "reasoning" => t.reasoning += 1,
@@ -267,7 +314,7 @@ fn read_rollout(path: &Path) -> Result<Capture> {
     omitted(&mut om, "hidden reasoning items", t.reasoning);
     omitted(&mut om, "injected developer/environment context", t.injected);
 
-    let sid = session_id_from(path);
+    let sid = session_stem(path);
     Ok(Capture {
         source: Source {
             source_id,

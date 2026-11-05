@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { safeHref } from "../lib/url";
 import { CheckIcon, Copy } from "./Icons";
 import { cx } from "./ui";
 
@@ -196,11 +197,17 @@ function renderInline(text: string): ReactNode[] {
       nodes.push(<del key={`del-${nodes.length}`} className="line-through text-muted">{match[7]}</del>);
     } else if (match[8]) {
       const label = match[9];
-      const url = match[10];
+      const href = safeHref(match[10]);
       nodes.push(
-        <a key={`a-${nodes.length}`} href={url} target="_blank" rel="noopener noreferrer" className="font-medium text-accent underline underline-offset-2 hover:opacity-80">
-          {label}
-        </a>
+        href ? (
+          <a key={`a-${nodes.length}`} href={href} target="_blank" rel="noopener noreferrer" className="font-medium text-accent underline underline-offset-2 hover:opacity-80">
+            {label}
+          </a>
+        ) : (
+          <span key={`a-${nodes.length}`} className="font-medium">
+            {label}
+          </span>
+        )
       );
     }
 

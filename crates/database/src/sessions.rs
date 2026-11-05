@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use hopilo_core::{
     new_id, now_rfc3339, Attachment, Block, CaptureStatus, ContextBrief, Integrity, Message, Mode, Pack, Role, Source,
@@ -90,26 +90,28 @@ impl Store {
 
     pub fn upsert_session(&mut self, source: &Source, messages: &[Message], updated_at: Option<&str>) -> Result<ImportOutcome> {
         let hash = content_hash(messages)?;
-        let existing: Option<(String, String, bool)> = match &source.origin {
+        let existing: Option<(String, String, bool, Option<String>)> = match &source.origin {
             Some(origin) => self
                 .conn
                 .query_row(
-                    "SELECT id, content_hash, hidden FROM sources WHERE origin = ?1 ORDER BY captured_at DESC LIMIT 1",
+                    "SELECT id, content_hash, hidden, CASE WHEN title_edited THEN title END
+                     FROM sources WHERE origin = ?1 ORDER BY captured_at DESC LIMIT 1",
                     [origin],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )
                 .optional()?,
             None => None,
         };
         let updated = updated_at.map(str::to_string).unwrap_or_else(|| source.captured_at.clone());
-        if let Some((id, old_hash, hidden)) = &existing {
+        if let Some((id, old_hash, hidden, _)) = &existing {
             if *old_hash == hash && !hidden {
                 self.conn.execute("UPDATE sources SET updated_at = MAX(COALESCE(updated_at, ''), ?2) WHERE id = ?1", params![id, updated])?;
                 return Ok(ImportOutcome { source_id: id.clone(), duplicate_of: Some(id.clone()) });
             }
         }
         let id = existing.as_ref().map(|(id, ..)| id.clone()).unwrap_or_else(|| source.source_id.clone());
-        let source = Source { source_id: id.clone(), ..source.clone() };
+        let title = existing.as_ref().and_then(|(.., t)| t.clone()).unwrap_or_else(|| source.title.clone());
+        let source = Source { source_id: id.clone(), title, ..source.clone() };
         let text = messages_text(messages);
         let tx = self.conn.transaction()?;
         let values = params![
@@ -189,14 +191,35 @@ impl Store {
 
     pub fn session_files(&self, messages: &[Message]) -> Vec<Attachment> {
         let mut seen = HashSet::new();
-        messages
+        let shas: Vec<&str> = messages
             .iter()
             .flat_map(|m| m.blocks.iter())
             .filter_map(|b| match b {
-                Block::File { sha256, .. } if seen.insert(sha256.clone()) => self.attachment_by_sha(sha256).ok().flatten(),
+                Block::File { sha256, .. } if seen.insert(sha256.as_str()) => Some(sha256.as_str()),
                 _ => None,
             })
-            .collect()
+            .collect();
+        if shas.is_empty() {
+            return Vec::new();
+        }
+
+        // One query per chunk instead of one query per file. Chunking keeps us
+        // under SQLite's bound-parameter limit for sessions with many files.
+        let mut found: HashMap<String, Attachment> = HashMap::new();
+        for chunk in shas.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let query = format!(
+                "SELECT id, file_name, media_type, size, sha256, origin_path, text FROM attachments WHERE sha256 IN ({placeholders})"
+            );
+            let Ok(mut stmt) = self.conn.prepare(&query) else { continue };
+            let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(chunk.iter().copied()), Self::attachment_from_row) else {
+                continue;
+            };
+            for row in rows.flatten() {
+                found.entry(row.sha256.clone()).or_insert(row);
+            }
+        }
+        shas.iter().filter_map(|sha| found.remove(*sha)).collect()
     }
 
     pub fn update_session(&mut self, id: &str, patch: &SessionPatch) -> Result<()> {
@@ -204,7 +227,7 @@ impl Store {
         let title = patch.title.as_deref().map(str::trim).filter(|t| !t.is_empty());
         let tx = self.conn.transaction()?;
         let n = tx.execute(
-            "UPDATE sources SET title = COALESCE(?2, title), pinned = COALESCE(?3, pinned), tags = COALESCE(?4, tags) WHERE id = ?1",
+            "UPDATE sources SET title = COALESCE(?2, title), title_edited = title_edited OR ?2 IS NOT NULL, pinned = COALESCE(?3, pinned), tags = COALESCE(?4, tags) WHERE id = ?1",
             params![id, title, patch.pinned, tags],
         )?;
         if n == 0 {
@@ -228,6 +251,32 @@ impl Store {
             Ok(())
         } else {
             self.delete_source(id)
+        }
+    }
+
+    pub fn composed_title(&self, ids: &[String]) -> Result<String> {
+        let mut titles = Vec::new();
+        let mut seen = HashSet::new();
+        for id in ids {
+            if !seen.insert(id.as_str()) {
+                continue;
+            }
+            if let Some(title) = self
+                .conn
+                .query_row("SELECT title FROM sources WHERE id = ?1", [id], |r| r.get::<_, String>(0))
+                .optional()?
+            {
+                titles.push(title);
+            }
+        }
+        match titles.as_slice() {
+            [] => Err(DbError::NotFound("session".into())),
+            [one] => Ok(one.clone()),
+            many => Ok(format!(
+                "{} sessions: {}",
+                many.len(),
+                many.iter().map(String::as_str).collect::<Vec<_>>().join(" + ")
+            )),
         }
     }
 

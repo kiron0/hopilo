@@ -49,10 +49,13 @@ pub fn sanitize_filename(title: &str) -> String {
 }
 
 pub fn export_filename(pack: &Pack, ext: &str) -> String {
+    export_filename_for(&pack.title, pack.version, ext)
+}
 
-    match pack.version {
-        0 => format!("{}.{ext}", sanitize_filename(&pack.title)),
-        v => format!("{}-v{v}.{ext}", sanitize_filename(&pack.title)),
+pub fn export_filename_for(title: &str, version: u32, ext: &str) -> String {
+    match version {
+        0 => format!("{}.{ext}", sanitize_filename(title)),
+        v => format!("{}-v{v}.{ext}", sanitize_filename(title)),
     }
 }
 
@@ -179,10 +182,19 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     if total > MAX_UNPACKED_BYTES {
         return Err(FormatError::TooLarge);
     }
+    // Entry sizes in the central directory are attacker-controlled. Cap every
+    // read (and the running total) so a lying header cannot trigger a zip bomb.
+    let mut remaining = MAX_UNPACKED_BYTES;
     let mut read = |name: &str| -> Result<Vec<u8>> {
         let mut f = zip.by_name(name).map_err(|_| FormatError::NotHandoff(format!("missing {name}")))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
+        let limit = remaining.min(MAX_UNPACKED_BYTES);
+        let capacity = usize::try_from(f.size().min(limit).min(8 * 1024 * 1024)).unwrap_or(0);
+        let mut buf = Vec::with_capacity(capacity);
+        f.by_ref().take(limit + 1).read_to_end(&mut buf)?;
+        if buf.len() as u64 > limit {
+            return Err(FormatError::TooLarge);
+        }
+        remaining -= buf.len() as u64;
         Ok(buf)
     };
     let sums = String::from_utf8_lossy(&read("checksums.sha256")?).to_string();

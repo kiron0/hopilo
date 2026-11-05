@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use hopilo_core::render::estimate_tokens;
-use hopilo_core::{now_rfc3339, new_id, Attachment, Message, Pack, Source};
+use hopilo_core::{now_rfc3339, new_id, Attachment, Block, Message, Pack, Source};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
@@ -166,6 +166,73 @@ fn content_hash(messages: &[Message]) -> Result<String> {
     Ok(hex::encode(h.finalize()))
 }
 
+/// The pre-fix serialization of `Block`. Kept as a separate borrowed type
+/// because round-tripping through `serde_json::Value` sorts object keys and
+/// would not reproduce the bytes that older pack hashes were computed over.
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum LegacyBlock<'a> {
+    Text {
+        text: &'a str,
+    },
+    ToolCall {
+        name: &'a str,
+        input: &'a str,
+    },
+    ToolResult {
+        #[serde(default)]
+        name: Option<&'a str>,
+        output: &'a str,
+        #[serde(default)]
+        is_error: bool,
+    },
+    Missing {
+        description: &'a str,
+    },
+    #[serde(rename_all = "camelCase")]
+    File {
+        name: &'a str,
+        media_type: &'a str,
+        sha256: &'a str,
+        size: u64,
+    },
+}
+
+fn legacy_blocks(blocks: &[Block]) -> Vec<LegacyBlock<'_>> {
+    blocks
+        .iter()
+        .map(|b| match b {
+            Block::Text { text } => LegacyBlock::Text { text },
+            Block::ToolCall { name, input } => LegacyBlock::ToolCall { name, input },
+            Block::ToolResult { name, output, is_error } => LegacyBlock::ToolResult {
+                name: name.as_deref(),
+                output,
+                is_error: *is_error,
+            },
+            Block::Missing { description } => LegacyBlock::Missing { description },
+            Block::File { name, media_type, sha256, size } => LegacyBlock::File {
+                name,
+                media_type,
+                sha256,
+                size: *size,
+            },
+        })
+        .collect()
+}
+
+/// Hashes written before tool-result fields switched to camelCase used
+/// `is_error`. Reproduce that shape so old pack snapshots still audit cleanly.
+fn legacy_content_hash(messages: &[Message]) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let mut h = Sha256::new();
+    for m in messages {
+        h.update(serde_json::to_vec(&(m.role, legacy_blocks(&m.blocks)))?);
+        h.update([0u8]);
+    }
+    Ok(hex::encode(h.finalize()))
+}
+
 fn messages_text(messages: &[Message]) -> String {
     let mut s = String::new();
     for m in messages {
@@ -260,12 +327,14 @@ impl Store {
     }
 
     pub fn get_source(&self, id: &str) -> Result<(Source, Vec<Message>)> {
-        let json: String = self
+        let (json, title): (String, String) = self
             .conn
-            .query_row("SELECT source_json FROM sources WHERE id = ?1", [id], |r| r.get(0))
+            .query_row("SELECT source_json, title FROM sources WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?
             .ok_or_else(|| DbError::NotFound(format!("source {id}")))?;
-        let source: Source = serde_json::from_str(&json)?;
+        let mut source: Source = serde_json::from_str(&json)?;
+        // Renames only touch the column, so it is the source of truth.
+        source.title = title;
         let mut stmt = self.conn.prepare(
             "SELECT id, role, created_at, blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal",
         )?;
@@ -304,18 +373,34 @@ impl Store {
             return Ok((existing, true));
         }
         let path = self.blob_path(&att.sha256);
+        let created = !path.exists();
         let tmp = path.with_extension("part");
         std::fs::write(&tmp, bytes)?;
         std::fs::rename(&tmp, &path)?;
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT INTO attachments (id, file_name, media_type, size, sha256, origin_path, text, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![att.id, att.file_name, att.media_type, att.size as i64, att.sha256, att.origin_path, att.text, now_rfc3339()],
-        )?;
-        index(&tx, "attachment", &att.id, &att.file_name, att.text.as_deref().unwrap_or(""))?;
-        event(&tx, "attachment", Some(&att.id), &format!("Added file {}", att.file_name))?;
-        tx.commit()?;
+        let result = (|| -> Result<()> {
+            let tx = self.conn.transaction()?;
+            tx.execute(
+                "INSERT INTO attachments (id, file_name, media_type, size, sha256, origin_path, text, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![att.id, att.file_name, att.media_type, att.size as i64, att.sha256, att.origin_path, att.text, now_rfc3339()],
+            )?;
+            index(&tx, "attachment", &att.id, &att.file_name, att.text.as_deref().unwrap_or(""))?;
+            event(&tx, "attachment", Some(&att.id), &format!("Added file {}", att.file_name))?;
+            tx.commit()?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            // Another process may have stored the same content between our
+            // dedupe check and insert, so only drop the blob if no row points
+            // at it. Treat a failed lookup as "still referenced" to be safe.
+            if created {
+                let referenced = self.attachment_by_sha(&att.sha256).map(|a| a.is_some()).unwrap_or(true);
+                if !referenced {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            return Err(e);
+        }
         Ok((att.clone(), false))
     }
 
@@ -376,7 +461,18 @@ impl Store {
         tx.execute("DELETE FROM search_index WHERE kind = 'attachment' AND ref_id = ?1", [id])?;
         tx.commit()?;
 
-        let _ = std::fs::remove_file(self.blob_path(&att.sha256));
+        // Messages and pack snapshots reference blobs by hash, so only remove
+        // the file once nothing in the library still points at it.
+        let still_used: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM messages WHERE instr(blocks_json, ?1) > 0)
+                 OR EXISTS(SELECT 1 FROM pack_versions WHERE instr(snapshot_json, ?1) > 0)
+                 OR EXISTS(SELECT 1 FROM attachments WHERE sha256 = ?1)",
+            [&att.sha256],
+            |r| r.get(0),
+        )?;
+        if !still_used {
+            let _ = std::fs::remove_file(self.blob_path(&att.sha256));
+        }
         Ok(())
     }
 
@@ -575,7 +671,8 @@ impl Store {
             report.versions_checked += 1;
             match serde_json::from_str::<Pack>(&json) {
                 Ok(p) => {
-                    if content_hash(&p.messages)? != hash {
+                    let current = content_hash(&p.messages)?;
+                    if current != hash && legacy_content_hash(&p.messages)? != hash {
                         report.version_problems.push(format!("{} v{v}: content does not match its recorded hash", p.title));
                     }
                 }

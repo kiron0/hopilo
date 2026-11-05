@@ -328,12 +328,17 @@ export function Modal({
     }, 130);
   }, [closing, onClose]);
 
+  const closeRef = useRef(requestClose);
+  useEffect(() => {
+    closeRef.current = requestClose;
+  }, [requestClose]);
+
   useEffect(() => {
     if (!active) return;
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return requestClose();
+      if (e.key === "Escape") return closeRef.current();
 
       if (e.key !== "Tab" || !ref.current) return;
       const items = Array.from(ref.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea, select, [href], [tabindex]:not([tabindex='-1'])"));
@@ -353,7 +358,7 @@ export function Modal({
       window.removeEventListener("keydown", onKey);
       prev?.focus();
     };
-  }, [active, requestClose]);
+  }, [active]);
 
   if (!active || typeof document === "undefined") return null;
 
@@ -453,12 +458,19 @@ export function AlertDialog({
     }, 130);
   }, [isSpinning, closing, onClose]);
 
+  const closeRef = useRef(requestClose);
+  const spinningRef = useRef(isSpinning);
+  useEffect(() => {
+    closeRef.current = requestClose;
+    spinningRef.current = isSpinning;
+  }, [requestClose, isSpinning]);
+
   useEffect(() => {
     if (!active) return;
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSpinning) return requestClose();
+      if (e.key === "Escape" && !spinningRef.current) return closeRef.current();
       if (e.key !== "Tab" || !ref.current) return;
       const items = Array.from(
         ref.current.querySelectorAll<HTMLElement>(
@@ -481,7 +493,7 @@ export function AlertDialog({
       window.removeEventListener("keydown", onKey);
       prev?.focus();
     };
-  }, [active, requestClose, isSpinning]);
+  }, [active]);
 
   if (!active || typeof document === "undefined") return null;
 

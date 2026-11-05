@@ -57,24 +57,33 @@ pub fn scan_text(text: &str, location: &str, out: &mut Vec<Finding>) {
 }
 
 pub fn scan_pack(pack: &Pack, only: Option<&std::collections::HashSet<String>>) -> Vec<Finding> {
+    const LIMIT: usize = 100;
     let mut out = Vec::new();
-    for m in &pack.messages {
+    'messages: for m in &pack.messages {
         if only.is_some_and(|sel| !sel.contains(&m.id)) {
             continue;
         }
         for b in &m.blocks {
+            if out.len() >= LIMIT {
+                break 'messages;
+            }
             scan_text(b.plain_text(), &m.id, &mut out);
         }
     }
-    if let Some(n) = &pack.context.note {
-        scan_text(n, "note", &mut out);
+    if out.len() < LIMIT {
+        if let Some(n) = &pack.context.note {
+            scan_text(n, "note", &mut out);
+        }
     }
     for a in &pack.attachments {
+        if out.len() >= LIMIT {
+            break;
+        }
         if let Some(t) = &a.text {
             scan_text(t, &format!("attachment:{}", a.id), &mut out);
         }
     }
-    out.truncate(100);
+    out.truncate(LIMIT);
     out
 }
 

@@ -6,7 +6,7 @@ Local-first: no accounts, no network, no AI inside the app, and it never sends a
 
 ## Use
 
-- **Sessions**: Claude Code, Codex CLI, Gemini CLI, OpenCode and Qwen Code sessions appear on their own and stay in step with their files (read-only). Web chats come in through the extension; pasted text, ChatGPT/Claude data exports, files and `.handoff` archives through **Add**.
+- **Sessions**: Claude Code, Codex CLI (including archived and compressed rollouts), Gemini CLI, Qwen Code, Antigravity (app, IDE and CLI), Cursor (editor and `cursor-agent`), VS Code Copilot Chat, GitHub Copilot CLI, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Kimi CLI, Goose, OpenCode and Zed sessions appear on their own and stay in step with their files (read-only). Web chats come in through the extension; pasted text, ChatGPT/Claude data exports, files and `.handoff` archives through **Add**.
 - **Copy**: one click puts a session on the clipboard for the AI you continue in. Pick Full, Balanced or Minimal (fixed rules, no summarizing model). Select several sessions to copy them together, or export `.md`, `.json`, `.txt` or `.handoff` (with files).
 - **Menu bar**: tap a recent session to copy it. Right-click › *Copy latest session* does it without opening anything.
 - **Browser extension**: save ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) with their files, and insert a session into the chat box as an unsent draft.

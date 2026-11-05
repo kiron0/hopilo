@@ -21,11 +21,12 @@ pub enum Block {
         name: String,
         input: String,
     },
+    #[serde(rename_all = "camelCase")]
     ToolResult {
         #[serde(default)]
         name: Option<String>,
         output: String,
-        #[serde(default)]
+        #[serde(default, alias = "is_error")]
         is_error: bool,
     },
 
@@ -295,4 +296,26 @@ pub fn new_id() -> String {
 
 pub fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_fields_serialize_camel_case_and_accept_legacy_keys() {
+        let value = serde_json::to_value(Block::ToolResult {
+            name: Some("Bash".into()),
+            output: "failed".into(),
+            is_error: true,
+        })
+        .unwrap();
+        assert_eq!(value["type"], "toolResult");
+        assert_eq!(value["isError"], true);
+        assert!(value.get("is_error").is_none());
+
+        let legacy: Block =
+            serde_json::from_value(serde_json::json!({"type": "toolResult", "output": "ok", "is_error": true})).unwrap();
+        assert!(matches!(legacy, Block::ToolResult { is_error: true, .. }));
+    }
 }

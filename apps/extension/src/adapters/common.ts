@@ -117,6 +117,9 @@ export async function loadOlder(adapter: WebAdapter, doc: Document, timeoutMs = 
   const box = scrollParent(first);
   if (!box) return true;
   const restore = box.scrollTop;
+  // Remember where the oldest visible message sits so prepended turns don't
+  // jump the reader to an unrelated part of the conversation.
+  const anchorTop = first.getBoundingClientRect().top;
   const deadline = Date.now() + timeoutMs;
   let last = -1;
   let stable = 0;
@@ -130,7 +133,8 @@ export async function loadOlder(adapter: WebAdapter, doc: Document, timeoutMs = 
     await sleep(700);
   }
   const finished = stable >= 2;
-  box.scrollTop = restore;
+  if (first.isConnected) box.scrollTop += first.getBoundingClientRect().top - anchorTop;
+  else box.scrollTop = restore;
   return finished;
 }
 
