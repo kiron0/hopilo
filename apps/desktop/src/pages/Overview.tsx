@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, type SessionRow } from "../lib/api";
 import { copySessions } from "../lib/actions";
 import { basename, plural, provider, relativeTime } from "../lib/format";
@@ -282,6 +282,8 @@ function RecentRow({ row }: { row: SessionRow }) {
   );
 }
 
+const BANNER_TTL_MS = 24 * 60 * 60 * 1000;
+
 export function Overview() {
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
@@ -289,9 +291,37 @@ export function Overview() {
   const sessions = useLoad(() => api.listSessions());
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const s = stats.data;
   const loading = sessions.loading && !sessions.data;
   const all = useMemo(() => sessions.data ?? [], [sessions.data]);
+
+  const bannerFirstSeen = settings.bannerFirstSeen ?? (typeof window !== "undefined" ? Number(localStorage.getItem("hopilo_banner_first_seen") || 0) : 0);
+  const bannerExpired = bannerFirstSeen > 0 && now - bannerFirstSeen > BANNER_TTL_MS;
+  const showBanner = !settings.onboarded && !bannerExpired;
+
+  useEffect(() => {
+    if (settings.onboarded) return;
+    if (bannerExpired) {
+      saveSetting("onboarded", true);
+      return;
+    }
+    if (!bannerFirstSeen) {
+      const ts = Date.now();
+      if (typeof window !== "undefined") {
+        localStorage.setItem("hopilo_banner_first_seen", String(ts));
+      }
+      saveSetting("bannerFirstSeen", ts);
+    }
+  }, [settings.onboarded, bannerExpired, bannerFirstSeen]);
+
+  useEffect(() => {
+    if (!showBanner || !bannerFirstSeen) return;
+    const remaining = Math.max(0, BANNER_TTL_MS - (now - bannerFirstSeen));
+    if (remaining === 0) return;
+    const t = setTimeout(() => setNow(Date.now()), remaining);
+    return () => clearTimeout(t);
+  }, [showBanner, bannerFirstSeen, now]);
 
   const recent = useMemo(() => [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [all]);
   const latest = recent[0];
@@ -301,7 +331,7 @@ export function Overview() {
 
   return (
     <div className="space-y-5 pb-6">
-      {!settings.onboarded && (
+      {showBanner && (
         <Card className="flex items-start gap-3 p-4">
           <img
             src="/hopilo-mark.svg"
@@ -315,7 +345,13 @@ export function Overview() {
               {`Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything stays on this ${deviceNoun}.`}
             </p>
           </div>
-          <button type="button" aria-label="Dismiss welcome" className="text-muted hover:text-ink" onClick={() => saveSetting("onboarded", true)}>
+          <button
+            type="button"
+            aria-label="Dismiss welcome"
+            title="Dismiss"
+            className="text-muted hover:text-ink cursor-pointer"
+            onClick={() => saveSetting("onboarded", true)}
+          >
             <X size={16} />
           </button>
         </Card>

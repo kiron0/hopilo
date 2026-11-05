@@ -43,6 +43,7 @@ export interface Settings {
   level: "full" | "balanced" | "minimal";
   defaultTarget: string;
   onboarded: boolean;
+  bannerFirstSeen?: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
