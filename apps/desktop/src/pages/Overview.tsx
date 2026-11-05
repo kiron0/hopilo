@@ -323,8 +323,6 @@ export function Overview() {
   const agents = all.filter((r) => r.kind === "local-agent").length;
   const webRows = all.filter((r) => r.kind === "browser-chat");
   const web = webRows.length;
-  // Count web chats saved today in local time; the library-wide capture count
-  // includes every agent session imported today and was misleading here.
   const startOfDay = new Date(now).setHours(0, 0, 0, 0);
   const webToday = webRows.filter((r) => Date.parse(r.updatedAt) >= startOfDay).length;
   const tools = new Set(all.map((r) => r.provider)).size;

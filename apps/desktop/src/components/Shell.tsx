@@ -63,7 +63,6 @@ export function Shell({ children }: { children: ReactNode }) {
         e.preventDefault();
         navigate({ page: "settings" });
       }
-      // Esc leaves Settings, unless something on top (a dialog, the palette, a field) should get it first.
       if (e.key === "Escape" && !e.defaultPrevented) {
         const st = useApp.getState();
         const t = e.target as HTMLElement | null;

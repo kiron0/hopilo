@@ -153,15 +153,13 @@ pub(crate) fn session_stem(p: &Path) -> String {
 }
 
 type MemoKey = (PathBuf, u64, Option<std::time::SystemTime>);
-type Memo = std::sync::Mutex<std::collections::HashMap<PathBuf, (MemoKey, Option<DiscoveredSession>)>>;
+type Memo = std::sync::Mutex<std::collections::HashMap<PathBuf, (MemoKey, DiscoveredSession)>>;
 
 fn memo() -> &'static Memo {
     static MEMO: std::sync::OnceLock<Memo> = std::sync::OnceLock::new();
     MEMO.get_or_init(Default::default)
 }
 
-/// `memo_scan` over many files on all cores. Cold discovery parses every
-/// transcript once; doing that serially took seconds on large histories.
 pub(crate) fn par_scan<F>(files: &[PathBuf], scan: F) -> Vec<DiscoveredSession>
 where
     F: Fn(&Path) -> Option<DiscoveredSession> + Sync,
@@ -180,22 +178,19 @@ where
     })
 }
 
-/// Runs `scan` for a session file only when its size or mtime changed since the
-/// last call. Discovery runs on every window focus, and re-parsing hundreds of
-/// multi-megabyte transcripts because one of them grew was the main cost.
 pub(crate) fn memo_scan(path: &Path, scan: impl FnOnce(&Path) -> Option<DiscoveredSession>) -> Option<DiscoveredSession> {
     let md = std::fs::metadata(path).ok()?;
     let key: MemoKey = (path.to_path_buf(), md.len(), md.modified().ok());
     if let Some((k, v)) = memo().lock().ok().and_then(|m| m.get(path).cloned()) {
         if k == key {
-            return v;
+            return Some(v);
         }
     }
-    let v = scan(path);
+    let v = scan(path)?;
     if let Ok(mut m) = memo().lock() {
         m.insert(path.to_path_buf(), (key, v.clone()));
     }
-    v
+    Some(v)
 }
 
 pub(crate) fn file_meta(path: &Path) -> Result<(u64, String)> {

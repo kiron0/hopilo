@@ -42,8 +42,6 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
     const n = ++seq.current;
     const cached = queryCache.get(key) as T | undefined;
     if (cached !== undefined) setData(cached);
-    // Switching to a different query (e.g. another session) must not keep
-    // showing the previous one's data while the new one loads.
     else if (shownKey.current !== key) setData(null);
     shownKey.current = key;
     setError(null);

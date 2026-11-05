@@ -166,9 +166,6 @@ fn content_hash(messages: &[Message]) -> Result<String> {
     Ok(hex::encode(h.finalize()))
 }
 
-/// The pre-fix serialization of `Block`. Kept as a separate borrowed type
-/// because round-tripping through `serde_json::Value` sorts object keys and
-/// would not reproduce the bytes that older pack hashes were computed over.
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum LegacyBlock<'a> {
@@ -220,8 +217,6 @@ fn legacy_blocks(blocks: &[Block]) -> Vec<LegacyBlock<'_>> {
         .collect()
 }
 
-/// Hashes written before tool-result fields switched to camelCase used
-/// `is_error`. Reproduce that shape so old pack snapshots still audit cleanly.
 fn legacy_content_hash(messages: &[Message]) -> Result<String> {
     use sha2::{Digest, Sha256};
 
@@ -258,8 +253,6 @@ fn fts_query(q: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" "))
 }
 
-/// Each pre-migration backup is a full copy of the library. Once a newer
-/// migration has succeeded, only its own backup is worth keeping.
 fn prune_backups(root: &Path, keep: i64) {
     let keep_name = format!("hopilo.db.before-v{keep}");
     let Ok(rd) = std::fs::read_dir(root) else { return };
@@ -297,8 +290,6 @@ impl Store {
         Ok(store)
     }
 
-    /// A second, read-only handle on an existing library. Long read-only jobs
-    /// (verify) run on it so they don't hold the app's write connection.
     pub fn open_reader(root: &Path) -> Result<Self> {
         use rusqlite::OpenFlags;
         let conn = Connection::open_with_flags(
@@ -361,7 +352,6 @@ impl Store {
             .optional()?
             .ok_or_else(|| DbError::NotFound(format!("source {id}")))?;
         let mut source: Source = serde_json::from_str(&json)?;
-        // Renames only touch the column, so it is the source of truth.
         source.title = title;
         let mut stmt = self.conn.prepare(
             "SELECT id, role, created_at, blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal",
@@ -418,9 +408,6 @@ impl Store {
             Ok(())
         })();
         if let Err(e) = result {
-            // Another process may have stored the same content between our
-            // dedupe check and insert, so only drop the blob if no row points
-            // at it. Treat a failed lookup as "still referenced" to be safe.
             if created {
                 let referenced = self.attachment_by_sha(&att.sha256).map(|a| a.is_some()).unwrap_or(true);
                 if !referenced {
@@ -489,8 +476,6 @@ impl Store {
         tx.execute("DELETE FROM search_index WHERE kind = 'attachment' AND ref_id = ?1", [id])?;
         tx.commit()?;
 
-        // Messages and pack snapshots reference blobs by hash, so only remove
-        // the file once nothing in the library still points at it.
         let still_used: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM messages WHERE instr(blocks_json, ?1) > 0)
                  OR EXISTS(SELECT 1 FROM pack_versions WHERE instr(snapshot_json, ?1) > 0)
@@ -691,9 +676,6 @@ impl Store {
     }
 
     pub fn audit(&self) -> Result<AuditReport> {
-        // quick_check verifies page and record structure in one pass; the full
-        // integrity_check also cross-checks every index and took ~20s on a
-        // 1 GB library while holding the library lock.
         let database: String = self.conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
         let mut report = AuditReport { database, ..Default::default() };
         let mut stmt = self.conn.prepare("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;

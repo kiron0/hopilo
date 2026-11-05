@@ -61,7 +61,6 @@ export const DEFAULT_SETTINGS: Settings = {
 
 interface State {
   route: Route;
-  /** Last page outside Settings, so the sidebar's back button returns there. */
   lastAppRoute: Route;
   navigate: (r: Route) => void;
   toasts: Toast[];

@@ -16,8 +16,6 @@ pub struct AppState {
 
     pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
 
-    /// Held for the whole of a sync. Background syncs (startup, window focus)
-    /// skip when it is taken; an explicit refresh waits for it and then runs.
     pub sync_lock: Mutex<()>,
 }
 
@@ -49,9 +47,6 @@ pub(crate) fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-/// Runs `f` on the blocking pool. Plain (non-async) Tauri commands run on the
-/// main thread, so anything that reads a large session, renders or hashes
-/// must go through here or the window stops responding while it works.
 pub(crate) async fn blocking<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&AppHandle, State<'_, AppState>) -> CmdResult<T> + Send + 'static,
@@ -135,9 +130,6 @@ fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
     dedupe_discovered(out)
 }
 
-/// The same conversation can be visible under two roots (Antigravity's app and
-/// IDE builds share brain ids, Codex archives a session it already listed).
-/// Keep only the most recently modified copy so it is listed once.
 fn dedupe_discovered(mut found: Vec<DiscoveredSession>) -> Vec<DiscoveredSession> {
     found.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
     let mut seen = HashSet::new();
@@ -187,26 +179,19 @@ pub struct SyncResult {
     added: usize,
     updated: usize,
     failed: usize,
-    /// Sessions currently visible in agent folders.
     found: usize,
-    /// Another sync was running, so this one did nothing.
     busy: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SyncMode {
-    /// Skip if another sync is already running.
     Background,
-    /// Wait for a running sync to finish, then sync again so the caller sees
-    /// everything that is on disk right now.
     Wait,
 }
 
 pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     use std::sync::TryLockError;
     let state = app.state::<AppState>();
-    // A panic inside a previous sync poisons the lock; the data it guards is
-    // `()`, so recovering is always safe and keeps sync from being stuck off.
     let _guard = match mode {
         SyncMode::Wait => state.sync_lock.lock().unwrap_or_else(|p| p.into_inner()),
         SyncMode::Background => match state.sync_lock.try_lock() {
@@ -219,8 +204,6 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
     let found = discover_all(app);
     result.found = found.len();
-    // A first sync can import thousands of sessions; let the list fill in as
-    // it goes instead of staying empty until the very end.
     let mut last_emit = std::time::Instant::now();
     let mut pending = false;
     for d in found {
@@ -407,8 +390,6 @@ pub async fn import_handoff_file(app: AppHandle, path: String) -> CmdResult<Vec<
 fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str) -> CmdResult<Vec<String>> {
     let p = Path::new(path);
     let is_json = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
-    // Parsing a large archive can take a while, so do it before taking the
-    // library lock; only the database writes need to be serialized.
     let (pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, Vec<u8>>) = if is_json {
         let text = std::fs::read_to_string(p).map_err(err)?;
         (hopilo_pack_format::from_json(&text).map_err(err)?, Default::default())
@@ -594,8 +575,6 @@ pub async fn integrity_check(app: AppHandle) -> CmdResult<String> {
 #[tauri::command]
 pub async fn audit_library(app: AppHandle) -> CmdResult<hopilo_database::AuditReport> {
     blocking(app, |_, state| {
-        // Verifying hashes every file; do it on a separate read-only
-        // connection so the rest of the app keeps working meanwhile.
         let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
         Store::open_reader(&root).map_err(err)?.audit().map_err(err)
     })
@@ -606,7 +585,6 @@ pub async fn audit_library(app: AppHandle) -> CmdResult<hopilo_database::AuditRe
 pub async fn wipe_library(app: AppHandle) -> CmdResult<()> {
     blocking(app, |app, state| {
         with_store(&state, |s| s.wipe().map_err(err))?;
-        // Forget what discovery saw so the next sync re-imports everything.
         if let Ok(mut c) = state.discovery.lock() {
             c.clear();
         }

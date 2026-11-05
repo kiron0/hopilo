@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn discovers_fixture_dir() {
-        let root = fixture().parent().unwrap().parent().unwrap().to_path_buf();
+        let root = fixture().parent().unwrap().to_path_buf();
         let found = ClaudeCode.discover(&root).unwrap();
         let s = found.iter().find(|s| s.session_id == "sample-session").unwrap();
         assert_eq!(s.title, "Fix the failing login test");

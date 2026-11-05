@@ -93,7 +93,6 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
     let d = defaults(&state);
     let target = opts.target.filter(|t| !t.is_empty()).unwrap_or(d.target);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
-    // Render outside the library lock; only composing needs it.
     let pack = with_store(&state, |s| s.compose(ids).map_err(err))?;
     let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_handoff_prompt(&pack, &ropts) };
     app.clipboard().write_text(text.clone()).map_err(|e| format!("Couldn't write to the clipboard: {e}"))?;
@@ -133,8 +132,6 @@ fn export_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], for
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
     let dest = PathBuf::from(path);
 
-    // Snapshot what we need while holding the library lock, then render and
-    // write outside it so a large export never freezes the rest of the UI.
     let (pack, blobs) = with_store(state, |s| {
         let pack = s.compose(ids).map_err(err)?;
         let mut blobs: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();

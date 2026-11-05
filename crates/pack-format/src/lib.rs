@@ -182,8 +182,6 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     if total > MAX_UNPACKED_BYTES {
         return Err(FormatError::TooLarge);
     }
-    // Entry sizes in the central directory are attacker-controlled. Cap every
-    // read (and the running total) so a lying header cannot trigger a zip bomb.
     let mut remaining = MAX_UNPACKED_BYTES;
     let mut read = |name: &str| -> Result<Vec<u8>> {
         let mut f = zip.by_name(name).map_err(|_| FormatError::NotHandoff(format!("missing {name}")))?;

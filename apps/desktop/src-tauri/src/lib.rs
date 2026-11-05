@@ -10,7 +10,7 @@ use commands::AppState;
 use hopilo_database::Store;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, PhysicalPosition, Rect, RunEvent, WindowEvent};
+use tauri::{AppHandle, Manager, PhysicalPosition, Rect, WindowEvent};
 
 const MAIN_MIN_SHARE: f64 = 0.8;
 
@@ -247,7 +247,7 @@ pub fn run() {
 
     app.run(|app, event| {
         #[cfg(target_os = "macos")]
-        if let RunEvent::Reopen { .. } = event {
+        if let tauri::RunEvent::Reopen { .. } = event {
             show_main(app);
         }
         let _ = (app, event);

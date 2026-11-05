@@ -28,13 +28,11 @@ function Step({ n, title, children, done }: { n: number; title: string; children
   );
 }
 
-/** Asset names match the release workflow's "Package extension archives" step. */
 function releaseAsset(browser: "chrome" | "firefox", version: string) {
   const name = `hopilo-extension-${browser}-${version}.zip`;
   return { name, url: `${RELEASES_URL}/download/v${version}/${name}` };
 }
 
-/** Installed app: the extension isn't on disk, so point at the matching GitHub release. */
 function ReleaseSteps({ version }: { version: string | undefined }) {
   const chrome = version ? releaseAsset("chrome", version) : null;
   const firefox = version ? releaseAsset("firefox", version) : null;

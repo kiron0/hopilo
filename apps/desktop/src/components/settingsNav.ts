@@ -3,7 +3,6 @@ import { Boxes, Info, Pencil, Power, ShieldCheck, type IconProps } from "./Icons
 
 export type SettingsGroup = "general" | "customize" | "sources" | "data" | "about";
 
-/** Settings groups, shown in the main sidebar while Settings is open. */
 export const SETTINGS_GROUPS: { id: SettingsGroup; label: string; icon: (p: IconProps) => ReactNode }[] = [
   { id: "general", label: "General", icon: Power },
   { id: "customize", label: "Customization", icon: Pencil },
@@ -12,7 +11,6 @@ export const SETTINGS_GROUPS: { id: SettingsGroup; label: string; icon: (p: Icon
   { id: "about", label: "About", icon: Info },
 ];
 
-/** A settings route's `section` is a group id or a section id inside a group; map either to its group. */
 const SECTION_GROUP: Record<string, SettingsGroup> = {
   general: "general",
   customize: "customize",

@@ -53,7 +53,6 @@ const THEMES: { value: "light" | "dark" | "system"; label: string; swatchClass: 
   { value: "system", label: "System", swatchClass: "theme-system" },
 ];
 
-/** The page header names the group; `title` labels a section only when a group holds more than one, as on the Browser page. */
 function Group({ id, title, children }: { id: string; title?: string; children: React.ReactNode }) {
   return (
     <section id={`settings-${id}`} aria-label={title} className="scroll-mt-4 pb-6 last:pb-0">
@@ -113,7 +112,6 @@ export function Settings() {
     }
   };
 
-  // The group comes from the route, so the main sidebar and links into Settings share one source of truth.
   const section = useApp((st) => (st.route.page === "settings" ? st.route.section : undefined));
   const tab = settingsGroupFor(section);
   useEffect(() => {
