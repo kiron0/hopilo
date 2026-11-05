@@ -4,6 +4,21 @@ use std::process::Command;
 use serde::Serialize;
 use serde_json::json;
 
+fn background_command(program: &str) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut command = Command::new(program);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
+}
+
 pub use hopilo_native_host::{DEFAULT_EXTENSION_ID as EXTENSION_ID, FIREFOX_EXTENSION_ID, HOST_NAME};
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,13 +109,13 @@ fn registry_key(id: &str) -> Option<String> {
 
 fn registry_registered(id: &str) -> bool {
     let Some(key) = registry_key(id) else { return false };
-    Command::new("reg").args(["query", &key, "/ve"]).output().is_ok_and(|o| o.status.success())
+    background_command("reg").args(["query", &key, "/ve"]).output().is_ok_and(|o| o.status.success())
 }
 
 fn register_windows(id: &str, manifest: &Path) -> Result<(), String> {
     let key = registry_key(id).ok_or_else(|| format!("Unsupported browser: {id}"))?;
     let path = manifest.to_string_lossy();
-    let out = Command::new("reg")
+    let out = background_command("reg")
         .args(["add", &key, "/ve", "/t", "REG_SZ", "/d", path.as_ref(), "/f"])
         .output()
         .map_err(|e| format!("Could not update Windows browser registration: {e}"))?;
@@ -116,7 +131,7 @@ fn unregister_windows(id: &str) -> Result<bool, String> {
         return Ok(false);
     }
     let key = registry_key(id).ok_or_else(|| format!("Unsupported browser: {id}"))?;
-    let out = Command::new("reg")
+    let out = background_command("reg")
         .args(["delete", &key, "/f"])
         .output()
         .map_err(|e| format!("Could not update Windows browser registration: {e}"))?;

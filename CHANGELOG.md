@@ -13,6 +13,10 @@ All notable changes to Hopilo will be documented in this file.
 
 - **Streamlined Update Dialog**: Removed release notes and changelog display from the update modal to keep update alerts clean, lightweight, and focused on download and install status.
 
+### Fixed
+
+- **Windows console-window loop**: Browser status checks now run Windows Registry commands with `CREATE_NO_WINDOW`, preventing repeated console windows when opening or revisiting sidebar pages.
+
 ## 0.1.1
 
 ### Added
