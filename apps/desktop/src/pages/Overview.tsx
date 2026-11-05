@@ -321,7 +321,12 @@ export function Overview() {
   const recent = useMemo(() => [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [all]);
   const latest = recent[0];
   const agents = all.filter((r) => r.kind === "local-agent").length;
-  const web = all.filter((r) => r.kind === "browser-chat").length;
+  const webRows = all.filter((r) => r.kind === "browser-chat");
+  const web = webRows.length;
+  // Count web chats saved today in local time; the library-wide capture count
+  // includes every agent session imported today and was misleading here.
+  const startOfDay = new Date(now).setHours(0, 0, 0, 0);
+  const webToday = webRows.filter((r) => Date.parse(r.updatedAt) >= startOfDay).length;
   const tools = new Set(all.map((r) => r.provider)).size;
 
   return (
@@ -430,7 +435,7 @@ export function Overview() {
           loading={loading}
           value={String(web)}
           unit="saved"
-          caption={s ? `${s.capturesToday} new today` : ""}
+          caption={webToday ? `${webToday} new today` : "Saved from the browser extension"}
           action="Open"
           onClick={() => navigate({ page: "sessions", filter: "web" })}
           delay={0.3}

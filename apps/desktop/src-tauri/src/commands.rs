@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use hopilo_adapters::{adapter_by_id, all_adapters, AdapterInfo, DiscoveredSession};
@@ -17,7 +16,9 @@ pub struct AppState {
 
     pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
 
-    pub syncing: AtomicBool,
+    /// Held for the whole of a sync. Background syncs (startup, window focus)
+    /// skip when it is taken; an explicit refresh waits for it and then runs.
+    pub sync_lock: Mutex<()>,
 }
 
 fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
@@ -48,6 +49,16 @@ pub(crate) fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
+/// Runs `f` on the blocking pool. Plain (non-async) Tauri commands run on the
+/// main thread, so anything that reads a large session, renders or hashes
+/// must go through here or the window stops responding while it works.
+pub(crate) async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    f: impl FnOnce(&AppHandle, State<'_, AppState>) -> CmdResult<T> + Send + 'static,
+) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(move || f(&app, app.state::<AppState>())).await.map_err(err)?
+}
+
 pub(crate) fn with_store<T>(state: &State<AppState>, f: impl FnOnce(&mut Store) -> Result<T, String>) -> CmdResult<T> {
     let mut store = state.store.lock().map_err(|_| "library is busy, try again".to_string())?;
     f(&mut store)
@@ -63,14 +74,18 @@ pub struct AppInfo {
 }
 
 #[tauri::command]
-pub fn app_info(app: AppHandle, state: State<AppState>) -> CmdResult<AppInfo> {
-    let data_dir = with_store(&state, |s| Ok(s.root().display().to_string()))?;
-    Ok(AppInfo {
-        version: app.package_info().version.to_string(),
-        data_dir,
-        platform: std::env::consts::OS.into(),
-        adapters: all_adapters().iter().map(|a| a.info()).collect(),
+pub async fn app_info(app: AppHandle) -> CmdResult<AppInfo> {
+    blocking(app, move |app, state| {
+        let app = app.clone();
+        let data_dir = with_store(&state, |s| Ok(s.root().display().to_string()))?;
+        Ok(AppInfo {
+            version: app.package_info().version.to_string(),
+            data_dir,
+            platform: std::env::consts::OS.into(),
+            adapters: all_adapters().iter().map(|a| a.info()).collect(),
+        })
     })
+    .await
 }
 
 #[tauri::command]
@@ -172,25 +187,43 @@ pub struct SyncResult {
     added: usize,
     updated: usize,
     failed: usize,
+    /// Sessions currently visible in agent folders.
+    found: usize,
+    /// Another sync was running, so this one did nothing.
+    busy: bool,
 }
 
-pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
-    struct Busy<'a>(&'a AtomicBool);
-    impl Drop for Busy<'_> {
-        fn drop(&mut self) {
-            self.0.store(false, Ordering::SeqCst);
-        }
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncMode {
+    /// Skip if another sync is already running.
+    Background,
+    /// Wait for a running sync to finish, then sync again so the caller sees
+    /// everything that is on disk right now.
+    Wait,
+}
 
+pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
+    use std::sync::TryLockError;
     let state = app.state::<AppState>();
-    if state.syncing.swap(true, Ordering::SeqCst) {
-        return SyncResult::default();
-    }
-    // Clears the flag even if an adapter panics, so sync is never stuck off.
-    let _busy = Busy(&state.syncing);
+    // A panic inside a previous sync poisons the lock; the data it guards is
+    // `()`, so recovering is always safe and keeps sync from being stuck off.
+    let _guard = match mode {
+        SyncMode::Wait => state.sync_lock.lock().unwrap_or_else(|p| p.into_inner()),
+        SyncMode::Background => match state.sync_lock.try_lock() {
+            Ok(g) => g,
+            Err(TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(TryLockError::WouldBlock) => return SyncResult { busy: true, ..Default::default() },
+        },
+    };
     let mut result = SyncResult::default();
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
-    for d in discover_all(app) {
+    let found = discover_all(app);
+    result.found = found.len();
+    // A first sync can import thousands of sessions; let the list fill in as
+    // it goes instead of staying empty until the very end.
+    let mut last_emit = std::time::Instant::now();
+    let mut pending = false;
+    for d in found {
         let prior = known.get(&d.path);
         if prior.is_some_and(|p| p.hidden || p.updated_at >= d.modified_at) {
             continue;
@@ -207,8 +240,16 @@ pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
             Ok(_) => result.added += 1,
             Err(_) => result.failed += 1,
         }
+        if result.added + result.updated > 0 {
+            pending = true;
+        }
+        if pending && last_emit.elapsed() >= std::time::Duration::from_millis(1500) {
+            notify(app);
+            last_emit = std::time::Instant::now();
+            pending = false;
+        }
     }
-    if result.added + result.updated > 0 {
+    if pending {
         notify(app);
     }
     result
@@ -216,12 +257,12 @@ pub(crate) fn sync_blocking(app: &AppHandle) -> SyncResult {
 
 #[tauri::command]
 pub async fn sync_sessions(app: AppHandle) -> CmdResult<SyncResult> {
-    tauri::async_runtime::spawn_blocking(move || sync_blocking(&app)).await.map_err(err)
+    tauri::async_runtime::spawn_blocking(move || sync_blocking(&app, SyncMode::Wait)).await.map_err(err)
 }
 
 #[tauri::command]
-pub fn list_sessions(state: State<AppState>) -> CmdResult<Vec<SessionRow>> {
-    with_store(&state, |s| s.list_sessions().map_err(err))
+pub async fn list_sessions(app: AppHandle) -> CmdResult<Vec<SessionRow>> {
+    blocking(app, |_, state| with_store(&state, |s| s.list_sessions().map_err(err))).await
 }
 
 #[derive(Serialize)]
@@ -235,27 +276,39 @@ pub struct SessionDetail {
 }
 
 #[tauri::command]
-pub fn get_session(state: State<AppState>, id: String) -> CmdResult<SessionDetail> {
-    with_store(&state, |s| {
-        let row = s.session_row(&id).map_err(err)?;
-        let (source, messages) = s.get_source(&id).map_err(err)?;
+pub async fn get_session(app: AppHandle, id: String) -> CmdResult<SessionDetail> {
+    blocking(app, move |_, state| {
+        let (row, source, messages, files) = with_store(&state, |s| {
+            let row = s.session_row(&id).map_err(err)?;
+            let (source, messages) = s.get_source(&id).map_err(err)?;
+            let files = s.session_files(&messages);
+            Ok((row, source, messages, files))
+        })?;
         let text: String = messages.iter().flat_map(|m| m.blocks.iter().map(|b| b.plain_text())).collect();
-        Ok(SessionDetail { files: s.session_files(&messages), token_estimate: estimate_tokens(&text), row, source, messages })
+        Ok(SessionDetail { files, token_estimate: estimate_tokens(&text), row, source, messages })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn update_session(app: AppHandle, state: State<AppState>, id: String, patch: SessionPatch) -> CmdResult<()> {
-    with_store(&state, |s| s.update_session(&id, &patch).map_err(err))?;
-    notify(&app);
-    Ok(())
+pub async fn update_session(app: AppHandle, id: String, patch: SessionPatch) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        let app = app.clone();
+        with_store(&state, |s| s.update_session(&id, &patch).map_err(err))?;
+        notify(&app);
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn remove_session(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<()> {
-    with_store(&state, |s| s.remove_session(&id).map_err(err))?;
-    notify(&app);
-    Ok(())
+pub async fn remove_session(app: AppHandle, id: String) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        with_store(&state, |s| s.remove_session(&id).map_err(err))?;
+        notify(app);
+        Ok(())
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -298,8 +351,7 @@ pub async fn import_chat_export(app: AppHandle, path: String, ids: Vec<String>) 
     Ok(out)
 }
 
-#[tauri::command]
-pub fn import_text(
+pub(crate) fn import_text_inner(
     app: AppHandle,
     state: State<AppState>,
     text: String,
@@ -337,16 +389,23 @@ pub fn import_text(
 }
 
 #[tauri::command]
-pub fn import_aider_history(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<ImportOutcome> {
-    let cap = hopilo_adapters::aider::read_history(Path::new(&path)).map_err(err)?;
-    let out = with_store(&state, |s| s.insert_capture(&cap.source, &cap.messages).map_err(err))?;
-    notify(&app);
-    Ok(out)
+pub async fn import_aider_history(app: AppHandle, path: String) -> CmdResult<ImportOutcome> {
+    blocking(app, move |app, state| {
+        let cap = hopilo_adapters::aider::read_history(Path::new(&path)).map_err(err)?;
+        let out = with_store(&state, |s| s.insert_capture(&cap.source, &cap.messages).map_err(err))?;
+        notify(app);
+        Ok(out)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn import_handoff_file(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<Vec<String>> {
-    let p = Path::new(&path);
+pub async fn import_handoff_file(app: AppHandle, path: String) -> CmdResult<Vec<String>> {
+    blocking(app, move |app, state| import_handoff_blocking(app, &state, &path)).await
+}
+
+fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str) -> CmdResult<Vec<String>> {
+    let p = Path::new(path);
     let is_json = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
     // Parsing a large archive can take a while, so do it before taking the
     // library lock; only the database writes need to be serialized.
@@ -358,7 +417,7 @@ pub fn import_handoff_file(app: AppHandle, state: State<AppState>, path: String)
         let h = hopilo_pack_format::read_handoff(f).map_err(err)?;
         (h.pack, h.attachments)
     };
-    let ids = with_store(&state, |s| {
+    let ids = with_store(state, |s| {
         for a in &pack.attachments {
             if let Some(bytes) = blobs.get(&a.id) {
                 s.insert_attachment(a, bytes).map_err(err)?;
@@ -366,7 +425,7 @@ pub fn import_handoff_file(app: AppHandle, state: State<AppState>, path: String)
         }
         s.adopt_pack(&pack).map_err(err)
     })?;
-    notify(&app);
+    notify(app);
     Ok(ids)
 }
 
@@ -434,16 +493,26 @@ fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec
 }
 
 #[tauri::command]
-pub fn save_file(state: State<AppState>, sha: String, path: String) -> CmdResult<String> {
-    let (_, bytes) = stored_file(&state, &sha)?;
-    write_atomic(Path::new(&path), &bytes)?;
-    Ok(path)
+pub async fn save_file(app: AppHandle, sha: String, path: String) -> CmdResult<String> {
+    blocking(app, move |_, state| {
+        let (_, bytes) = stored_file(&state, &sha)?;
+        write_atomic(Path::new(&path), &bytes)?;
+        Ok(path)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn open_file(app: AppHandle, state: State<AppState>, sha: String) -> CmdResult<()> {
+pub async fn open_file(app: AppHandle, sha: String) -> CmdResult<()> {
+    blocking(app, move |app, state| open_file_blocking(app, &state, &sha)).await
+}
+
+fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
-    let (a, bytes) = stored_file(&state, &sha)?;
+    if sha.len() < 16 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("Not a library file reference".into());
+    }
+    let (a, bytes) = stored_file(state, sha)?;
     let name: String = a.file_name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c }).collect();
     let dir = app.path().app_cache_dir().map_err(err)?.join("open").join(&sha[..sha.len().min(16)]);
     std::fs::create_dir_all(&dir).map_err(err)?;
@@ -459,52 +528,92 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub fn list_handoffs(state: State<AppState>, limit: Option<i64>) -> CmdResult<Vec<HandoffRow>> {
-    with_store(&state, |s| s.list_handoffs(limit.unwrap_or(50)).map_err(err))
+pub async fn import_text(
+    app: AppHandle,
+    text: String,
+    kind: String,
+    title: Option<String>,
+    label: Option<String>,
+) -> CmdResult<ImportOutcome> {
+    blocking(app, move |app, state| import_text_inner(app.clone(), state, text, kind, title, label)).await
 }
 
 #[tauri::command]
-pub fn recent_activity(state: State<AppState>, limit: Option<i64>) -> CmdResult<Vec<ActivityRow>> {
-    with_store(&state, |s| s.recent_activity(limit.unwrap_or(30)).map_err(err))
+pub async fn list_handoffs(app: AppHandle, limit: Option<i64>) -> CmdResult<Vec<HandoffRow>> {
+    blocking(app, move |_, state| {
+        with_store(&state, |s| s.list_handoffs(limit.unwrap_or(50)).map_err(err))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn stats(state: State<AppState>) -> CmdResult<Stats> {
-    with_store(&state, |s| s.stats().map_err(err))
+pub async fn recent_activity(app: AppHandle, limit: Option<i64>) -> CmdResult<Vec<ActivityRow>> {
+    blocking(app, move |_, state| {
+        with_store(&state, |s| s.recent_activity(limit.unwrap_or(30)).map_err(err))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn search(state: State<AppState>, query: String) -> CmdResult<Vec<SearchHit>> {
-    with_store(&state, |s| Ok(s.search(&query, 40).map_err(err)?.into_iter().filter(|h| h.kind == "source").take(20).collect()))
+pub async fn stats(app: AppHandle) -> CmdResult<Stats> {
+    blocking(app, |_, state| with_store(&state, |s| s.stats().map_err(err))).await
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<AppState>) -> CmdResult<HashMap<String, serde_json::Value>> {
-    with_store(&state, |s| s.settings().map_err(err))
+pub async fn search(app: AppHandle, query: String) -> CmdResult<Vec<SearchHit>> {
+    blocking(app, move |_, state| {
+        with_store(&state, |s| Ok(s.search(&query, 40).map_err(err)?.into_iter().filter(|h| h.kind == "source").take(20).collect()))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_setting(app: AppHandle, state: State<AppState>, key: String, value: serde_json::Value) -> CmdResult<()> {
-    with_store(&state, |s| s.set_setting(&key, &value).map_err(err))?;
-    let _ = app.emit("hopilo://settings-changed", (&key, &value));
-    Ok(())
+pub async fn get_settings(app: AppHandle) -> CmdResult<HashMap<String, serde_json::Value>> {
+    blocking(app, move |_, state| {
+        with_store(&state, |s| s.settings().map_err(err))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn integrity_check(state: State<AppState>) -> CmdResult<String> {
-    with_store(&state, |s| s.integrity_check().map_err(err))
+pub async fn set_setting(app: AppHandle, key: String, value: serde_json::Value) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        let app = app.clone();
+        with_store(&state, |s| s.set_setting(&key, &value).map_err(err))?;
+        let _ = app.emit("hopilo://settings-changed", (&key, &value));
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn audit_library(state: State<AppState>) -> CmdResult<hopilo_database::AuditReport> {
-    with_store(&state, |s| s.audit().map_err(err))
+pub async fn integrity_check(app: AppHandle) -> CmdResult<String> {
+    blocking(app, |_, state| with_store(&state, |s| s.integrity_check().map_err(err))).await
 }
 
 #[tauri::command]
-pub fn wipe_library(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
-    with_store(&state, |s| s.wipe().map_err(err))?;
-    notify(&app);
-    Ok(())
+pub async fn audit_library(app: AppHandle) -> CmdResult<hopilo_database::AuditReport> {
+    blocking(app, |_, state| {
+        // Verifying hashes every file; do it on a separate read-only
+        // connection so the rest of the app keeps working meanwhile.
+        let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
+        Store::open_reader(&root).map_err(err)?.audit().map_err(err)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn wipe_library(app: AppHandle) -> CmdResult<()> {
+    blocking(app, |app, state| {
+        with_store(&state, |s| s.wipe().map_err(err))?;
+        // Forget what discovery saw so the next sync re-imports everything.
+        if let Ok(mut c) = state.discovery.lock() {
+            c.clear();
+        }
+        notify(app);
+        Ok(())
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -522,20 +631,23 @@ pub struct BrowserStatus {
 }
 
 #[tauri::command]
-pub fn browser_status(state: State<AppState>) -> CmdResult<BrowserStatus> {
-    let settings = with_store(&state, |s| s.settings().map_err(err))?;
-    let host = crate::browser::host_binary();
-    Ok(BrowserStatus {
-        extension_id: crate::browser::EXTENSION_ID.into(),
-        extension_dir: crate::browser::extension_dir().map(|p| p.display().to_string()),
-        firefox_extension_dir: crate::browser::firefox_extension_dir().map(|p| p.display().to_string()),
-        host_binary_exists: host.as_ref().is_some_and(|h| h.is_file()),
-        host_binary: host.map(|h| h.display().to_string()),
-        browsers: crate::browser::targets(),
-        last_seen: settings.get("browser.lastSeen").and_then(|v| v.as_str()).map(str::to_string),
-        extension_version: settings.get("browser.extensionVersion").and_then(|v| v.as_str()).map(str::to_string),
-        adapters: settings.into_iter().filter_map(|(k, v)| k.strip_prefix("adapter.").map(|p| (p.to_string(), v))).collect(),
+pub async fn browser_status(app: AppHandle) -> CmdResult<BrowserStatus> {
+    blocking(app, move |_, state| {
+        let settings = with_store(&state, |s| s.settings().map_err(err))?;
+        let host = crate::browser::host_binary();
+        Ok(BrowserStatus {
+            extension_id: crate::browser::EXTENSION_ID.into(),
+            extension_dir: crate::browser::extension_dir().map(|p| p.display().to_string()),
+            firefox_extension_dir: crate::browser::firefox_extension_dir().map(|p| p.display().to_string()),
+            host_binary_exists: host.as_ref().is_some_and(|h| h.is_file()),
+            host_binary: host.map(|h| h.display().to_string()),
+            browsers: crate::browser::targets(),
+            last_seen: settings.get("browser.lastSeen").and_then(|v| v.as_str()).map(str::to_string),
+            extension_version: settings.get("browser.extensionVersion").and_then(|v| v.as_str()).map(str::to_string),
+            adapters: settings.into_iter().filter_map(|(k, v)| k.strip_prefix("adapter.").map(|p| (p.to_string(), v))).collect(),
+        })
     })
+    .await
 }
 
 #[tauri::command]

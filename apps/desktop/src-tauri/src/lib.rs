@@ -152,11 +152,11 @@ pub fn run() {
             app.manage(AppState {
                 store: Mutex::new(store),
                 discovery: Mutex::new(Default::default()),
-                syncing: std::sync::atomic::AtomicBool::new(false),
+                sync_lock: Mutex::new(()),
             });
 
             let sync_handle = app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&sync_handle));
+            tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&sync_handle, commands::SyncMode::Background));
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
 
@@ -196,7 +196,7 @@ pub fn run() {
             }
             ("main" | "quick", WindowEvent::Focused(true)) => {
                 let app = window.app_handle().clone();
-                tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&app));
+                tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&app, commands::SyncMode::Background));
             }
             ("quick", WindowEvent::Focused(false)) => {
                 let _ = window.hide();

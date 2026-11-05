@@ -42,6 +42,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # tauri::generate_context! needs the frontend folder to exist at compile
+      # time; the real bundle is built by the release workflow.
+      - name: Stub desktop frontend
+        run: mkdir -p apps/desktop/dist && echo '<!doctype html>' > apps/desktop/dist/index.html
+
+      # bundle.externalBin must exist for the desktop crate to compile.
+      - name: Build browser bridge sidecar
+        run: node apps/desktop/scripts/sidecar.mjs
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
       - name: Run cargo tests
         run: cargo test --workspace
 

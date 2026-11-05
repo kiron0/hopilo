@@ -202,12 +202,20 @@ export interface BrowserStatus {
   adapters: Record<string, AdapterReport>;
 }
 
+export interface SyncResult {
+  added: number;
+  updated: number;
+  failed: number;
+  found: number;
+  busy: boolean;
+}
+
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   showMainWindow: (route?: string) => invoke<void>("show_main_window", { route }),
   quit: () => invoke<void>("quit_app"),
 
-  syncSessions: () => invoke<{ added: number; updated: number; failed: number }>("sync_sessions"),
+  syncSessions: () => invoke<SyncResult>("sync_sessions"),
   listSessions: () => invoke<SessionRow[]>("list_sessions"),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   updateSession: (id: string, patch: { title?: string; pinned?: boolean; tags?: string[] }) => invoke<void>("update_session", { id, patch }),

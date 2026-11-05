@@ -52,7 +52,7 @@ export function installMockIpc() {
       case "stats":
         return { sourceCount: SESSIONS.length, pinnedCount: 1, attachmentCount: 3, providerCount: 6, capturesToday: 1, handoffsTotal: 8, handoffsToday: 2, lastCaptureAt: ago(2), lastHandoff: null, storageBytes: 3_400_000 };
       case "sync_sessions":
-        return { added: 0, updated: 0, failed: 0 };
+        return { added: 0, updated: 0, failed: 0, found: SESSIONS.length, busy: false };
       case "list_sessions":
         return SESSIONS;
       case "get_session":

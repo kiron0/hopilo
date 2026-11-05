@@ -367,3 +367,44 @@ fn renamed_session_keeps_its_title_when_the_agent_file_changes() {
     assert_eq!(db.get_source(&id).unwrap().0.title, "My name");
     assert_eq!(db.search("name", 5).unwrap().iter().filter(|h| h.ref_id == id).count(), 1);
 }
+
+#[test]
+fn unchanged_session_picks_up_a_better_title() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (mut s, m) = capture("/t.jsonl", "same words");
+    s.title = "New session - 2026".into();
+    let id = db.upsert_session(&s, &m, Some("2030-01-01T00:00:00Z")).unwrap().source_id;
+    let (mut s2, m2) = capture("/t.jsonl", "same words");
+    s2.title = "Real title".into();
+    assert!(db.upsert_session(&s2, &m2, Some("2030-01-01T00:00:00Z")).unwrap().duplicate_of.is_some());
+    assert_eq!(db.session_row(&id).unwrap().title, "Real title");
+
+    db.update_session(&id, &SessionPatch { title: Some("Mine".into()), ..Default::default() }).unwrap();
+    let (s3, m3) = capture("/t.jsonl", "same words");
+    db.upsert_session(&s3, &m3, None).unwrap();
+    assert_eq!(db.session_row(&id).unwrap().title, "Mine");
+}
+
+#[test]
+fn only_the_newest_migration_backup_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    for n in ["hopilo.db.before-v3", "hopilo.db.before-v4", "hopilo.db"] {
+        std::fs::write(dir.path().join(n), b"x").unwrap();
+    }
+    prune_backups(dir.path(), 4);
+    assert!(!dir.path().join("hopilo.db.before-v3").exists());
+    assert!(dir.path().join("hopilo.db.before-v4").exists());
+    assert!(dir.path().join("hopilo.db").exists());
+}
+
+#[test]
+fn reader_connection_audits_without_the_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/a.jsonl", "hello");
+    db.insert_capture(&s, &m).unwrap();
+    let reader = Store::open_reader(dir.path()).unwrap();
+    assert_eq!(reader.audit().unwrap().database, "ok");
+    assert!(reader.list_sessions().unwrap().len() == 1);
+}

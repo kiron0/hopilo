@@ -83,6 +83,7 @@ export function Settings() {
   const stats = useLoad(() => api.stats());
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [confirmErase, setConfirmErase] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateCheckResult>({
     status: "idle",
     currentVersion: "0.1.0",
@@ -257,7 +258,7 @@ export function Settings() {
         </Group>
 
         <Group id="privacy" title="Privacy" description="What Hopilo can see and send.">
-          <Row label="Network" hint="No accounts, analytics, telemetry, AI calls or update checks.">
+          <Row label="Network" hint="No accounts, analytics, telemetry or AI calls. Only Check for Updates contacts GitHub, when you click it.">
             <span className="text-[12.5px] text-success">{`Nothing leaves your ${deviceNoun}`}</span>
           </Row>
           <Row label="Clipboard" hint="Read only when you choose Clipboard in Add.">
@@ -280,18 +281,27 @@ export function Settings() {
           <Row label="Verify library" hint="Re-checks every stored file against its fingerprint.">
             <Button
               size="sm"
+              disabled={verifying}
+              icon={verifying ? <Loader2 size={13} className="animate-spin" /> : undefined}
               onClick={async () => {
-                const r = await api.auditLibrary();
-                const problems = [...r.versionProblems, ...r.attachmentProblems];
-                toast({
-                  kind: problems.length || r.database !== "ok" ? "warning" : "success",
-                  text: problems.length || r.database !== "ok"
-                    ? `Found ${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${r.database !== "ok" ? `; database: ${r.database}` : ""}`
-                    : `All good: ${r.attachmentsChecked} files match their fingerprints.`,
-                });
+                setVerifying(true);
+                try {
+                  const r = await api.auditLibrary();
+                  const problems = [...r.versionProblems, ...r.attachmentProblems];
+                  toast({
+                    kind: problems.length || r.database !== "ok" ? "warning" : "success",
+                    text: problems.length || r.database !== "ok"
+                      ? `Found ${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${r.database !== "ok" ? `; database: ${r.database}` : ""}`
+                      : `All good: database intact, ${r.attachmentsChecked} files match their fingerprints.`,
+                  });
+                } catch (e) {
+                  toast({ kind: "error", text: `Could not verify the library: ${errorText(e)}` });
+                } finally {
+                  setVerifying(false);
+                }
               }}
             >
-              Verify
+              {verifying ? "Verifying…" : "Verify"}
             </Button>
           </Row>
           <Row label="Erase library" hint="Deletes every session, file and log in Hopilo. Coding-agent sessions come back from their files on the next check.">

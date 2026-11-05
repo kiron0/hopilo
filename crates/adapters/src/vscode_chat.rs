@@ -10,7 +10,7 @@ use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCou
 use serde_json::Value;
 
 use crate::text::title_from;
-use crate::{file_meta, home, memo_scan, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
+use crate::{file_meta, home, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
 
 pub struct VsCodeChat;
 
@@ -72,7 +72,7 @@ impl LocalAgentAdapter for VsCodeChat {
         let mut seen = std::collections::HashSet::new();
         files.retain(|p| seen.insert(session_stem(p)));
 
-        Ok(files.iter().filter_map(|p| memo_scan(p, quick_scan)).collect())
+        Ok(crate::par_scan(&files, quick_scan))
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {

@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, memo_scan, open_lines, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, open_lines, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -67,7 +67,7 @@ impl LocalAgentAdapter for Antigravity {
             return Ok(vec![]);
         };
 
-        let mut out = Vec::new();
+        let mut transcripts = Vec::new();
         for entry in rd.flatten() {
             let path = entry.path();
             if !path.is_dir() {
@@ -82,13 +82,14 @@ impl LocalAgentAdapter for Antigravity {
             let candidate4 = path.join(".system_generated").join("logs").join("overview.txt");
             let transcript = [candidate1, candidate2, candidate3, candidate4].into_iter().find(|c| c.is_file());
 
-            if let Some(t) = transcript {
-                if let Some(s) = memo_scan(&t, |t| quick_scan(t, &path)) {
-                    out.push(s);
-                }
-            }
+            transcripts.extend(transcript);
         }
 
+        // The session folder is the brain entry the transcript sits under.
+        let mut out = crate::par_scan(&transcripts, |t| {
+            let dir = t.ancestors().find(|a| a.parent() == Some(target.as_path()))?;
+            quick_scan(t, dir)
+        });
         out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
         Ok(out)
     }

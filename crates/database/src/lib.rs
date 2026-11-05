@@ -258,6 +258,19 @@ fn fts_query(q: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" "))
 }
 
+/// Each pre-migration backup is a full copy of the library. Once a newer
+/// migration has succeeded, only its own backup is worth keeping.
+fn prune_backups(root: &Path, keep: i64) {
+    let keep_name = format!("hopilo.db.before-v{keep}");
+    let Ok(rd) = std::fs::read_dir(root) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.starts_with("hopilo.db.before-v") && name != keep_name {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
 impl Store {
     pub fn open(root: &Path) -> Result<Self> {
         std::fs::create_dir_all(root.join("attachments"))?;
@@ -278,7 +291,22 @@ impl Store {
         if current > 0 && current < 3 {
             store.upgrade_to_sessions()?;
         }
+        if current > 0 && (current as usize) < migrations::latest() {
+            prune_backups(root, current + 1);
+        }
         Ok(store)
+    }
+
+    /// A second, read-only handle on an existing library. Long read-only jobs
+    /// (verify) run on it so they don't hold the app's write connection.
+    pub fn open_reader(root: &Path) -> Result<Self> {
+        use rusqlite::OpenFlags;
+        let conn = Connection::open_with_flags(
+            root.join("hopilo.db"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        Ok(Self { conn, root: root.to_path_buf() })
     }
 
     pub fn root(&self) -> &Path {
@@ -663,7 +691,11 @@ impl Store {
     }
 
     pub fn audit(&self) -> Result<AuditReport> {
-        let mut report = AuditReport { database: self.integrity_check()?, ..Default::default() };
+        // quick_check verifies page and record structure in one pass; the full
+        // integrity_check also cross-checks every index and took ~20s on a
+        // 1 GB library while holding the library lock.
+        let database: String = self.conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
+        let mut report = AuditReport { database, ..Default::default() };
         let mut stmt = self.conn.prepare("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))?;
         for row in rows {

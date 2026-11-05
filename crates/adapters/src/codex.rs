@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, jsonl_files, memo_scan, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, jsonl_files, omitted, par_scan, open_lines, session_stem, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -37,9 +37,8 @@ impl LocalAgentAdapter for Codex {
         jsonl_files(root, 4, &mut files);
         files.retain(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("rollout-")));
         let names = root.parent().map(thread_names).unwrap_or_default();
-        Ok(files
-            .iter()
-            .filter_map(|p| memo_scan(p, quick_scan))
+        Ok(par_scan(&files, quick_scan)
+            .into_iter()
             .map(|mut s| {
                 if let Some(name) = names.get(thread_id(&s.session_id)) {
                     s.title = name.clone();

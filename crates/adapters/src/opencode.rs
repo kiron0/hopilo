@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
+
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -49,6 +50,10 @@ impl LocalAgentAdapter for OpenCode {
             .unwrap_or_default()
     }
 
+    fn scan_depth(&self) -> usize {
+        0
+    }
+
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
         let db = root.join(DB_NAME);
         if !db.is_file() {
@@ -56,57 +61,110 @@ impl LocalAgentAdapter for OpenCode {
         }
         let size = std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
         let conn = open_ro(&db)?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
-                        (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id)
-                 FROM session s WHERE s.parent_id IS NULL AND s.time_archived IS NULL
-                 ORDER BY s.time_updated DESC",
-            )
-            .map_err(sql_err(&db))?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, Option<String>>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                    r.get::<_, Option<i64>>(4)?,
-                    r.get::<_, i64>(5)?,
-                ))
-            })
-            .map_err(sql_err(&db))?;
         let mut out = Vec::new();
-        for row in rows.flatten() {
-            let (id, title, dir, model, updated, count) = row;
-            if count == 0 {
+        for (id, row) in list_sessions(&conn, &db)? {
+            if row.count == 0 {
                 continue;
             }
             out.push(DiscoveredSession {
                 adapter: "opencode".into(),
                 path: format!("{}#{id}", db.display()),
-                title: title.filter(|t| !t.trim().is_empty()).unwrap_or_else(|| format!("OpenCode session {id}")),
+                title: real_title(row.title).unwrap_or_else(|| format!("OpenCode session {id}")),
                 session_id: id,
-                project: dir,
-                model: model.and_then(|m| model_name(&m)),
-                modified_at: updated.map(millis_to_rfc3339).unwrap_or_default(),
-
+                project: row.dir,
+                model: row.model.and_then(|m| model_name(&m)),
+                modified_at: row.updated.map(millis_to_rfc3339).unwrap_or_default(),
                 size_bytes: size,
-                message_count: count as usize,
+                message_count: row.count as usize,
             });
         }
+        out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
         Ok(out)
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
         let (db, session_id) = split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
-        read_session(&db, &session_id, path)
+        let conn = open_ro(&db)?;
+        let rows = list_sessions(&conn, &db)?;
+        match rows.get(&session_id) {
+            Some(r) if r.store == Store::V2 => read_session_v2(&conn, &db, &session_id, path, r),
+            _ => read_session(&db, &session_id, path),
+        }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Store {
+    /// `session` + `message` + `part` (OpenCode 1.x).
+    V1,
+    /// `session_v2` + `session_message` (newer builds; sessions migrate over).
+    V2,
+}
+
+#[derive(Debug)]
+struct SessionRow {
+    title: Option<String>,
+    dir: Option<String>,
+    model: Option<String>,
+    updated: Option<i64>,
+    count: i64,
+    store: Store,
+}
+
+fn has_table(conn: &Connection, name: &str) -> bool {
+    conn.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| Ok(())).is_ok()
+}
+
+/// Top-level, unarchived sessions from both stores. While OpenCode migrates,
+/// a session can be in either or both; the most recently updated copy wins
+/// (the old store on a tie, since it keeps per-part detail).
+fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashMap<String, SessionRow>> {
+    let mut map: std::collections::HashMap<String, SessionRow> = std::collections::HashMap::new();
+    let queries = [
+        (Store::V1, "session", "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
+                (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id)
+             FROM session s WHERE s.parent_id IS NULL AND s.time_archived IS NULL"),
+        (Store::V2, "session_v2", "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
+                (SELECT COUNT(*) FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user', 'assistant'))
+             FROM session_v2 s WHERE s.parent_id IS NULL AND s.time_archived IS NULL"),
+    ];
+    for (store, table, sql) in queries {
+        if !has_table(conn, table) {
+            continue;
+        }
+        let mut stmt = conn.prepare(sql).map_err(sql_err(db))?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    SessionRow { title: r.get(1)?, dir: r.get(2)?, model: r.get(3)?, updated: r.get(4)?, count: r.get(5)?, store },
+                ))
+            })
+            .map_err(sql_err(db))?;
+        for (id, row) in rows.flatten() {
+            if row.count == 0 {
+                continue;
+            }
+            let replace = match map.get(&id) {
+                None => true,
+                Some(prev) => row.updated.unwrap_or(0) > prev.updated.unwrap_or(0),
+            };
+            if replace {
+                map.insert(id, row);
+            }
+        }
+    }
+    Ok(map)
+}
+
+/// OpenCode names a session "New session - <timestamp>" until it titles it.
+fn real_title(t: Option<String>) -> Option<String> {
+    t.filter(|t| !t.trim().is_empty() && !t.starts_with("New session - ") && !t.starts_with("Child session - "))
 }
 
 fn model_name(raw: &str) -> Option<String> {
     match serde_json::from_str::<Value>(raw) {
-        Ok(v) => v.get("modelID").and_then(Value::as_str).map(str::to_string),
+        Ok(v) => v.get("modelID").or_else(|| v.get("id")).and_then(Value::as_str).map(str::to_string),
         Err(_) => Some(raw.to_string()).filter(|s| !s.is_empty()),
     }
 }
@@ -249,7 +307,7 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
             source_id,
             kind: SourceKind::LocalAgent,
             provider: "opencode".into(),
-            title: title.filter(|t| !t.trim().is_empty()).or(first_prompt).unwrap_or_else(|| format!("OpenCode session {session_id}")),
+            title: real_title(title).or(first_prompt).unwrap_or_else(|| format!("OpenCode session {session_id}")),
             origin: Some(locator.display().to_string()),
             project: dir,
             model,
@@ -260,6 +318,134 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
         },
         messages,
         files: recovered,
+    })
+}
+
+fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Path, row: &SessionRow) -> Result<Capture> {
+    let mut stmt = conn
+        .prepare("SELECT id, type, time_created, data FROM session_message WHERE session_id = ?1 ORDER BY seq, time_created, id")
+        .map_err(sql_err(db))?;
+    let rows: Vec<(String, String, Option<i64>, String)> = stmt
+        .query_map([session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(sql_err(db))?
+        .flatten()
+        .collect();
+
+    let source_id = new_id();
+    let mut messages = Vec::new();
+    let (mut reasoning, mut files, mut compactions, mut unreadable, mut synthetic, mut system) = (0, 0, 0, 0, 0, 0);
+    let mut model = row.model.as_deref().and_then(model_name);
+    let mut first_prompt = None;
+
+    for (mid, kind, created, data) in rows {
+        let Ok(v) = serde_json::from_str::<Value>(&data) else {
+            unreadable += 1;
+            continue;
+        };
+        let created_at = created.map(millis_to_rfc3339);
+        match kind.as_str() {
+            "user" => {
+                let mut blocks = Vec::new();
+                if let Some(t) = v.get("text").and_then(Value::as_str).filter(|t| !t.trim().is_empty()) {
+                    blocks.push(Block::text(t.trim_end()));
+                    if first_prompt.is_none() {
+                        first_prompt = Some(title_from(t)).filter(|t| !t.is_empty());
+                    }
+                }
+                for f in v.get("files").and_then(Value::as_array).into_iter().flatten() {
+                    let name = f.get("filename").or_else(|| f.get("name")).and_then(Value::as_str).unwrap_or("file");
+                    files += 1;
+                    blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                }
+                if !blocks.is_empty() {
+                    messages.push(Message { id: mid, source_id: source_id.clone(), role: Role::User, created_at, blocks });
+                }
+            }
+            "assistant" => {
+                if model.is_none() {
+                    model = v.pointer("/model/id").and_then(Value::as_str).map(str::to_string);
+                }
+                let mut blocks = Vec::new();
+                let mut results = Vec::new();
+                for part in v.get("content").and_then(Value::as_array).into_iter().flatten() {
+                    match part.get("type").and_then(Value::as_str).unwrap_or("") {
+                        "text" => {
+                            if let Some(t) = part.get("text").and_then(Value::as_str).filter(|t| !t.trim().is_empty()) {
+                                blocks.push(Block::text(t.trim_end()));
+                            }
+                        }
+                        "reasoning" => reasoning += 1,
+                        "tool" => {
+                            let name = part.get("name").or_else(|| part.get("tool")).and_then(Value::as_str).unwrap_or("tool").to_string();
+                            let state = part.get("state").cloned().unwrap_or(Value::Null);
+                            let input = state.get("input").map(|i| serde_json::to_string_pretty(i).unwrap_or_default()).unwrap_or_default();
+                            blocks.push(Block::ToolCall { name: name.clone(), input });
+                            let status = state.get("status").and_then(Value::as_str).unwrap_or("");
+                            let output = match state.get("content") {
+                                Some(Value::Array(items)) => items
+                                    .iter()
+                                    .filter_map(|i| i.get("text").and_then(Value::as_str))
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                _ => state
+                                    .get("output")
+                                    .and_then(Value::as_str)
+                                    .or_else(|| state.get("error").and_then(Value::as_str))
+                                    .unwrap_or("")
+                                    .to_string(),
+                            };
+                            if !output.is_empty() || status == "error" {
+                                results.push(Block::ToolResult { name: Some(name), output, is_error: status == "error" });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if !blocks.is_empty() {
+                    messages.push(Message { id: mid.clone(), source_id: source_id.clone(), role: Role::Assistant, created_at: created_at.clone(), blocks });
+                }
+                if !results.is_empty() {
+                    messages.push(Message { id: format!("{mid}-results"), source_id: source_id.clone(), role: Role::Tool, created_at, blocks: results });
+                }
+            }
+            "compaction" => compactions += 1,
+            "synthetic" => synthetic += 1,
+            "system" => system += 1,
+            _ => {}
+        }
+    }
+
+    let mut missing = Vec::new();
+    if compactions > 0 {
+        missing.push(format!("{compactions} compaction(s): earlier history was summarized by OpenCode"));
+    }
+    if files > 0 {
+        missing.push(format!("{files} attached file(s) referenced but not recovered"));
+    }
+    if unreadable > 0 {
+        missing.push(format!("{unreadable} unreadable record(s)"));
+    }
+    let mut om: Vec<OmittedCount> = Vec::new();
+    omitted(&mut om, "hidden reasoning parts", reasoning);
+    omitted(&mut om, "automatic continue prompts", synthetic);
+    omitted(&mut om, "system notices", system);
+
+    Ok(Capture {
+        source: Source {
+            source_id,
+            kind: SourceKind::LocalAgent,
+            provider: "opencode".into(),
+            title: real_title(row.title.clone()).or(first_prompt).unwrap_or_else(|| format!("OpenCode session {session_id}")),
+            origin: Some(locator.display().to_string()),
+            project: row.dir.clone(),
+            model,
+            captured_at: now_rfc3339(),
+            capture_status: if missing.is_empty() { CaptureStatus::Complete } else { CaptureStatus::Partial },
+            missing_items: missing,
+            omitted: om,
+        },
+        messages,
+        files: vec![],
     })
 }
 
@@ -314,5 +500,37 @@ mod tests {
         assert!(cap.source.omitted.iter().any(|o| o.count == 1));
 
         assert_eq!(std::fs::read(&db).unwrap(), before);
+    }
+
+    #[test]
+    fn reads_sessions_that_only_exist_in_the_v2_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = sample_db(dir.path());
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch(
+            r#"
+            CREATE TABLE session_v2 (id TEXT, parent_id TEXT, title TEXT, directory TEXT, model TEXT,
+                time_created INTEGER, time_updated INTEGER, time_archived INTEGER);
+            CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);
+            INSERT INTO session_v2 VALUES ('ses_2', NULL, 'New session - 2026-11-05T06:41:06.253Z', '/work/app', '{"id":"mimo","providerID":"opencode"}', 1, 1793861149822, NULL);
+            INSERT INTO session_message VALUES ('a', 'ses_2', 'user', 1, 10, 10, '{"text":"Sweep the workspace for bugs","files":[]}');
+            INSERT INTO session_message VALUES ('b', 'ses_2', 'synthetic', 2, 11, 11, '{"text":"Continue"}');
+            INSERT INTO session_message VALUES ('c', 'ses_2', 'assistant', 3, 12, 12, '{"model":{"id":"mimo"},"content":[{"type":"reasoning","text":"x"},{"type":"tool","id":"t","name":"bash","state":{"status":"completed","input":{"command":"ls"},"content":[{"type":"text","text":"a.rs"}]}},{"type":"text","text":"Found it."}]}');
+            "#,
+        )
+        .unwrap();
+        drop(c);
+
+        let found = OpenCode.discover(dir.path()).unwrap();
+        assert_eq!(found.len(), 2);
+        let v2 = found.iter().find(|s| s.session_id == "ses_2").unwrap();
+        assert_eq!(v2.message_count, 2);
+        assert_eq!(v2.model.as_deref(), Some("mimo"));
+        let cap = OpenCode.read(Path::new(&v2.path)).unwrap();
+        assert_eq!(cap.source.title, "Sweep the workspace for bugs");
+        let roles: Vec<Role> = cap.messages.iter().map(|m| m.role).collect();
+        assert_eq!(roles, vec![Role::User, Role::Assistant, Role::Tool]);
+        assert_eq!(cap.messages[2].blocks[0].plain_text(), "a.rs");
+        assert_eq!(cap.messages[1].blocks.last().unwrap().plain_text(), "Found it.");
     }
 }

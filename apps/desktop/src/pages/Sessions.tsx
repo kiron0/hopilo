@@ -111,8 +111,9 @@ function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onC
 }
 
 function SessionList() {
-  const { data, error, loading } = useLoad(() => api.listSessions());
+  const { data, error, loading, reload } = useLoad(() => api.listSessions());
   const navigate = useApp((s) => s.navigate);
+  const toast = useApp((s) => s.toast);
   const settings = useApp((s) => s.settings);
 
   const { q, filter, page, selected: picked } = useApp((s) => s.listView);
@@ -135,14 +136,29 @@ function SessionList() {
     setPage(0);
   };
 
-  const sync = async () => {
+  const sync = async (manual: boolean) => {
+    if (syncing) return;
     lastSync = Date.now();
     setSyncing(true);
-    await api.syncSessions().catch(() => undefined);
-    setSyncing(false);
+    try {
+      const r = await api.syncSessions();
+      reload();
+      if (manual) {
+        const changed = r.added + r.updated;
+        const parts = [r.added && `${r.added} new`, r.updated && `${r.updated} updated`, r.failed && `${r.failed} unreadable`].filter(Boolean);
+        toast({
+          kind: r.failed && !changed ? "warning" : "success",
+          text: parts.length ? `Sessions synced: ${parts.join(", ")}` : `Up to date · ${plural(r.found, "session")} in agent folders`,
+        });
+      }
+    } catch (e) {
+      if (manual) toast({ kind: "error", text: `Could not check agent folders: ${errorText(e)}` });
+    } finally {
+      setSyncing(false);
+    }
   };
   useEffect(() => {
-    if (Date.now() - lastSync > SYNC_EVERY_MS) sync();
+    if (Date.now() - lastSync > SYNC_EVERY_MS) sync(false);
   }, []);
 
   const rows = useMemo(() => {
@@ -183,7 +199,7 @@ function SessionList() {
       <PageToolbar>
         <SearchField label="Filter sessions" placeholder="Search by title, project, tool or tag" value={q} onChange={setQ} className="flex-1" />
         <Segmented label="Show" value={filter} onChange={setFilter} options={FILTERS} />
-        <IconButton label="Check agent folders for new sessions" onClick={sync} className="h-9 w-9 rounded-full border border-line bg-card shadow-item">
+        <IconButton label="Check agent folders for new sessions" onClick={() => sync(true)} disabled={syncing} className="h-9 w-9 rounded-full border border-line bg-card shadow-item">
           <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
         </IconButton>
       </PageToolbar>

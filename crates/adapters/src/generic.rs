@@ -10,7 +10,7 @@ use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCou
 use serde_json::Value;
 
 use crate::text::{strip_injected, title_from};
-use crate::{file_meta, home, is_jsonl, memo_scan, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
+use crate::{file_meta, home, is_jsonl, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
 
 pub struct ChatLogAgent {
     pub id: &'static str,
@@ -70,10 +70,8 @@ impl LocalAgentAdapter for ChatLogAgent {
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
         let mut files = Vec::new();
         dir_files(root, self.depth, self.accept, &mut files);
-        Ok(files
-            .iter()
-            .filter_map(|p| {
-                memo_scan(p, |p| {
+        Ok(crate::par_scan(&files, |p| {
+                {
                     let cap = read_log(self, p).ok()?;
                     let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
                     if count == 0 {
@@ -91,9 +89,8 @@ impl LocalAgentAdapter for ChatLogAgent {
                         size_bytes,
                         message_count: count,
                     })
-                })
-            })
-            .collect())
+                }
+            }))
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {

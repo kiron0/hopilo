@@ -160,6 +160,26 @@ fn memo() -> &'static Memo {
     MEMO.get_or_init(Default::default)
 }
 
+/// `memo_scan` over many files on all cores. Cold discovery parses every
+/// transcript once; doing that serially took seconds on large histories.
+pub(crate) fn par_scan<F>(files: &[PathBuf], scan: F) -> Vec<DiscoveredSession>
+where
+    F: Fn(&Path) -> Option<DiscoveredSession> + Sync,
+{
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+    if files.len() < 16 || threads < 2 {
+        return files.iter().filter_map(|p| memo_scan(p, &scan)).collect();
+    }
+    let chunk = files.len().div_ceil(threads);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = files
+            .chunks(chunk)
+            .map(|part| s.spawn(|| part.iter().filter_map(|p| memo_scan(p, &scan)).collect::<Vec<_>>()))
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+    })
+}
+
 /// Runs `scan` for a session file only when its size or mtime changed since the
 /// last call. Discovery runs on every window focus, and re-parsing hundreds of
 /// multi-megabyte transcripts because one of them grew was the main cost.

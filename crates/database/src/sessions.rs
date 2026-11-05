@@ -105,7 +105,18 @@ impl Store {
         let updated = updated_at.map(str::to_string).unwrap_or_else(|| source.captured_at.clone());
         if let Some((id, old_hash, hidden, _)) = &existing {
             if *old_hash == hash && !hidden {
-                self.conn.execute("UPDATE sources SET updated_at = MAX(COALESCE(updated_at, ''), ?2) WHERE id = ?1", params![id, updated])?;
+                // Content is the same, but the reader may now find a better
+                // title (e.g. the agent named the session since last sync).
+                let tx = self.conn.transaction()?;
+                tx.execute("UPDATE sources SET updated_at = MAX(COALESCE(updated_at, ''), ?2) WHERE id = ?1", params![id, updated])?;
+                let retitled = tx.execute(
+                    "UPDATE sources SET title = ?2 WHERE id = ?1 AND title_edited = 0 AND title <> ?2",
+                    params![id, source.title],
+                )?;
+                if retitled > 0 {
+                    tx.execute("UPDATE search_index SET title = ?2 WHERE kind = 'source' AND ref_id = ?1", params![id, source.title])?;
+                }
+                tx.commit()?;
                 return Ok(ImportOutcome { source_id: id.clone(), duplicate_of: Some(id.clone()) });
             }
         }

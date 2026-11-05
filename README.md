@@ -1,42 +1,67 @@
-# Hopilo
+<p align="center">
+  <img src="assets/hopilo-icon-1024.png" width="96" height="96" alt="Hopilo icon" />
+</p>
 
-Every AI session in one app. Hopilo keeps your conversations from coding agents and chat apps, with the files shared in them, and copies any of them, ready to paste into another AI.
+<h1 align="center">Hopilo</h1>
 
-Local-first: no accounts, no network, no AI inside the app, and it never sends a message for you.
+<p align="center">
+  Every AI session in one place, with its files. Copy any of them, ready to paste into another AI.
+</p>
 
-## Use
+<p align="center">
+  <a href="https://github.com/kiron0/hopilo/actions/workflows/ci.yml"><img src="https://github.com/kiron0/hopilo/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-black?logo=tauri" alt="macOS, Windows, Linux" />
+  <img src="https://img.shields.io/badge/Rust-stable-orange?logo=rust" alt="Rust" />
+  <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri" alt="Tauri 2" />
+</p>
 
-- **Sessions**: Claude Code, Codex CLI (including archived and compressed rollouts), Gemini CLI, Qwen Code, Antigravity (app, IDE and CLI), Cursor (editor and `cursor-agent`), VS Code Copilot Chat, GitHub Copilot CLI, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Kimi CLI, Goose, OpenCode and Zed sessions appear on their own and stay in step with their files (read-only). Web chats come in through the extension; pasted text, ChatGPT/Claude data exports, files and `.handoff` archives through **Add**.
-- **Copy**: one click puts a session on the clipboard for the AI you continue in. Pick Full, Balanced or Minimal (fixed rules, no summarizing model). Select several sessions to copy them together, or export `.md`, `.json`, `.txt` or `.handoff` (with files).
-- **Menu bar**: tap a recent session to copy it. Right-click › *Copy latest session* does it without opening anything.
-- **Browser extension**: save ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) with their files, and insert a session into the chat box as an unsent draft.
+<p align="center">
+  <a href="https://github.com/kiron0/hopilo/releases/latest">
+    <img src="https://img.shields.io/github/v/release/kiron0/hopilo?label=Download%20Hopilo&style=for-the-badge&color=6D5BF5&labelColor=1a1a1a" alt="Download Hopilo" height="38" />
+  </a>
+</p>
 
-## Develop
+---
 
-Rust (stable), Node 22+, pnpm 10.
+<p align="center">
+  <img src="docs/screenshots/overview.jpg" width="100%" alt="Hopilo overview: 1,227 sessions from Codex, Antigravity, VS Code Copilot, Claude Code, OpenCode and Zed" />
+</p>
 
-```bash
-pnpm install
-pnpm dev          # desktop app (Tauri + Vite)
-pnpm test         # Rust + frontend tests
-pnpm typecheck
-```
+## Features
 
-Extension: `pnpm --filter @hopilo/extension build`, load `apps/extension/dist` unpacked in Chrome, then Hopilo › Browser › Connect.
+- Finds sessions from Claude Code, Codex CLI, Gemini CLI, Qwen Code, Antigravity, Cursor and Cursor CLI, VS Code Copilot Chat, Copilot CLI, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Kimi CLI, Goose, OpenCode and Zed, and keeps them in step with their files.
+- Copies any session as one handoff message for the AI you continue in: Full, Balanced or Minimal, by fixed rules, with no summarizing model.
+- Combines several sessions into one copy, or exports `.md`, `.txt`, `.json` or `.handoff` (with files and checksums).
+- Saves ChatGPT, Claude and Gemini web chats with the browser extension (DeepSeek, Grok and Perplexity experimentally) and inserts a session into a chat box as an unsent draft.
+- Imports pasted text, ChatGPT and Claude data exports, Aider history, files and `.handoff` archives.
+- Warns about keys, tokens and emails before you paste anything.
+- Lives in the menu bar: tap a recent session to copy it, or **Copy latest session** without opening anything.
+- Local-first: agent folders are only read, the library is a SQLite file on your machine, and nothing is uploaded or sent for you. The only network request is **Check for Updates**, when you click it.
 
-Icons: edit the SVGs in `assets/logo/`, run `python3 assets/make_icons.py` (needs `cargo install resvg`), then `pnpm --dir apps/desktop tauri icon assets/hopilo-icon-1024.png`.
+## How it works
 
-## Layout
+Session sources and their paths, sync, the library, exports, the browser bridge, and how to build and release live in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
 
-```text
-crates/core          types, rendering, secret scan
-crates/adapters      session readers and chat-export parsers
-crates/pack-format   exports and .handoff archives
-crates/database      SQLite library (sessions, files, copy history)
-crates/native-host   browser bridge
-apps/desktop         Tauri shell (src-tauri) + React UI (src)
-apps/extension       Chromium MV3 extension
-assets/              logo sources and icon renderer
-```
+## Install
 
-Full spec: [Hopilo_Product_Specification.md](Hopilo_Product_Specification.md).
+Get the latest build from [Releases](https://github.com/kiron0/hopilo/releases/latest).
+
+**macOS**
+
+1. Open the `.dmg` and drag **Hopilo** into Applications.
+2. Open Hopilo. If macOS says it can't verify the app, go to **System Settings › Privacy & Security** and click **Open Anyway**.
+3. Hopilo starts in the menu bar. Click its icon, or set **Settings › On launch, show** to **Overview** to open the window at launch.
+
+**Windows**: run the `.msi` or `.exe` installer. If SmartScreen appears, choose **More info › Run anyway**.
+
+**Linux**: install the `.deb`, or mark the `.AppImage` executable and run it.
+
+**Browser extension** (optional): unzip `hopilo-extension-chrome-<version>.zip` from the same release, open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the folder. Then in Hopilo open **Browser › Connect**. Firefox: load `hopilo-extension-firefox-<version>.zip` from `about:debugging`.
+
+More in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#build-and-release).
+
+Support development: [Buy me a coffee](https://buymeacoffee.com/_thk).
+
+## License
+
+© [Toufiq Hasan Kiron](https://github.com/kiron0). All rights reserved.

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "cargo build -q -p hopilo-native-host && vite",
+    "dev": "vite",
     "build": "tsc -p . && vite build",
     "typecheck": "tsc -p .",
     "test": "vitest run",

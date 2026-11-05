@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::commands::{err, notify, with_store, write_atomic, AppState, CmdResult};
+use crate::commands::{blocking, err, notify, with_store, write_atomic, AppState, CmdResult};
 
 #[derive(Deserialize, Clone, Copy, Default)]
 #[serde(rename_all = "camelCase")]
@@ -93,11 +93,9 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
     let d = defaults(&state);
     let target = opts.target.filter(|t| !t.is_empty()).unwrap_or(d.target);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
-    let (pack, text) = with_store(&state, |s| {
-        let pack = s.compose(ids).map_err(err)?;
-        let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_handoff_prompt(&pack, &ropts) };
-        Ok((pack, text))
-    })?;
+    // Render outside the library lock; only composing needs it.
+    let pack = with_store(&state, |s| s.compose(ids).map_err(err))?;
+    let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_handoff_prompt(&pack, &ropts) };
     app.clipboard().write_text(text.clone()).map_err(|e| format!("Couldn't write to the clipboard: {e}"))?;
     let (rec_target, method) = if opts.markdown { ("other", "clipboard-markdown") } else { (target.as_str(), "clipboard") };
     with_store(&state, |s| s.record_copy(ids, rec_target, method, "copied").map_err(err))?;
@@ -106,32 +104,39 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
 }
 
 #[tauri::command]
-pub fn copy_sessions(app: AppHandle, ids: Vec<String>, opts: Option<CopyOptions>) -> CmdResult<CopyOutcome> {
-    copy_blocking(&app, &ids, opts.unwrap_or_default())
+pub async fn copy_sessions(app: AppHandle, ids: Vec<String>, opts: Option<CopyOptions>) -> CmdResult<CopyOutcome> {
+    blocking(app, move |app, _| copy_blocking(app, &ids, opts.unwrap_or_default())).await
 }
 
 #[tauri::command]
-pub fn suggest_export_name(state: State<AppState>, ids: Vec<String>, ext: String) -> CmdResult<String> {
-    with_store(&state, |s| {
-        let title = s.composed_title(&ids).map_err(err)?;
-        Ok(hopilo_pack_format::export_filename_for(&title, 0, &ext))
+pub async fn suggest_export_name(app: AppHandle, ids: Vec<String>, ext: String) -> CmdResult<String> {
+    blocking(app, move |_, state| {
+        with_store(&state, |s| {
+            let title = s.composed_title(&ids).map_err(err)?;
+            Ok(hopilo_pack_format::export_filename_for(&title, 0, &ext))
+        })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn export_sessions(app: AppHandle, state: State<AppState>, ids: Vec<String>, format: String, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
-    if !matches!(format.as_str(), "md" | "txt" | "json" | "handoff") {
+pub async fn export_sessions(app: AppHandle, ids: Vec<String>, format: String, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
+    blocking(app, move |app, state| export_blocking(app, &state, &ids, &format, &path, opts)).await
+}
+
+fn export_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], format: &str, path: &str, opts: Option<CopyOptions>) -> CmdResult<String> {
+    if !matches!(format, "md" | "txt" | "json" | "handoff") {
         return Err(format!("unknown export format {format}"));
     }
     let opts = opts.unwrap_or_default();
-    let d = defaults(&state);
+    let d = defaults(state);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
-    let dest = PathBuf::from(&path);
+    let dest = PathBuf::from(path);
 
     // Snapshot what we need while holding the library lock, then render and
     // write outside it so a large export never freezes the rest of the UI.
-    let (pack, blobs) = with_store(&state, |s| {
-        let pack = s.compose(&ids).map_err(err)?;
+    let (pack, blobs) = with_store(state, |s| {
+        let pack = s.compose(ids).map_err(err)?;
         let mut blobs: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
         if format == "handoff" {
             for a in &pack.attachments {
@@ -143,7 +148,7 @@ pub fn export_sessions(app: AppHandle, state: State<AppState>, ids: Vec<String>,
         Ok((pack, blobs))
     })?;
 
-    match format.as_str() {
+    match format {
         "md" => write_atomic(&dest, render_markdown(&pack, &ropts).as_bytes())?,
         "txt" => write_atomic(&dest, render_handoff_prompt(&pack, &ropts).as_bytes())?,
         "json" => write_atomic(&dest, hopilo_pack_format::to_json(&pack).map_err(err)?.as_bytes())?,
@@ -154,8 +159,8 @@ pub fn export_sessions(app: AppHandle, state: State<AppState>, ids: Vec<String>,
         }
         _ => unreachable!(),
     }
-    with_store(&state, |s| s.record_copy(&ids, "file", &format!("export-{format}"), "exported").map_err(err))?;
-    notify(&app);
+    with_store(state, |s| s.record_copy(ids, "file", &format!("export-{format}"), "exported").map_err(err))?;
+    notify(app);
     Ok(dest.display().to_string())
 }
 
@@ -168,15 +173,19 @@ pub struct ClipboardCapture {
 }
 
 #[tauri::command]
-pub fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
-    let text = app.clipboard().read_text().unwrap_or_default();
-    if text.trim().is_empty() {
-        return Err("The clipboard has no text to save.".into());
-    }
-    let chars = text.chars().count();
-    let state = app.state::<AppState>();
-    let outcome = crate::commands::import_text(app.clone(), state, text, "clipboard".into(), None, None)?;
-    Ok(ClipboardCapture { outcome, chars })
+pub async fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
+    blocking(app, move |app, _| {
+        let app = app.clone();
+        let text = app.clipboard().read_text().unwrap_or_default();
+        if text.trim().is_empty() {
+            return Err("The clipboard has no text to save.".into());
+        }
+        let chars = text.chars().count();
+        let state = app.state::<AppState>();
+        let outcome = crate::commands::import_text_inner(app.clone(), state, text, "clipboard".into(), None, None)?;
+        Ok(ClipboardCapture { outcome, chars })
+    })
+    .await
 }
 
 pub fn copy_latest_session(app: &AppHandle) {
@@ -194,7 +203,7 @@ pub fn copy_latest_session(app: &AppHandle) {
                 });
             }
         };
-        crate::commands::sync_blocking(&app);
+        crate::commands::sync_blocking(&app, crate::commands::SyncMode::Wait);
         let state = app.state::<AppState>();
         let latest = with_store(&state, |s| s.list_sessions().map_err(err)).ok().and_then(|rows| {
             let mut rows = rows;

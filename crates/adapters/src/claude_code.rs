@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::text::{strip_injected, title_from};
 use crate::{
-    file_meta, home, jsonl_files, memo_scan, omitted, open_lines, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, jsonl_files, omitted, par_scan, open_lines, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -71,7 +71,7 @@ impl LocalAgentAdapter for ClaudeCode {
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
         let mut files = Vec::new();
         jsonl_files(root, 1, &mut files);
-        Ok(files.iter().filter_map(|p| memo_scan(p, quick_scan)).collect())
+        Ok(par_scan(&files, quick_scan))
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
@@ -104,7 +104,7 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
                         model = msg.get("model").and_then(Value::as_str).map(str::to_string);
                     }
                     if want_prompt {
-                        first_prompt = first_text(&msg).map(|t| title_from(&t)).filter(|t| !t.is_empty());
+                        first_prompt = first_text(&msg).map(|t| title_from(&slash_command(&t))).filter(|t| !t.is_empty());
                     }
                 }
             }
@@ -126,6 +126,25 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
         size_bytes,
         message_count: count,
     })
+}
+
+fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let open = format!("<{name}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&format!("</{name}>"))? + start;
+    Some(text[start..end].trim())
+}
+
+/// Claude Code records a slash command as `<command-message>`,
+/// `<command-name>` and `<command-args>` tags. Show it the way it was typed.
+fn slash_command(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains("<command-name>") {
+        return text.into();
+    }
+    let Some(name) = tag(text, "command-name") else { return text.into() };
+    let args = tag(text, "command-args").unwrap_or("");
+    let name = if name.starts_with('/') { name.to_string() } else { format!("/{name}") };
+    if args.is_empty() { name.into() } else { format!("{name} {args}").into() }
 }
 
 fn first_text(msg: &Value) -> Option<String> {
@@ -231,7 +250,7 @@ fn read_session(path: &Path) -> Result<Capture> {
         let mut blocks = Vec::new();
         match msg.get("content") {
             Some(Value::String(s)) => {
-                let (clean, n) = strip_injected(s);
+                let (clean, n) = strip_injected(&slash_command(s));
                 t.reminders += n;
                 if !clean.is_empty() {
                     blocks.push(Block::text(clean));
@@ -242,7 +261,7 @@ fn read_session(path: &Path) -> Result<Capture> {
                     match b.get("type").and_then(Value::as_str).unwrap_or("") {
                         "text" => {
                             let raw = b.get("text").and_then(Value::as_str).unwrap_or("");
-                            let (clean, n) = strip_injected(raw);
+                            let (clean, n) = strip_injected(&slash_command(raw));
                             t.reminders += n;
                             if !clean.is_empty() {
                                 blocks.push(Block::text(clean));
@@ -454,5 +473,13 @@ mod tests {
         let blocks = &cap.messages[0].blocks;
         assert_eq!(blocks.iter().filter(|b| matches!(b, Block::File { .. })).count(), 2);
         assert_eq!(blocks.iter().filter(|b| matches!(b, Block::Missing { .. })).count(), 1);
+    }
+
+    #[test]
+    fn slash_commands_read_as_typed() {
+        let raw = "<command-message>caveman</command-message>\n<command-name>/caveman</command-name>\n<command-args>fix the bug</command-args>";
+        assert_eq!(slash_command(raw), "/caveman fix the bug");
+        assert_eq!(slash_command("<command-name>clear</command-name>"), "/clear");
+        assert_eq!(slash_command("plain text"), "plain text");
     }
 }

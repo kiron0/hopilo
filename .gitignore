@@ -6,3 +6,4 @@ dist/
 apps/desktop/src-tauri/gen/
 dist-firefox/
 .claude/
+apps/desktop/src-tauri/binaries/

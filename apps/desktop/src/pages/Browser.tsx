@@ -123,7 +123,11 @@ export function Browser() {
             <Button
               variant="ghost"
               onClick={async () => {
-                await api.unregisterBrowserHost(data.browsers.filter((b) => b.registered).map((b) => b.id));
+                try {
+                  await api.unregisterBrowserHost(data.browsers.filter((b) => b.registered).map((b) => b.id));
+                } catch (e) {
+                  toast({ kind: "error", text: `Could not disconnect: ${errorText(e)}` });
+                }
                 reload();
               }}
             >
