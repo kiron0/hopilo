@@ -292,6 +292,7 @@ export function Modal({
   children,
   footer,
   wide,
+  dismissible = true,
 }: {
   open?: boolean;
   title: string;
@@ -299,6 +300,7 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode | ((close: () => void) => ReactNode);
   wide?: boolean;
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [closing, setClosing] = useState(false);
@@ -319,14 +321,14 @@ export function Modal({
   }, [open]);
 
   const requestClose = useCallback(() => {
-    if (closing) return;
+    if (closing || !dismissible) return;
     setClosing(true);
     setTimeout(() => {
       onClose();
       setActive(false);
       setClosing(false);
     }, 130);
-  }, [closing, onClose]);
+  }, [closing, dismissible, onClose]);
 
   const closeRef = useRef(requestClose);
   useEffect(() => {
@@ -389,9 +391,11 @@ export function Modal({
         >
           <div className="flex items-center justify-between px-6 pt-5 pb-2">
             <h2 className="font-semibold">{title}</h2>
-            <IconButton label="Close" onClick={requestClose}>
-              <X size={16} />
-            </IconButton>
+            {dismissible && (
+              <IconButton label="Close" onClick={requestClose}>
+                <X size={16} />
+              </IconButton>
+            )}
           </div>
           <div className="min-h-0 overflow-auto px-6 py-2">{children}</div>
           {renderedFooter && <div className="flex justify-end gap-2 px-6 pt-2 pb-5">{renderedFooter}</div>}

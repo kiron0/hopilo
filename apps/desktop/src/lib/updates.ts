@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { platform as currentPlatform, type Platform } from "./platform";
 
 export const APP_NAME = "Hopilo";
@@ -47,8 +49,9 @@ export interface UpdateInfo {
   name?: string;
   releaseNotes?: string;
   publishedAt?: string;
-  releaseUrl: string;
+  releaseUrl?: string;
   downloadUrl?: string;
+  nativeUpdate?: Update;
 }
 
 export interface UpdateCheckResult {
@@ -56,6 +59,78 @@ export interface UpdateCheckResult {
   currentVersion: string;
   update?: UpdateInfo;
   error?: string;
+}
+
+export interface UpdateInstallProgress {
+  phase: "downloading" | "installing";
+  downloadedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+}
+
+export async function checkInAppUpdate(currentVersion: string): Promise<UpdateCheckResult> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return {
+      status: "error",
+      currentVersion,
+      error: "You are offline. Connect to the internet to check for updates.",
+    };
+  }
+
+  try {
+    const update = await check({ timeout: 15_000 });
+    if (!update) return { status: "upToDate", currentVersion };
+
+    return {
+      status: "available",
+      currentVersion,
+      update: {
+        version: update.version,
+        name: `Hopilo ${update.version}`,
+        releaseNotes: update.body,
+        publishedAt: update.date,
+        nativeUpdate: update,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    return {
+      status: "error",
+      currentVersion,
+      error: offline || /network|offline|failed to fetch|timed? out|dns/i.test(message)
+        ? "You are offline. Connect to the internet to check for updates."
+        : `Could not check updates: ${message}`,
+    };
+  }
+}
+
+export async function installInAppUpdate(
+  info: UpdateInfo,
+  onProgress: (progress: UpdateInstallProgress) => void,
+): Promise<void> {
+  if (!info.nativeUpdate) throw new Error("The signed update package is unavailable. Check for updates again.");
+
+  let downloadedBytes = 0;
+  let totalBytes: number | undefined;
+  const report = (event: DownloadEvent) => {
+    if (event.event === "Started") {
+      totalBytes = event.data.contentLength;
+    } else if (event.event === "Progress") {
+      downloadedBytes += event.data.chunkLength;
+    }
+    onProgress({
+      phase: "downloading",
+      downloadedBytes,
+      totalBytes,
+      percent: totalBytes ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) : undefined,
+    });
+  };
+
+  await info.nativeUpdate.download(report, { timeout: 10 * 60_000 });
+  onProgress({ phase: "installing", downloadedBytes, totalBytes, percent: 100 });
+  await info.nativeUpdate.install();
+  await relaunch();
 }
 
 export function isNewerVersion(remote: string, current: string): boolean {

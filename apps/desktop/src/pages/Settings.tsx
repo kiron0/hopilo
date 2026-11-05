@@ -34,7 +34,7 @@ import {
   BUY_ME_A_COFFEE_URL,
   REPOSITORY_URL,
   ISSUES_URL,
-  checkGitHubRelease,
+  checkInAppUpdate,
   openExternal,
   type UpdateCheckResult,
 } from "../lib/updates";
@@ -102,14 +102,14 @@ export function Settings() {
   const runUpdateCheck = async () => {
     setUpdateState((prev) => ({ ...prev, status: "checking" }));
     const ver = info.data?.version ?? (await api.appInfo().then((a) => a.version).catch(() => "0.0.0"));
-    const res = await checkGitHubRelease(ver);
+    const res = await checkInAppUpdate(ver);
     setUpdateState(res);
     if (res.status === "available") {
       setShowUpdateModal(true);
     } else if (res.status === "upToDate") {
       toast({ kind: "success", text: `Hopilo is up to date (v${ver}).` });
     } else if (res.status === "error") {
-      toast({ kind: "warning", text: res.error ?? "Could not reach GitHub." });
+      toast({ kind: "warning", text: res.error ?? "Could not check for updates." });
     }
   };
 
@@ -409,7 +409,7 @@ export function Settings() {
                     {updateState.status === "idle" && (
                       <>
                         <CheckIcon size={12} className="text-muted" />
-                        <span>GitHub releases</span>
+                        <span>Secure in-app updates</span>
                       </>
                     )}
                   </div>

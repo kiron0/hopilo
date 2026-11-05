@@ -60,6 +60,18 @@ Copy renders a session into one handoff message for the AI you continue in. **Fu
 
 The extension saves ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) and can insert a session into a chat box as an unsent draft. It talks only to `hopilo-native-host`, a small bridge shipped inside the app bundle and registered per browser from **Browser › Connect**. The bridge accepts messages only from Hopilo's extension ID.
 
+## In-app updates
+
+**Settings › About › Check for Updates** reads the signed `latest.json` manifest from the newest GitHub Release. When an update is available, Hopilo downloads it in the app, shows progress, verifies the Tauri signature, installs it and restarts. GitHub hosts the files but users are not sent to the browser.
+
+The public verification key is pinned in `apps/desktop/src-tauri/tauri.conf.json`. The matching private key is local at `apps/desktop/.tauri/hopilo.key`, is ignored by Git, and must be backed up securely. Before publishing, add its full contents as the `TAURI_SIGNING_PRIVATE_KEY` repository secret:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < apps/desktop/.tauri/hopilo.key
+```
+
+Losing or replacing that key prevents installed copies from accepting future updates. The release workflow signs the platform updater artifacts, publishes them with `latest.json`, and fails if an artifact or signature is missing.
+
 ## Build and release
 
 Rust (stable), Node 22+, pnpm 10.
@@ -70,7 +82,11 @@ pnpm dev          # desktop app (Tauri + Vite); also builds the bridge sidecar
 pnpm test         # Rust + desktop tests
 pnpm typecheck
 pnpm build        # release bundle for this machine
+pnpm clean        # remove generated bundles; keep dependencies, keys and app data
+pnpm ship         # verify, build, stop, install and relaunch native bundle for this OS
 ```
+
+`pnpm ship` follows the QuitX local-release loop. It detects macOS, Linux or Windows, selects that OS's `.app`, `.AppImage` or NSIS installer, stops the current Hopilo process, replaces only the installed application, launches the new build and verifies the process started. It never removes Hopilo's app-data directory, so the SQLite library and settings survive reinstall/update.
 
 `apps/desktop/scripts/sidecar.mjs` builds `hopilo-native-host` and places it in `src-tauri/binaries/` for Tauri's `externalBin` (a lipo'd universal binary for `universal-apple-darwin`).
 
@@ -78,4 +94,4 @@ Extension: `pnpm --filter @hopilo/extension build`, then load `apps/extension/di
 
 Icons: edit the SVGs in `assets/logo/`, run `python3 assets/make_icons.py` (needs `cargo install resvg`), then `pnpm --dir apps/desktop tauri icon assets/hopilo-icon-1024.png`.
 
-CI (`.github/workflows/ci.yml`) runs clippy with warnings denied, all Rust tests on macOS and Linux, and typecheck, tests and builds for the desktop UI and the extension. Running the **Release** workflow (manual dispatch, `.github/workflows/release.yml`) builds macOS (universal), Linux and Windows bundles and the extension archives.
+CI (`.github/workflows/ci.yml`) runs clippy with warnings denied, all Rust tests on macOS and Linux, and typecheck, tests and builds for the desktop UI and the extension. Running the **Release** workflow (manual dispatch, `.github/workflows/release.yml`) builds signed macOS (universal), Linux and Windows updater bundles, publishes `latest.json`, and builds the extension archives.

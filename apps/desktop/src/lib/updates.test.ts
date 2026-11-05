@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkGitHubRelease, isNewerVersion, pickDownloadAsset } from "./updates";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { checkGitHubRelease, installInAppUpdate, isNewerVersion, pickDownloadAsset, type UpdateInfo } from "./updates";
+
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
 
 describe("isNewerVersion", () => {
   it("detects newer semantic versions", () => {
@@ -49,5 +52,30 @@ describe("pickDownloadAsset", () => {
 
   it("never offers the extension zip or another OS build", () => {
     expect(pickDownloadAsset([assets[0], assets[1]], "macos")).toBeUndefined();
+  });
+});
+
+describe("installInAppUpdate", () => {
+  it("reports native download progress, installs, and relaunches", async () => {
+    const install = vi.fn();
+    const download = vi.fn(async (onEvent: (event: unknown) => void) => {
+      onEvent({ event: "Started", data: { contentLength: 100 } });
+      onEvent({ event: "Progress", data: { chunkLength: 40 } });
+      onEvent({ event: "Progress", data: { chunkLength: 60 } });
+      onEvent({ event: "Finished" });
+    });
+    const progress: { phase: string; percent?: number }[] = [];
+    const update = {
+      version: "0.2.0",
+      nativeUpdate: { download, install } as unknown as UpdateInfo["nativeUpdate"],
+    };
+
+    await installInAppUpdate(update, (event) => progress.push(event));
+
+    expect(download).toHaveBeenCalledOnce();
+    expect(install).toHaveBeenCalledOnce();
+    expect(relaunch).toHaveBeenCalledOnce();
+    expect(progress).toContainEqual(expect.objectContaining({ phase: "downloading", percent: 40 }));
+    expect(progress.at(-1)).toEqual(expect.objectContaining({ phase: "installing", percent: 100 }));
   });
 });

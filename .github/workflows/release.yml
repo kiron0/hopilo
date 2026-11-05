@@ -123,6 +123,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           projectPath: "apps/desktop"
           args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
@@ -131,7 +132,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          find target -path "*/bundle/*" -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.exe" -o -name "*.msi" \) -exec cp {} dist/ \;
+          find target -path "*/bundle/*" -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.exe" -o -name "*.msi" -o -name "*.app.tar.gz" -o -name "*.sig" \) -exec cp {} dist/ \;
           for app_dir in target/*/release/bundle/macos/*.app target/release/bundle/macos/*.app; do
             if [ -d "$app_dir" ]; then
               base=$(basename "$app_dir")
@@ -278,6 +279,54 @@ jobs:
 
           **Full changelog:** https://github.com/${{ github.repository }}/commits/${{ needs.version.outputs.tag }}
           EOF
+
+      - name: Create signed updater manifest
+        shell: bash
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mac_file=$(find release-assets -maxdepth 1 -type f -name "*.app.tar.gz" -print -quit)
+          linux_file=$(find release-assets -maxdepth 1 -type f -name "*.AppImage" -print -quit)
+          windows_file=$(find release-assets -maxdepth 1 -type f -name "*-setup.exe" -print -quit)
+
+          for file in "$mac_file" "$linux_file" "$windows_file"; do
+            if [ -z "$file" ] || [ ! -f "$file.sig" ]; then
+              echo "Missing updater artifact or signature: ${file:-<not found>}" >&2
+              exit 1
+            fi
+          done
+
+          asset_url() {
+            printf 'https://github.com/%s/releases/download/%s/%s' "$REPOSITORY" "$TAG" "$(basename "$1")"
+          }
+
+          mac_signature=$(tr -d '\r\n' < "$mac_file.sig")
+          linux_signature=$(tr -d '\r\n' < "$linux_file.sig")
+          windows_signature=$(tr -d '\r\n' < "$windows_file.sig")
+
+          jq -n \
+            --arg version "$VERSION" \
+            --rawfile notes release-notes.md \
+            --arg pub_date "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            --arg mac_url "$(asset_url "$mac_file")" \
+            --arg mac_signature "$mac_signature" \
+            --arg linux_url "$(asset_url "$linux_file")" \
+            --arg linux_signature "$linux_signature" \
+            --arg windows_url "$(asset_url "$windows_file")" \
+            --arg windows_signature "$windows_signature" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { url: $mac_url, signature: $mac_signature },
+                "darwin-x86_64": { url: $mac_url, signature: $mac_signature },
+                "linux-x86_64": { url: $linux_url, signature: $linux_signature },
+                "windows-x86_64": { url: $windows_url, signature: $windows_signature }
+              }
+            }' > release-assets/latest.json
 
       - name: Create or update GitHub release
         shell: bash

@@ -8,6 +8,9 @@
     "build": "pnpm --filter @hopilo/desktop tauri build",
     "typecheck": "pnpm --filter @hopilo/desktop typecheck && pnpm --filter @hopilo/extension typecheck",
     "test": "cargo test --workspace && pnpm --filter @hopilo/desktop test && pnpm --filter @hopilo/extension test",
+    "clean": "./scripts/clean.sh",
+    "ship": "./scripts/ship.sh",
+    "start": "./scripts/ship.sh",
     "bump": "./scripts/bump-version.sh"
   }
 }

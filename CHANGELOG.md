@@ -2,6 +2,20 @@
 
 All notable changes to Hopilo will be documented in this file.
 
+## 0.1.2
+
+### Added
+
+- 
+
+### Fixed
+
+- 
+
+### Changed
+
+- 
+
 ## 0.1.1
 
 ### Added
