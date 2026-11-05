@@ -79,7 +79,9 @@ export function Browser() {
   useEffect(() => {
     const onFocus = () => reload();
     window.addEventListener("focus", onFocus);
-    const timer = setInterval(reload, 10000);
+    const timer = setInterval(() => {
+      if (!document.hidden) reload();
+    }, 10000);
     return () => {
       window.removeEventListener("focus", onFocus);
       clearInterval(timer);

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use hopilo_adapters::{adapter_by_id, all_adapters, AdapterInfo, DiscoveredSession};
 use hopilo_core::render::estimate_tokens;
@@ -17,6 +17,16 @@ pub struct AppState {
     pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
 
     pub sync_lock: Mutex<()>,
+
+    /// In-memory mirror of app-written settings so hot paths (window close, tray
+    /// click, copy defaults) never contend with, or re-enter, the store lock.
+    pub settings: RwLock<HashMap<String, serde_json::Value>>,
+}
+
+impl AppState {
+    pub(crate) fn setting(&self, key: &str) -> Option<serde_json::Value> {
+        self.settings.read().ok()?.get(key).cloned()
+    }
 }
 
 fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
@@ -282,7 +292,7 @@ pub async fn get_session(app: AppHandle, id: String) -> CmdResult<SessionDetail>
             let files = s.session_files(&messages);
             Ok((row, source, messages, files))
         })?;
-        let text: String = messages.iter().flat_map(|m| m.blocks.iter().map(|b| b.plain_text())).collect();
+        let text = messages.iter().flat_map(|m| m.blocks.iter().map(|b| b.plain_text())).collect::<Vec<_>>().join("\n");
         Ok(SessionDetail { files, token_estimate: estimate_tokens(&text), row, source, messages })
     })
     .await
@@ -501,14 +511,22 @@ pub async fn save_file(app: AppHandle, sha: String, path: String) -> CmdResult<S
 #[tauri::command]
 pub fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
+    if !is_external_url(&url) {
+        return Err("Only web and mail links can be opened".into());
+    }
     app.opener().open_url(url, None::<&str>).map_err(err)
+}
+
+fn is_external_url(url: &str) -> bool {
+    let lower = url.trim_start().to_ascii_lowercase();
+    ["https://", "http://", "mailto:"].iter().any(|p| lower.starts_with(p))
 }
 
 #[tauri::command]
 pub fn open_folder(app: AppHandle, path: String) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let p = std::path::Path::new(&path);
-    if !p.exists() {
+    if !p.is_dir() {
         return Err(format!("Folder does not exist: {path}"));
     }
     app.opener().open_path(path, None::<&str>).map_err(err)
@@ -525,7 +543,12 @@ fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> Cm
         return Err("Not a library file reference".into());
     }
     let (a, bytes) = stored_file(state, sha)?;
-    let name: String = a.file_name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c }).collect();
+    let name: String = a
+        .file_name
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
+        .collect();
+    let name = name.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
     let dir = app.path().app_cache_dir().map_err(err)?.join("open").join(&sha[..sha.len().min(16)]);
     std::fs::create_dir_all(&dir).map_err(err)?;
     let dest = dir.join(if name.trim().is_empty() { "file".to_string() } else { name });
@@ -574,7 +597,7 @@ pub async fn stats(app: AppHandle) -> CmdResult<Stats> {
 #[tauri::command]
 pub async fn search(app: AppHandle, query: String) -> CmdResult<Vec<SearchHit>> {
     blocking(app, move |_, state| {
-        with_store(&state, |s| Ok(s.search(&query, 40).map_err(err)?.into_iter().filter(|h| h.kind == "source").take(20).collect()))
+        with_store(&state, |s| s.search_kind(&query, "source", 20).map_err(err))
     })
     .await
 }
@@ -592,6 +615,9 @@ pub async fn set_setting(app: AppHandle, key: String, value: serde_json::Value) 
     blocking(app, move |app, state| {
         let app = app.clone();
         with_store(&state, |s| s.set_setting(&key, &value).map_err(err))?;
+        if let Ok(mut mirror) = state.settings.write() {
+            mirror.insert(key.clone(), value.clone());
+        }
         let _ = app.emit("hopilo://settings-changed", (&key, &value));
         Ok(())
     })
@@ -713,6 +739,15 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert!(out.iter().any(|d| d.path == "/new"));
         assert!(!out.iter().any(|d| d.path == "/old"));
+    }
+
+    #[test]
+    fn only_web_and_mail_links_open_externally() {
+        assert!(is_external_url("https://github.com/kiron0/hopilo"));
+        assert!(is_external_url("mailto:a@b.c"));
+        assert!(!is_external_url("file:///etc/passwd"));
+        assert!(!is_external_url("javascript:alert(1)"));
+        assert!(!is_external_url("/Applications/Calculator.app"));
     }
 
     #[test]

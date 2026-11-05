@@ -1609,7 +1609,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hopilo-adapters"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "hex",
@@ -1626,7 +1626,7 @@ dependencies = [
 
 [[package]]
 name = "hopilo-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "hopilo-database"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "hex",
@@ -1655,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "hopilo-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hopilo-adapters",
  "hopilo-core",
@@ -1677,7 +1677,7 @@ dependencies = [
 
 [[package]]
 name = "hopilo-native-host"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hopilo-core",
  "hopilo-database",
@@ -1688,7 +1688,7 @@ dependencies = [
 
 [[package]]
 name = "hopilo-pack-format"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "hopilo-core",

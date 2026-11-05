@@ -1,7 +1,7 @@
 use std::io::{stdin, stdout};
 
 use hopilo_database::Store;
-use hopilo_native_host::{allowed_ids, caller_allowed, default_data_dir, read_message, write_message, Host};
+use hopilo_native_host::{allowed_ids, caller_allowed, default_data_dir, fit_outgoing, read_message, write_message, Host};
 use serde_json::json;
 
 fn main() {
@@ -26,7 +26,7 @@ fn main() {
     let mut host = Host { store };
     let mut input = stdin().lock();
     while let Ok(Some(req)) = read_message(&mut input) {
-        let resp = host.handle(&req);
+        let resp = fit_outgoing(host.handle(&req));
         if write_message(&mut out, &resp).is_err() {
             break;
         }

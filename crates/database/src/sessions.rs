@@ -238,13 +238,10 @@ impl Store {
             let mut stmt = tx.prepare_cached("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
             let rows = stmt.query_map([id], |r| r.get::<_, String>(0))?;
             for r in rows {
-                let blocks_json = r?;
-                if let Ok(blocks) = serde_json::from_str::<Vec<Block>>(&blocks_json) {
-                    for b in blocks {
-                        if let Block::Text { text: t } = b {
-                            text.push_str(&t);
-                            text.push(' ');
-                        }
+                if let Ok(blocks) = serde_json::from_str::<Vec<Block>>(&r?) {
+                    for b in &blocks {
+                        text.push_str(b.plain_text());
+                        text.push('\n');
                     }
                 }
             }
@@ -479,10 +476,16 @@ impl Store {
         let mut ids = Vec::new();
         for s in &pack.sources {
             let msgs: Vec<Message> = pack.messages.iter().filter(|m| m.source_id == s.source_id).cloned().collect();
-            let exists: bool =
-                self.conn.query_row("SELECT COUNT(*) FROM sources WHERE id = ?1", [&s.source_id], |r| r.get::<_, i64>(0))? > 0;
+            let exists: bool = self
+                .conn
+                .query_row("SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)", [&s.source_id], |r| r.get(0))?;
             if exists {
-                self.conn.execute("UPDATE sources SET hidden = 0 WHERE id = ?1", [&s.source_id])?;
+                let hidden: bool =
+                    self.conn.query_row("SELECT hidden FROM sources WHERE id = ?1", [&s.source_id], |r| r.get(0))?;
+                if hidden {
+                    // Re-index too: hiding dropped the session from search.
+                    self.restore_session(&s.source_id)?;
+                }
                 ids.push(s.source_id.clone());
             } else if !msgs.is_empty() {
                 ids.push(self.upsert_session(s, &msgs, None)?.source_id);

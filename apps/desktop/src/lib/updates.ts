@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { platform as currentPlatform, type Platform } from "./platform";
 
 export const APP_NAME = "Hopilo";
 export const AUTHOR_NAME = "Toufiq Hasan Kiron";
@@ -71,7 +72,23 @@ export function isNewerVersion(remote: string, current: string): boolean {
   return false;
 }
 
-export async function checkGitHubRelease(currentVersion: string = "0.1.0"): Promise<UpdateCheckResult> {
+const INSTALLER_SUFFIXES: Record<Platform, string[]> = {
+  macos: [".dmg", "-macos.tar.gz", ".app.tar.gz"],
+  windows: ["-setup.exe", ".msi", ".exe"],
+  linux: [".appimage", ".deb", ".rpm"],
+};
+
+/** Installer for this OS only; never another platform's build or the browser-extension zip. */
+export function pickDownloadAsset(assets: GitHubAsset[] | undefined, os: Platform = currentPlatform): GitHubAsset | undefined {
+  const list = (assets ?? []).filter((a) => !a.name.toLowerCase().includes("extension"));
+  for (const suffix of INSTALLER_SUFFIXES[os]) {
+    const hit = list.find((a) => a.name.toLowerCase().endsWith(suffix));
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+export async function checkGitHubRelease(currentVersion: string): Promise<UpdateCheckResult> {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     return {
       status: "error",
@@ -119,9 +136,7 @@ export async function checkGitHubRelease(currentVersion: string = "0.1.0"): Prom
 
     const remoteVer = data.tag_name.replace(/^[vV]/, "").trim();
     if (isNewerVersion(remoteVer, currentVersion)) {
-      const dmgAsset = data.assets?.find((a) => a.name.toLowerCase().endsWith(".dmg"));
-      const zipAsset = data.assets?.find((a) => a.name.toLowerCase().endsWith(".zip"));
-      const downloadUrl = (dmgAsset || zipAsset)?.browser_download_url || data.html_url;
+      const downloadUrl = pickDownloadAsset(data.assets)?.browser_download_url || data.html_url;
 
       return {
         status: "available",

@@ -154,3 +154,14 @@ fn capture_stores_shared_files_and_flags_unreadable_ones() {
     let att = h.store.attachment_by_sha(&sha).unwrap().expect("stored attachment");
     assert_eq!(att.text.as_deref(), Some("# Spec"));
 }
+
+#[test]
+fn oversized_reply_becomes_an_error() {
+    let big = ok(&json!("r1"), json!({ "text": "x".repeat(MAX_OUTGOING + 10) }));
+    let fitted = fit_outgoing(big);
+    assert_eq!(fitted["ok"], false);
+    assert_eq!(fitted["requestId"], "r1");
+    assert_eq!(fitted["error"]["code"], "too_large");
+    let small = ok(&json!("r2"), json!({}));
+    assert_eq!(fit_outgoing(small.clone()), small);
+}

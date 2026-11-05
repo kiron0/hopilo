@@ -413,6 +413,20 @@ impl Store {
     }
 
     pub fn insert_attachment(&mut self, att: &Attachment, bytes: &[u8]) -> Result<(Attachment, bool)> {
+        // The sha doubles as the blob's file name, so it must be the real digest of
+        // `bytes`: never trust a caller-supplied value as a path component.
+        {
+            use sha2::{Digest, Sha256};
+            if att.sha256.len() != 64
+                || !att.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                || !hex::encode(Sha256::digest(bytes)).eq_ignore_ascii_case(&att.sha256)
+            {
+                return Err(DbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{}: contents do not match the recorded checksum", att.file_name),
+                )));
+            }
+        }
         if let Some(existing) = self.attachment_by_sha(&att.sha256)? {
             return Ok((existing, true));
         }
@@ -814,6 +828,18 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    pub fn search_kind(&self, q: &str, kind: &str, limit: i64) -> Result<Vec<SearchHit>> {
+        let Some(query) = fts_query(q) else { return Ok(vec![]) };
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT kind, ref_id, title, snippet(search_index, 3, '[', ']', '…', 12)
+             FROM search_index WHERE search_index MATCH ?1 AND kind = ?2 ORDER BY rank LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![query, kind, limit], |r| {
+            Ok(SearchHit { kind: r.get(0)?, ref_id: r.get(1)?, title: r.get(2)?, snippet: r.get(3)? })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn stats(&self) -> Result<Stats> {
         let count = |sql: &str| -> Result<i64> { Ok(self.conn.query_row(sql, [], |r| r.get(0))?) };
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -838,7 +864,7 @@ impl Store {
             handoffs_today: since("handoffs", "created_at")?,
             last_capture_at: self
                 .conn
-                .query_row("SELECT MAX(captured_at) FROM sources", [], |r| r.get(0))?,
+                .query_row("SELECT MAX(captured_at) FROM sources WHERE hidden = 0", [], |r| r.get(0))?,
             last_handoff: self.list_handoffs(1)?.into_iter().next(),
             storage_bytes,
         })

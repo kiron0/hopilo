@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText } from "./api";
-import { DEFAULT_SETTINGS, LIST_VIEW_KEY, type ListView, type Settings, useApp } from "./store";
+import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type Settings, useApp } from "./store";
 
 const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
@@ -107,7 +107,7 @@ export function useBootstrap() {
       if (!Array.isArray(payload) || typeof payload[0] !== "string") return;
       const [key, value] = payload;
       if (key === LIST_VIEW_KEY && value && typeof value === "object") {
-        hydrateListView(value as Partial<ListView>);
+        if (!isOwnListViewEcho(value)) hydrateListView(value as Partial<ListView>);
       } else if (key in DEFAULT_SETTINGS) {
         setSettings({ [key]: value } as Partial<Settings>);
       } else {

@@ -439,7 +439,7 @@ fn upgrade_folds_packs_and_loose_files_into_sessions() {
         file_name: "spec.pdf".into(),
         media_type: "application/pdf".into(),
         size: 3,
-        sha256: "abc".into(),
+        sha256: hopilo_pack_format_sha(b"pdf"),
         origin_path: None,
         text: None,
     };
@@ -512,4 +512,61 @@ fn reader_connection_audits_without_the_writer() {
     let reader = Store::open_reader(dir.path()).unwrap();
     assert_eq!(reader.audit().unwrap().database, "ok");
     assert!(reader.list_sessions().unwrap().len() == 1);
+}
+
+fn hopilo_pack_format_sha(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
+}
+
+#[test]
+fn attachment_with_forged_checksum_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let forged = Attachment {
+        id: new_id(),
+        file_name: "x.txt".into(),
+        media_type: "text/plain".into(),
+        size: 5,
+        sha256: "../../escape".into(),
+        origin_path: None,
+        text: None,
+    };
+    assert!(db.insert_attachment(&forged, b"hello").is_err());
+    let wrong = Attachment { sha256: hopilo_pack_format_sha(b"other"), ..forged };
+    assert!(db.insert_attachment(&wrong, b"hello").is_err());
+    assert!(!dir.path().join("escape").exists());
+}
+
+#[test]
+fn search_kind_returns_only_that_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/k.jsonl", "zebra crossing notes");
+    db.upsert_session(&s, &m, None).unwrap();
+    let att = Attachment {
+        id: new_id(),
+        file_name: "zebra.txt".into(),
+        media_type: "text/plain".into(),
+        size: 5,
+        sha256: hopilo_pack_format_sha(b"zebra"),
+        origin_path: None,
+        text: Some("zebra".into()),
+    };
+    db.insert_attachment(&att, b"zebra").unwrap();
+    let hits = db.search_kind("zebra", "source", 20).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert!(hits.iter().all(|h| h.kind == "source"));
+}
+
+#[test]
+fn restored_session_is_searchable_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/h.jsonl", "quokka habitat");
+    let id = db.upsert_session(&s, &m, None).unwrap().source_id;
+    db.remove_session(&id).unwrap();
+    assert!(db.search_kind("quokka", "source", 20).unwrap().is_empty());
+    db.restore_session(&id).unwrap();
+    assert_eq!(db.search_kind("quokka", "source", 20).unwrap().len(), 1);
 }

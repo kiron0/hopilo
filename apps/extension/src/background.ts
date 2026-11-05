@@ -2,13 +2,33 @@ import { HOST_NAME, type BgRequest } from "./protocol";
 
 let seq = 0;
 
+const MAX_FETCH_BYTES = 20 * 1024 * 1024;
+
+function hostAllowed(u: URL): boolean {
+  const patterns = chrome.runtime.getManifest().host_permissions ?? [];
+  return patterns.some((p: string) => {
+    const m = /^https:\/\/(\*\.)?([^/]+)\//.exec(p);
+    if (!m) return false;
+    return m[1] ? u.hostname === m[2] || u.hostname.endsWith(`.${m[2]}`) : u.hostname === m[2];
+  });
+}
+
 async function fetchFile(url: string, maxBytes: number) {
-  const u = new URL(url);
-  if (u.protocol !== "https:") return { ok: false };
-  const res = await fetch(url, { credentials: "include" });
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return { ok: false };
+  }
+  // Credentialed fetches go only to the chat sites the extension already has access to.
+  if (u.protocol !== "https:" || !hostAllowed(u)) return { ok: false };
+  const limit = Math.min(Math.max(0, Number(maxBytes) || 0), MAX_FETCH_BYTES);
+  const res = await fetch(u.href, { credentials: "include" });
   if (!res.ok) return { ok: false };
+  const declared = Number(res.headers.get("content-length"));
+  if (declared > limit) return { ok: false };
   const buf = await res.arrayBuffer();
-  if (buf.byteLength > maxBytes) return { ok: false };
+  if (buf.byteLength > limit) return { ok: false };
   const bytes = new Uint8Array(buf);
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));

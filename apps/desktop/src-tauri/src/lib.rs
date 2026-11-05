@@ -59,9 +59,7 @@ fn app_ready(window: tauri::Window) {
 }
 
 fn setting_str(app: &AppHandle, key: &str) -> Option<String> {
-    let state = app.state::<AppState>();
-    let store = state.store.try_lock().ok()?;
-    store.settings().ok()?.get(key)?.as_str().map(str::to_string)
+    app.state::<AppState>().setting(key)?.as_str().map(str::to_string)
 }
 
 pub(crate) fn show_main(app: &AppHandle) {
@@ -168,6 +166,7 @@ pub fn run() {
                 store: Mutex::new(store),
                 discovery: Mutex::new(Default::default()),
                 sync_lock: Mutex::new(()),
+                settings: std::sync::RwLock::new(settings.clone()),
             });
 
             let sync_handle = app.handle().clone();

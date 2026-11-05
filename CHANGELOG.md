@@ -2,6 +2,32 @@
 
 All notable changes to Hopilo will be documented in this file.
 
+## 0.1.1
+
+### Fixed
+
+- **Handoff preview freeze**: Opening the handoff preview locked the library twice on the same thread and could hang the app. Rendering now runs outside the library lock.
+- **Window close and tray click settings**: "Quit on close" and "Tray click opens dashboard" were ignored while a background sync was running. Settings are now read from an in-memory copy.
+- **Search results**: Session search no longer drops matches when files or older packs fill the first results.
+- **Restored sessions in search**: Sessions restored from Hidden, or brought back by importing a `.handoff` file, are searchable again and index every block, not only plain text.
+- **Update downloads**: The update dialog now offers the installer for your operating system (`.dmg`, `.exe`/`.msi`, `.AppImage`/`.deb`) and never the browser-extension zip.
+- **Session list filters**: Typing quickly in the search box no longer loses characters; list-view settings are saved after a short pause instead of on every keystroke.
+- **Overview stats**: "Last capture" ignores hidden sessions, matching the other counts.
+- **Duplicate files in folder imports**: A file picked both directly and through its folder is imported once.
+
+### Security
+
+- Library attachments are stored only under their verified SHA-256; a forged checksum can no longer pick the file name on disk.
+- `open_url` opens only `http`, `https` and `mailto` links; `open_folder` opens folders only.
+- Files opened from the library get names that are safe on Windows as well as macOS and Linux.
+- The browser extension downloads chat files only from the sites it already has access to, with a 20 MB cap.
+- The native messaging host replaces replies larger than the 1 MB browser limit with a clear error instead of dropping the connection.
+
+### Changed
+
+- The Browser page stops polling the connection status while the window is hidden.
+- Root `pnpm test` and `pnpm typecheck` now cover the browser extension too.
+
 ## 0.1.0
 
 ### Added

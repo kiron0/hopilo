@@ -102,7 +102,8 @@ pub fn expand(paths: &[String]) -> (Vec<PathBuf>, Vec<String>) {
             out.push(path);
         }
     }
-    out.dedup();
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|p| seen.insert(p.clone()));
     (out, notes)
 }
 
@@ -191,8 +192,13 @@ pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
         return Err(format!("{pf_name}: larger than the size limit"));
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{pf_name}: {e}"))?;
+    // The file may have changed between stat and read: trust what was actually read.
+    let size = bytes.len() as u64;
+    if size > MAX_FILE_BYTES {
+        return Err(format!("{pf_name}: larger than the size limit"));
+    }
     let (media_type, kind) = classify(path);
-    let text = (kind == "text" && meta.len() <= MAX_TEXT_BYTES)
+    let text = (kind == "text" && size <= MAX_TEXT_BYTES)
         .then(|| String::from_utf8(bytes.clone()).ok())
         .flatten();
     Ok((
@@ -200,7 +206,7 @@ pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
             id: new_id(),
             file_name: pf_name,
             media_type,
-            size: meta.len(),
+            size,
             sha256: sha256_hex(&bytes),
             origin_path: Some(path.display().to_string()),
             text,
@@ -222,7 +228,7 @@ mod tests {
         std::fs::write(root.join("node_modules/x.js"), "x").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("/etc/hosts", root.join("link")).unwrap();
-        let (files, _notes) = expand(&[root.display().to_string()]);
+        let (files, _notes) = expand(&[root.display().to_string(), root.join("a.md").display().to_string()]);
         assert_eq!(files, vec![root.join("a.md")]);
         #[cfg(unix)]
         assert!(_notes.iter().any(|n| n.contains("Skipped symlink")));

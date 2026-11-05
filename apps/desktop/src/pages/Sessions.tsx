@@ -255,7 +255,7 @@ function SessionList() {
   );
   const unanswered = useMemo(() => (data ?? []).filter(isUnanswered).length, [data]);
   const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
-  const pageRows = rows.slice(pg * pageSize, pg * pageSize + pageSize);
+  const pageRows = useMemo(() => rows.slice(pg * pageSize, pg * pageSize + pageSize), [rows, pg, pageSize]);
   const groups = useMemo(() => groupSessions(pageRows, settings.sessionGroup), [pageRows, settings.sessionGroup]);
   const hasQueryOrFilter = q || filter !== "all" || providerFilter !== "all" || modelFilter !== "all" || resourceFilter !== "all" || hideUnanswered;
   const known = useMemo(() => new Set((data ?? []).map((r) => r.id)), [data]);

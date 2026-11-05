@@ -46,6 +46,17 @@ pub fn write_message(w: &mut impl Write, v: &Value) -> std::io::Result<()> {
     w.flush()
 }
 
+/// Browsers drop the native-messaging connection when a host reply exceeds 1 MB, so
+/// swap an oversized reply for an error the extension can show.
+pub fn fit_outgoing(resp: Value) -> Value {
+    let size = serde_json::to_vec(&resp).map(|b| b.len()).unwrap_or(usize::MAX);
+    if size <= MAX_OUTGOING {
+        return resp;
+    }
+    let id = resp.get("requestId").cloned().unwrap_or(Value::Null);
+    err(&id, "too_large", "This reply is too large to send to the browser. Try the Balanced or Minimal level, or copy it from the Hopilo app.")
+}
+
 pub fn origin_allowed(origin: &str, allowed: &[String]) -> bool {
     let Some(rest) = origin.strip_prefix("chrome-extension://") else { return false };
     let id = rest.trim_end_matches('/');

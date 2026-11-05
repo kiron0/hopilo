@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkGitHubRelease, isNewerVersion } from "./updates";
+import { checkGitHubRelease, isNewerVersion, pickDownloadAsset } from "./updates";
 
 describe("isNewerVersion", () => {
   it("detects newer semantic versions", () => {
@@ -32,3 +32,22 @@ describe("checkGitHubRelease offline error handling", () => {
   });
 });
 
+
+describe("pickDownloadAsset", () => {
+  const assets = [
+    { name: "hopilo-extension-chrome-0.2.0.zip", browser_download_url: "ext" },
+    { name: "Hopilo_0.2.0_x64-setup.exe", browser_download_url: "win" },
+    { name: "Hopilo_0.2.0_amd64.AppImage", browser_download_url: "linux" },
+    { name: "Hopilo_0.2.0_aarch64.dmg", browser_download_url: "mac" },
+  ];
+
+  it("returns the installer for the running OS", () => {
+    expect(pickDownloadAsset(assets, "macos")?.browser_download_url).toBe("mac");
+    expect(pickDownloadAsset(assets, "windows")?.browser_download_url).toBe("win");
+    expect(pickDownloadAsset(assets, "linux")?.browser_download_url).toBe("linux");
+  });
+
+  it("never offers the extension zip or another OS build", () => {
+    expect(pickDownloadAsset([assets[0], assets[1]], "macos")).toBeUndefined();
+  });
+});

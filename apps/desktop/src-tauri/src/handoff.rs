@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use hopilo_core::brief::ContextLevel;
 use hopilo_core::render::{estimate_tokens, render_handoff_prompt, render_markdown, RenderOptions, ToolDetail};
 use hopilo_core::scan::scan_pack;
+use hopilo_core::model::Role;
 use hopilo_core::Pack;
 use hopilo_database::ImportOutcome;
 use serde::{Deserialize, Serialize};
@@ -39,8 +40,7 @@ struct Defaults {
 }
 
 fn defaults(state: &State<AppState>) -> Defaults {
-    let settings = with_store(state, |s| s.settings().map_err(err)).unwrap_or_default();
-    let get = |k: &str| settings.get(k).cloned();
+    let get = |k: &str| state.setting(k);
     Defaults {
         target: get("defaultTarget").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "claude".into()),
         tool_detail: get("toolDetail").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
@@ -134,58 +134,48 @@ pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<Ha
             return Err("Choose at least one session".into());
         }
         let state = app.state::<AppState>();
-        with_store(&state, |s| {
-            let pack = s.compose(&ids).map_err(err)?;
-            let findings = hopilo_core::scan::scan_pack(&pack, None);
-            let total_messages = pack.messages.len();
-
-            let d = defaults(&state);
-            let ropts_full = render_opts(d.tool_detail, ContextLevel::Full);
-            let ropts_bal = render_opts(d.tool_detail, ContextLevel::Balanced);
-            let ropts_min = render_opts(d.tool_detail, ContextLevel::Minimal);
-
-            let txt_full = render_handoff_prompt(&pack, &ropts_full);
-            let txt_bal = render_handoff_prompt(&pack, &ropts_bal);
-            let txt_min = render_handoff_prompt(&pack, &ropts_min);
-
-            let msgs_full = hopilo_core::render::visible_messages(&pack, &ropts_full).len();
-            let msgs_bal = {
-                let all_vis = hopilo_core::render::visible_messages(&pack, &ropts_bal);
-                let split = all_vis.len().saturating_sub(hopilo_core::brief::BALANCED_RECENT);
-                let (earlier, recent) = all_vis.split_at(split);
-                let earlier_shown = earlier.iter().filter(|m| m.role != hopilo_core::model::Role::Tool && m.has_text()).count();
-                earlier_shown + recent.len()
-            };
-            let msgs_min = {
-                let all_vis = hopilo_core::render::visible_messages(&pack, &ropts_min);
-                let mut count = 0;
-                if hopilo_core::brief::first_user(&all_vis).is_some() { count += 1; }
-                if let Some(m) = hopilo_core::brief::last_with(&all_vis, hopilo_core::model::Role::User) {
-                    if Some(m.id.as_str()) != hopilo_core::brief::first_user(&all_vis).map(|f| f.id.as_str()) {
-                        count += 1;
-                    }
+        let d = defaults(&state);
+        // Compose under the store lock, render outside it: rendering three levels of a
+        // long transcript is slow and must not block the library for other commands.
+        let pack = with_store(&state, |s| s.compose(&ids).map_err(err))?;
+        let findings = hopilo_core::scan::scan_pack(&pack, None);
+        let total_messages = pack.messages.len();
+        let level_stats = |level: ContextLevel| {
+            let ropts = render_opts(d.tool_detail, level);
+            let tokens = estimate_tokens(&render_handoff_prompt(&pack, &ropts));
+            let visible = hopilo_core::render::visible_messages(&pack, &ropts);
+            let message_count = match level {
+                ContextLevel::Full => visible.len(),
+                ContextLevel::Balanced => {
+                    let split = visible.len().saturating_sub(hopilo_core::brief::BALANCED_RECENT);
+                    let (earlier, recent) = visible.split_at(split);
+                    earlier.iter().filter(|m| m.role != Role::Tool && m.has_text()).count() + recent.len()
                 }
-                if hopilo_core::brief::last_with(&all_vis, hopilo_core::model::Role::Assistant).is_some() {
-                    count += 1;
+                ContextLevel::Minimal => {
+                    let first = hopilo_core::brief::first_user(&visible);
+                    let last_user = hopilo_core::brief::last_with(&visible, Role::User)
+                        .filter(|m| Some(m.id.as_str()) != first.map(|f| f.id.as_str()));
+                    let last_assistant = hopilo_core::brief::last_with(&visible, Role::Assistant);
+                    let count = [first.is_some(), last_user.is_some(), last_assistant.is_some()].iter().filter(|b| **b).count();
+                    count.max(usize::from(total_messages > 0)).min(total_messages)
                 }
-                count.max(if total_messages > 0 { 1 } else { 0 }).min(total_messages)
             };
-
-            let tok_full = estimate_tokens(&txt_full);
-            let tok_bal = estimate_tokens(&txt_bal);
-            let tok_min = estimate_tokens(&txt_min);
-
-            Ok(HandoffPreflight {
-                title: pack.title,
-                total_messages,
-                total_tokens: tok_full,
-                findings,
-                full: LevelStats { message_count: msgs_full, token_estimate: tok_full },
-                balanced: LevelStats { message_count: msgs_bal, token_estimate: tok_bal },
-                minimal: LevelStats { message_count: msgs_min, token_estimate: tok_min },
-            })
+            LevelStats { message_count, token_estimate: tokens }
+        };
+        let full = level_stats(ContextLevel::Full);
+        let balanced = level_stats(ContextLevel::Balanced);
+        let minimal = level_stats(ContextLevel::Minimal);
+        Ok(HandoffPreflight {
+            title: pack.title.clone(),
+            total_messages,
+            total_tokens: full.token_estimate,
+            findings,
+            full,
+            balanced,
+            minimal,
         })
-    }).await
+    })
+    .await
 }
 
 #[tauri::command]

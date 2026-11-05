@@ -101,7 +101,7 @@ export function Settings() {
 
   const runUpdateCheck = async () => {
     setUpdateState((prev) => ({ ...prev, status: "checking" }));
-    const ver = info.data?.version ?? "0.1.0";
+    const ver = info.data?.version ?? (await api.appInfo().then((a) => a.version).catch(() => "0.0.0"));
     const res = await checkGitHubRelease(ver);
     setUpdateState(res);
     if (res.status === "available") {
