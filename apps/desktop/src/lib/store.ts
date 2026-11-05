@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { api } from "./api";
 import { isLinux } from "./platform";
 
 export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned" | "hidden";
@@ -30,7 +31,7 @@ export interface ListView {
   hideUnanswered: boolean;
 }
 
-const LIST_VIEW_KEY = "hopilo.listView";
+export const LIST_VIEW_KEY = "hopilo.listView";
 const DEFAULT_LIST_VIEW: ListView = {
   q: "",
   filter: "all",
@@ -56,6 +57,7 @@ function saveListView(v: ListView) {
   try {
     const { selected: _, ...rest } = v;
     localStorage.setItem(LIST_VIEW_KEY, JSON.stringify(rest));
+    api.setSetting(LIST_VIEW_KEY, rest).catch(() => {});
   } catch {}
 }
 

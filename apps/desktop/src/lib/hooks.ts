@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText } from "./api";
-import { DEFAULT_SETTINGS, type Settings, useApp } from "./store";
+import { DEFAULT_SETTINGS, LIST_VIEW_KEY, type ListView, type Settings, useApp } from "./store";
 
 const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
@@ -92,7 +92,13 @@ export function useBootstrap() {
     const load = () =>
       api
         .getSettings()
-        .then((raw) => setSettings({ ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) }))
+        .then((raw) => {
+          setSettings({ ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) });
+          const savedList = raw[LIST_VIEW_KEY];
+          if (savedList && typeof savedList === "object") {
+            useApp.getState().setListView(savedList as Partial<ListView>);
+          }
+        })
         .finally(() => setReady(true));
     load();
     const un1 = listen("hopilo://library-changed", () => bump());

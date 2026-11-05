@@ -584,6 +584,17 @@ function SessionList() {
                 ? "Try a different search or filter."
                 : "Sessions from Claude Code, Codex, Gemini CLI, Antigravity, Cursor, VS Code Copilot, OpenCode and other coding agents appear here on their own. Save web chats with the browser extension, or use Add."
             }
+            action={
+              hasQueryOrFilter && filter !== "hidden" ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setListView({ q: "", filter: "all", provider: "all", model: "all", resource: "all", hideUnanswered: false, page: 0 })}
+                >
+                  Reset filters
+                </Button>
+              ) : undefined
+            }
           />
         </Card>
       )}

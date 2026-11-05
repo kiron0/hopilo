@@ -39,7 +39,6 @@ import {
   type UpdateCheckResult,
 } from "../lib/updates";
 import { UpdateModal } from "../components/UpdateModal";
-import { Select } from "../components/Select";
 import { AlertDialog, Badge, Button, Card, PageHeader, SectionLabel, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
@@ -254,31 +253,6 @@ export function Settings() {
 
           <Row label="Reduce motion" hint="Disables background wandering and smooth rises. Also follows system.">
             <Toggle label="Reduce motion" checked={s.motion === "reduced"} onChange={(v) => saveSetting("motion", v ? "reduced" : "system")} />
-          </Row>
-        </Group>
-
-        <Group id="sessions" title="Sessions">
-          <Row label="Layout" hint="Choose compact rows or visual cards.">
-            <Segmented
-              label="Session layout"
-              value={s.sessionLayout}
-              onChange={(v) => saveSetting("sessionLayout", v)}
-              options={[{ value: "list", label: "List" }, { value: "thumbnails", label: "Thumbnails" }]}
-            />
-          </Row>
-          <Row label="Categorize by" hint="Keep sessions together by shared metadata.">
-            <Select
-              label="Categorize sessions by"
-              value={s.sessionGroup}
-              onChange={(v) => saveSetting("sessionGroup", v as typeof s.sessionGroup)}
-              className="w-48"
-              options={[
-                { value: "none", label: "No categories" },
-                { value: "folder", label: "Folder" },
-                { value: "provider", label: "Tool" },
-                { value: "model", label: "Model" },
-              ]}
-            />
           </Row>
         </Group>
 
