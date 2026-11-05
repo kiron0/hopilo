@@ -127,7 +127,7 @@ function SessionList() {
   const [adding, setAdding] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [limitChoice, setLimitChoice] = useState<number | "auto">("auto");
-  const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(62, 10);
+  const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
   const pageSize = Math.max(10, limitChoice === "auto" ? autoPageSize : limitChoice);
 
   const onLimitChange = (lim: number | "auto") => {
@@ -190,7 +190,7 @@ function SessionList() {
       {error && <ErrorNote text={error} />}
       {loading && !data && <SessionListSkeleton />}
       {data && rows.length === 0 && (
-        <Card>
+        <Card className="flex min-h-0 flex-1 flex-col items-center justify-center p-8">
           <EmptyState
             icon={<MessagesSquare size={20} />}
             title={q || filter !== "all" ? "No matching sessions" : syncing ? "Looking for sessions…" : "No sessions yet"}
@@ -297,30 +297,36 @@ function SessionList() {
 function FilesTab({ files }: { files: Attachment[] }) {
   const toast = useApp((s) => s.toast);
   if (files.length === 0)
-    return <EmptyState icon={<Paperclip size={20} />} title="No files" body="Files shared in this conversation show up here. Add more with Add files." />;
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8">
+        <EmptyState icon={<Paperclip size={20} />} title="No files" body="Files shared in this conversation show up here. Add more with Add files." />
+      </div>
+    );
   return (
-    <ul className="divide-y divide-line rounded-2xl border border-line">
-      {files.map((f) => {
-        const Icon = f.mediaType.startsWith("image/") ? FileImage : FileText;
-        return (
-          <li key={f.sha256} className="flex items-center gap-3 px-3.5 py-2.5">
-            <Icon size={16} className="shrink-0 text-faint" />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium" data-selectable>{f.fileName}</div>
-              <div className="font-mono text-[11px] text-faint">
-                {bytes(f.size)} · {f.mediaType || "file"} · {f.text != null ? "included as text when copied" : "attach it yourself when you paste"}
+    <div className="min-h-0 flex-1 overflow-auto p-5">
+      <ul className="divide-y divide-line rounded-2xl border border-line">
+        {files.map((f) => {
+          const Icon = f.mediaType.startsWith("image/") ? FileImage : FileText;
+          return (
+            <li key={f.sha256} className="flex items-center gap-3 px-3.5 py-2.5">
+              <Icon size={16} className="shrink-0 text-faint" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium" data-selectable>{f.fileName}</div>
+                <div className="font-mono text-[11px] text-faint">
+                  {bytes(f.size)} · {f.mediaType || "file"} · {f.text != null ? "included as text when copied" : "attach it yourself when you paste"}
+                </div>
               </div>
-            </div>
-            <Button size="sm" variant="ghost" icon={<FolderOpen size={13} />} onClick={() => api.openFile(f.sha256).catch((e) => toast({ kind: "error", text: errorText(e) }))}>
-              Open
-            </Button>
-            <Button size="sm" icon={<Download size={13} />} onClick={() => saveFileAs(f.sha256, f.fileName)}>
-              Save
-            </Button>
-          </li>
-        );
-      })}
-    </ul>
+              <Button size="sm" variant="ghost" icon={<FolderOpen size={13} />} onClick={() => api.openFile(f.sha256).catch((e) => toast({ kind: "error", text: errorText(e) }))}>
+                Open
+              </Button>
+              <Button size="sm" icon={<Download size={13} />} onClick={() => saveFileAs(f.sha256, f.fileName)}>
+                Save
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -329,7 +335,7 @@ function SessionPage({ id }: { id: string }) {
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
   const toast = useApp((s) => s.toast);
-  const [tab, setTab] = useState<"conversation" | "files">("conversation");
+  const [tab, setTab] = useState<"conversation" | "markdown" | "files">("conversation");
   const [to, setTo] = useState(settings.defaultTarget);
   const [level, setLevel] = useState<Level>(settings.level);
   const [busy, setBusy] = useState(false);
@@ -430,15 +436,22 @@ function SessionPage({ id }: { id: string }) {
           <Segmented
             label="View"
             value={tab}
-            onChange={setTab}
+            onChange={(v) => setTab(v as "conversation" | "markdown" | "files")}
             options={[
               { value: "conversation", label: "Conversation" },
+              { value: "markdown", label: "Markdown" },
               { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
             ]}
           />
           {busy && <Loader2 size={14} className="animate-spin text-accent" />}
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-5">{tab === "conversation" ? <Transcript messages={messages} /> : <FilesTab files={files} />}</div>
+        {tab === "conversation" || tab === "markdown" ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
+            <Transcript messages={messages} renderMarkdown={tab === "markdown"} />
+          </div>
+        ) : (
+          <FilesTab files={files} />
+        )}
       </Card>
       {exporting && <ExportModal ids={[id]} level={level} onClose={() => setExporting(false)} />}
       {paths && <FileImportModal paths={paths} session={id} onClose={() => setPaths(null)} />}

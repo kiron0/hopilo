@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronRight, Wrench, FileImage, FileText } from "./Icons";
+import { AlertTriangle, ChevronRight, FileImage, FileText, MessagesSquare, Wrench } from "./Icons";
 import type { Block, Message } from "../lib/api";
 import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
-import { Button, Checkbox, cx } from "./ui";
+import { Button, Checkbox, cx, EmptyState } from "./ui";
+import { MarkdownBlock } from "./MarkdownViewer";
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
 
@@ -26,10 +27,12 @@ function ToolBlock({ title, body, error }: { title: string; body: string; error?
   );
 }
 
-function BlockView({ b }: { b: Block }) {
+function BlockView({ b, renderMarkdown }: { b: Block; renderMarkdown?: boolean }) {
   switch (b.type) {
     case "text":
-      return (
+      return renderMarkdown ? (
+        <MarkdownBlock text={b.text} />
+      ) : (
         <div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
           {b.text}
         </div>
@@ -63,57 +66,67 @@ export function Transcript({
   messages,
   selected,
   onToggle,
+  renderMarkdown = false,
 }: {
   messages: Message[];
   selected?: Set<string>;
   onToggle?: (id: string) => void;
+  renderMarkdown?: boolean;
 }) {
   const [shown, setShown] = useState(PAGE);
   const visible = messages.length > shown ? messages.slice(0, shown) : messages;
+
+  if (messages.length === 0) {
+    return (
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8">
+        <EmptyState icon={<MessagesSquare size={20} />} title="No messages" body="This session has no recorded conversation messages." />
+      </div>
+    );
+  }
+
   return (
     <>
-    <ol className="space-y-3">
-      {visible.map((m) => {
-        const isSel = selected?.has(m.id);
-        return (
-          <li
-            key={m.id + m.sourceId}
-            className={cx(
-
-              "flex gap-3 rounded-xl border px-3.5 py-3 transition-colors [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
-              isSel ? "border-accent/50 bg-accent-soft/50" : "border-transparent",
-              m.role === "user" && !isSel && "bg-surface-2",
-            )}
-          >
-            {onToggle && (
-              <Checkbox label={`Include ${ROLE_LABEL[m.role]} message`} checked={!!isSel} onChange={() => onToggle(m.id)} className="mt-0.5" />
-            )}
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="flex items-center gap-2 text-[11.5px]">
-                <span className={cx("font-semibold", m.role === "user" ? "text-accent" : "text-muted")}>{ROLE_LABEL[m.role]}</span>
-                {m.createdAt && (
-                  <span className="text-faint" title={formatFullDateTime(m.createdAt)}>
-                    {humanizeDateTime(m.createdAt)}
-                  </span>
-                )}
+      <ol className="space-y-3">
+        {visible.map((m) => {
+          const isSel = selected?.has(m.id);
+          return (
+            <li
+              key={m.id + m.sourceId}
+              className={cx(
+                "flex gap-3 rounded-xl border px-3.5 py-3 transition-colors [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
+                isSel ? "border-accent/50 bg-accent-soft/50" : "border-transparent",
+                m.role === "user" && !isSel && "bg-surface-2",
+              )}
+            >
+              {onToggle && (
+                <Checkbox label={`Include ${ROLE_LABEL[m.role]} message`} checked={!!isSel} onChange={() => onToggle(m.id)} className="mt-0.5" />
+              )}
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex items-center gap-2 text-[11.5px]">
+                  <span className={cx("font-semibold", m.role === "user" ? "text-accent" : "text-muted")}>{ROLE_LABEL[m.role]}</span>
+                  {m.createdAt && (
+                    <span className="text-faint" title={formatFullDateTime(m.createdAt)}>
+                      {humanizeDateTime(m.createdAt)}
+                    </span>
+                  )}
+                </div>
+                {m.blocks.map((b, i) => (
+                  <BlockView key={i} b={b} renderMarkdown={renderMarkdown} />
+                ))}
               </div>
-              {m.blocks.map((b, i) => (
-                <BlockView key={i} b={b} />
-              ))}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-    {messages.length > shown && (
-      <div className="mt-3 flex items-center justify-center gap-2">
-        <span className="text-[12.5px] text-muted">
-          Showing {shown} of {messages.length} messages
-        </span>
-        <Button size="sm" onClick={() => setShown((n) => n + PAGE * 4)}>Show more</Button>
-        <Button size="sm" variant="ghost" onClick={() => setShown(messages.length)}>Show all</Button>
-      </div>
-    )}
+            </li>
+          );
+        })}
+      </ol>
+      {messages.length > shown && (
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <span className="text-[12.5px] text-muted">
+            Showing {shown} of {messages.length} messages
+          </span>
+          <Button size="sm" onClick={() => setShown((n) => n + PAGE * 4)}>Show more</Button>
+          <Button size="sm" variant="ghost" onClick={() => setShown(messages.length)}>Show all</Button>
+        </div>
+      )}
     </>
   );
 }
