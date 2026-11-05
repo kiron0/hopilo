@@ -42,6 +42,82 @@ describe("web adapters", () => {
     expect(chatgpt.composer(doc)?.tagName).toBe("TEXTAREA");
   });
 
+  it("ChatGPT modern turns: captures both user and assistant without assistant role attribute", async () => {
+    const html = `<html><head><title>Refactor React hook - ChatGPT</title></head><body><main>
+      <article data-testid="conversation-turn-1">
+        <div data-message-author-role="user">
+          <div class="whitespace-pre-wrap">How do I refactor useEffect?</div>
+        </div>
+      </article>
+      <article data-testid="conversation-turn-2">
+        <h6 class="sr-only">ChatGPT said:</h6>
+        <div class="markdown prose">
+          <p>Extract it into a custom hook:</p>
+          <pre><code class="language-ts">function useCustomHook() {}</code></pre>
+        </div>
+      </article>
+      <form><textarea id="prompt-textarea"></textarea></form>
+    </main></body></html>`;
+    const doc = parseHTML(html).document as unknown as Document;
+    const p = await capture(chatgpt, doc, { includeOlder: false });
+    expect(p.title).toBe("Refactor React hook");
+    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(p.messages[0].text).toBe("How do I refactor useEffect?");
+    expect(p.messages[1].text).toContain("Extract it into a custom hook:");
+    expect(p.messages[1].text).toContain("```ts\nfunction useCustomHook() {}\n```");
+  });
+
+  it("ChatGPT SPA navigation: does not merge hidden previous session messages", async () => {
+    const html = `<html><head><title>Current Topic - ChatGPT</title></head><body>
+      <main aria-hidden="true" style="display: none">
+        <article data-testid="conversation-turn-1">
+          <div data-message-author-role="user"><div class="whitespace-pre-wrap">Previous topic question</div></div>
+        </article>
+        <article data-testid="conversation-turn-2">
+          <div class="markdown prose"><p>Previous topic answer</p></div>
+        </article>
+      </main>
+      <main>
+        <article data-testid="conversation-turn-1">
+          <div data-message-author-role="user"><div class="whitespace-pre-wrap">Current topic question</div></div>
+        </article>
+        <article data-testid="conversation-turn-2">
+          <div class="markdown prose"><p>Current topic answer</p></div>
+        </article>
+        <form><textarea id="prompt-textarea"></textarea></form>
+      </main>
+    </body></html>`;
+    const doc = parseHTML(html).document as unknown as Document;
+    const p = await capture(chatgpt, doc, { includeOlder: false });
+    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(p.messages).toHaveLength(2);
+    expect(p.messages[0].text).toBe("Current topic question");
+    expect(p.messages[1].text).toContain("Current topic answer");
+  });
+
+  it("ChatGPT SPA navigation: discards reset turn indices in same container", async () => {
+    const html = `<html><head><title>Turn Reset - ChatGPT</title></head><body><main>
+      <article data-testid="conversation-turn-1">
+        <div data-message-author-role="user"><div class="whitespace-pre-wrap">Old session question</div></div>
+      </article>
+      <article data-testid="conversation-turn-2">
+        <div class="markdown prose"><p>Old session answer</p></div>
+      </article>
+      <article data-testid="conversation-turn-1">
+        <div data-message-author-role="user"><div class="whitespace-pre-wrap">New session question</div></div>
+      </article>
+      <article data-testid="conversation-turn-2">
+        <div class="markdown prose"><p>New session answer</p></div>
+      </article>
+      <form><textarea id="prompt-textarea"></textarea></form>
+    </main></body></html>`;
+    const doc = parseHTML(html).document as unknown as Document;
+    const p = await capture(chatgpt, doc, { includeOlder: false });
+    expect(p.messages).toHaveLength(2);
+    expect(p.messages[0].text).toBe("New session question");
+    expect(p.messages[1].text).toContain("New session answer");
+  });
+
   it("Claude: nested reply containers counted once", async () => {
     const p = await capture(claude, load("claude"), { includeOlder: false });
     expect(p.title).toBe("Release checklist");
