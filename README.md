@@ -5,11 +5,13 @@
 <h1 align="center">Hopilo</h1>
 
 <p align="center">
+  <strong>Universal AI Session Handoff · 100% Offline & Local-First</strong><br />
   Every AI session in one place, with its files. Copy any of them, ready to paste into another AI.
 </p>
 
 <p align="center">
   <a href="https://github.com/kiron0/hopilo/actions/workflows/ci.yml"><img src="https://github.com/kiron0/hopilo/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
+  <img src="https://img.shields.io/badge/100%25%20Offline-Local--First-22c55e" alt="100% Offline" />
   <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-black?logo=tauri" alt="macOS, Windows, Linux" />
   <img src="https://img.shields.io/badge/Rust-stable-orange?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri" alt="Tauri 2" />
@@ -36,7 +38,7 @@
 - Imports pasted text, ChatGPT and Claude data exports, Aider history, files and `.handoff` archives.
 - Warns about keys, tokens and emails before you paste anything.
 - Lives in the menu bar: tap a recent session to copy it, or **Copy latest session** without opening anything.
-- Local-first: agent folders are only read, the library is a SQLite file on your machine, and nothing is uploaded or sent for you. The only network request is **Check for Updates**, when you click it.
+- **100% Offline & Local-First**: agent folders are only read locally, the library is an embedded SQLite file on your machine, and nothing is ever uploaded or synced to the cloud. The only network touchpoint is the manual **Check for Updates** button.
 
 ## How it works
 

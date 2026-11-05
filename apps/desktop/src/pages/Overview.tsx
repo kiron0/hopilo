@@ -338,9 +338,14 @@ export function Overview() {
             draggable={false}
           />
           <div className="flex-1">
-            <div className="font-semibold">Welcome to Hopilo</div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold">Welcome to Hopilo</span>
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-500">
+                100% OFFLINE
+              </span>
+            </div>
             <p className="mt-0.5 text-muted">
-              {`Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything stays on this ${deviceNoun}.`}
+              {`Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything works 100% offline and stays on this ${deviceNoun}.`}
             </p>
           </div>
           <button
@@ -405,7 +410,7 @@ export function Overview() {
           </div>
           <div className="mt-5 flex items-center gap-2 font-mono text-[11px] text-faint">
             <span className={cx("h-1.5 w-1.5 rounded-full", all.length ? "bg-success" : "bg-faint")} />
-            {loading ? "loading…" : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · local only
+            {loading ? "loading…" : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · 100% offline
           </div>
         </Card>
         <SourcesMap sessions={all} loading={loading} />
@@ -458,8 +463,8 @@ export function Overview() {
           tone="c-crimson"
           icon={<ShieldCheck size={15} />}
           title="Privacy"
-          value="0"
-          unit="uploads"
+          value="100%"
+          unit="offline"
           caption={`Nothing leaves this ${deviceNoun}`}
           action="Details"
           onClick={() => navigate({ page: "settings", section: "privacy" })}

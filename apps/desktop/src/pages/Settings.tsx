@@ -279,8 +279,8 @@ export function Settings() {
         {tab === "data" && (
         <>
         <Group id="privacy" title="Privacy">
-          <Row label="Network" hint="No accounts, analytics, telemetry or AI calls. Only Check for Updates contacts GitHub, when you click it.">
-            <span className="text-[12.5px] text-success">{`Nothing leaves your ${deviceNoun}`}</span>
+          <Row label="Network" hint="100% offline. No accounts, analytics, telemetry or AI calls. Only Check for Updates contacts GitHub, when you click it.">
+            <span className="text-[12.5px] font-medium text-success">{`100% Offline · Nothing leaves your ${deviceNoun}`}</span>
           </Row>
           <Row label="Clipboard" hint="Read only when you choose Clipboard in Add.">
             <span className="text-[12.5px] text-muted">On request</span>
@@ -355,9 +355,12 @@ export function Settings() {
                     <span className="rounded-full bg-accent-soft px-2.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">
                       VERSION {info.data ? info.data.version : "0.1.0"}
                     </span>
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-500 border border-emerald-500/20">
+                      100% OFFLINE
+                    </span>
                   </div>
                   <div className="mt-0.5 text-[12px] text-muted">
-                    Every AI session in one place, with its files.
+                    Universal AI Session Handoff · 100% Offline & Local-First
                   </div>
                   <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
                     {updateState.status === "checking" && (
@@ -422,9 +425,12 @@ export function Settings() {
             <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Why Hopilo</div>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
-                <div className="font-semibold text-[12.5px]">Native & Local</div>
+                <div className="font-semibold text-[12.5px] flex items-center gap-1.5">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  <span>100% Offline</span>
+                </div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
-                  Fast SQLite database, zero cloud latency.
+                  Runs entirely on your machine with fast local SQLite.
                 </div>
               </div>
               <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
