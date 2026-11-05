@@ -31,6 +31,7 @@ pub struct SessionRow {
     pub tags: Vec<String>,
     pub last_copied_at: Option<String>,
     pub hidden: bool,
+    pub reply_count: i64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -48,7 +49,7 @@ pub struct OriginState {
 }
 
 const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
-    capture_status, message_count, token_estimate, missing_count, file_count, pinned, tags, last_copied_at, hidden";
+    capture_status, message_count, token_estimate, missing_count, file_count, pinned, tags, last_copied_at, hidden, reply_count";
 
 fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
     Ok(SessionRow {
@@ -69,6 +70,7 @@ fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
         tags: serde_json::from_str(&r.get::<_, String>(14)?).unwrap_or_default(),
         last_copied_at: r.get(15)?,
         hidden: r.get(16)?,
+        reply_count: r.get(17)?,
     })
 }
 
@@ -77,7 +79,7 @@ fn file_count(messages: &[Message]) -> i64 {
 }
 
 /// Messages that are not the user's own prompts. A local-agent session with none of these
-/// never got an answer (the run failed or is still starting) and stays out of the list.
+/// never got an answer (the run failed or is still starting); the list can filter these out.
 fn reply_count(messages: &[Message]) -> i64 {
     messages.iter().filter(|m| m.role != Role::User).count() as i64
 }
@@ -190,7 +192,7 @@ impl Store {
         }
         // Served by the `sources_list` index: no table scan, no temp sort.
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 0 AND (kind <> 'local-agent' OR reply_count > 0)
+            "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 0
              ORDER BY pinned DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC"
         ))?;
         let rows: Vec<SessionRow> = stmt.query_map([], row_from)?.collect::<std::result::Result<_, _>>()?;

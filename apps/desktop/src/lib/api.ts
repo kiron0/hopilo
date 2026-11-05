@@ -76,6 +76,7 @@ export interface SessionRow {
   updatedAt: string;
   captureStatus: CaptureStatus;
   messageCount: number;
+  replyCount: number;
   tokenEstimate: number;
   missingCount: number;
   fileCount: number;

@@ -48,6 +48,9 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "hidden", label: "Hidden" },
 ];
 
+/** An agent session where only the user's prompt was saved: the run failed or never answered. */
+export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
+
 function matches(r: SessionRow, f: Filter) {
   switch (f) {
     case "all":
@@ -150,7 +153,13 @@ function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onC
       return next;
     });
   const label =
-    picked.length === 0 ? "Export" : picked.length === 1 ? `Export ${FORMATS[picked[0]].name}` : `Export ${picked.length} as .zip`;
+    picked.length === 0
+      ? "Export"
+      : picked.length === 1
+      ? `Export ${FORMATS[picked[0]].name}`
+      : picked.length === FORMAT_KEYS.length
+      ? "Export all as .zip"
+      : `Export ${picked.length} as .zip`;
 
   return (
     <Modal
@@ -226,14 +235,12 @@ function SessionList() {
   const [exporting, setExporting] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState<{ id: string; title: string } | null>(null);
   const [confirmRestoreBulk, setConfirmRestoreBulk] = useState<string[] | null>(null);
-  const [limitChoice, setLimitChoice] = useState<number | "auto">("auto");
+  const limitChoice = useApp((s) => s.listView.limit);
+  const hideUnanswered = useApp((s) => s.listView.hideUnanswered);
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
   const pageSize = Math.max(10, limitChoice === "auto" ? autoPageSize : limitChoice);
 
-  const onLimitChange = (lim: number | "auto") => {
-    setLimitChoice(lim);
-    setPage(0);
-  };
+  const onLimitChange = (lim: number | "auto") => setListView({ limit: lim, page: 0 });
 
   const sync = async (manual: boolean) => {
     if (syncing) return;
@@ -265,9 +272,11 @@ function SessionList() {
     return (data ?? []).filter(
       (r) =>
         matches(r, filter) &&
+        !(hideUnanswered && isUnanswered(r)) &&
         (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle) || provider(r.provider).label.toLowerCase().includes(needle) || r.tags.some((t) => t.includes(needle))),
     );
-  }, [data, q, filter]);
+  }, [data, q, filter, hideUnanswered]);
+  const unanswered = useMemo(() => (data ?? []).filter(isUnanswered).length, [data]);
   const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
   const known = useMemo(() => new Set((data ?? []).map((r) => r.id)), [data]);
   const ids = [...selected].filter((id) => known.has(id));
@@ -298,6 +307,21 @@ function SessionList() {
       <PageToolbar>
         <SearchField label="Filter sessions" placeholder="Search by title, project, tool or tag" value={q} onChange={setQ} className="flex-1" />
         <Segmented label="Show" value={filter} onChange={setFilter} options={FILTERS} />
+        {(unanswered > 0 || hideUnanswered) && (
+          <button
+            type="button"
+            aria-pressed={hideUnanswered}
+            title="Agent sessions where only your prompt was saved — the run failed or never answered"
+            onClick={() => setListView({ hideUnanswered: !hideUnanswered, page: 0 })}
+            className={cx(
+              "h-9 shrink-0 rounded-full border px-3.5 text-[13px] font-medium shadow-item transition-colors",
+              hideUnanswered ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-card text-muted hover:text-ink",
+            )}
+          >
+            {hideUnanswered ? "Unanswered hidden" : "Hide unanswered"}
+            <span className="ml-1.5 font-mono text-[11px] opacity-70">{unanswered}</span>
+          </button>
+        )}
         <IconButton label="Check agent folders for new sessions" onClick={() => sync(true)} disabled={syncing} className="h-9 w-9 rounded-full border border-line bg-card shadow-item">
           <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
         </IconButton>

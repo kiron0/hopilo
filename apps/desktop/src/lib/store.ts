@@ -22,6 +22,30 @@ export interface ListView {
   filter: SessionFilter;
   page: number;
   selected: string[];
+  limit: number | "auto";
+  hideUnanswered: boolean;
+}
+
+const LIST_VIEW_KEY = "hopilo.listView";
+const DEFAULT_LIST_VIEW: ListView = { q: "", filter: "all", page: 0, selected: [], limit: "auto", hideUnanswered: false };
+
+// The list's search, tab, page and page size survive opening a session, app reloads and restarts.
+function loadListView(): ListView {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LIST_VIEW_KEY) ?? "{}");
+    return { ...DEFAULT_LIST_VIEW, ...saved, selected: [] };
+  } catch {
+    return DEFAULT_LIST_VIEW;
+  }
+}
+
+function saveListView(v: ListView) {
+  try {
+    const { selected: _, ...rest } = v;
+    localStorage.setItem(LIST_VIEW_KEY, JSON.stringify(rest));
+  } catch {
+    /* storage unavailable: state still lives for this session */
+  }
 }
 
 export interface Toast {
@@ -86,7 +110,7 @@ export const useApp = create<State>((set, get) => ({
     const prev = get().route;
     if (route.page === "settings" && prev.page !== "settings") set({ lastAppRoute: prev });
 
-    if (route.page === "sessions" && route.filter) set({ listView: { ...get().listView, filter: route.filter, page: 0, q: "" } });
+    if (route.page === "sessions" && route.filter) get().setListView({ filter: route.filter, page: 0, q: "" });
     set({ route });
   },
   toasts: [],
@@ -102,6 +126,10 @@ export const useApp = create<State>((set, get) => ({
   bump: () => set({ tick: get().tick + 1 }),
   paletteOpen: false,
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
-  listView: { q: "", filter: "all", page: 0, selected: [] },
-  setListView: (v) => set({ listView: { ...get().listView, ...v } }),
+  listView: loadListView(),
+  setListView: (v) => {
+    const listView = { ...get().listView, ...v };
+    saveListView(listView);
+    set({ listView });
+  },
 }));

@@ -24,18 +24,19 @@ fn capture(origin: &str, text: &str) -> (Source, Vec<Message>) {
 }
 
 #[test]
-fn agent_sessions_without_a_reply_stay_out_of_the_list() {
+fn agent_sessions_without_a_reply_are_listed_and_flagged() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = Store::open(dir.path()).unwrap();
     let (s, mut m) = capture("/failed.jsonl", "prompt that errored");
     m.truncate(1);
     let id = db.insert_capture(&s, &m).unwrap().source_id;
-    assert!(db.list_sessions().unwrap().is_empty());
-    assert!(db.session_origins().unwrap().contains_key("/failed.jsonl"), "still tracked so sync skips it");
+    let rows = db.list_sessions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].reply_count, 0);
 
     let (s2, m2) = capture("/failed.jsonl", "prompt that errored");
     assert_eq!(db.insert_capture(&s2, &m2).unwrap().source_id, id);
-    assert_eq!(db.list_sessions().unwrap().len(), 1, "shows up once the agent answers");
+    assert_eq!(db.list_sessions().unwrap()[0].reply_count, 1, "updates once the agent answers");
 }
 
 #[test]
@@ -68,7 +69,7 @@ fn list_queries_use_indexes() {
     let plan: Vec<String> = db
         .conn
         .prepare(
-            "EXPLAIN QUERY PLAN SELECT id FROM sources WHERE hidden = 0 AND (kind <> 'local-agent' OR reply_count > 0)
+            "EXPLAIN QUERY PLAN SELECT id FROM sources WHERE hidden = 0
              ORDER BY pinned DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC",
         )
         .unwrap()
