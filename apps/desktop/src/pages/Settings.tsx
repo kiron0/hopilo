@@ -21,6 +21,7 @@ import { saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import {
   isMac,
+  isLinux,
   isWindows,
   platformName,
   deviceNoun,
@@ -162,7 +163,10 @@ export function Settings() {
               }}
             />
           </Row>
-          <Row label="On launch, show" hint={isMac ? "The menu-bar icon is always available." : "The system tray icon is always available."}>
+          <Row
+            label="On launch, show"
+            hint={isMac ? "The menu-bar icon is always available." : isLinux ? "Overview is safer when a Linux desktop hides tray icons." : "The system tray icon is always available."}
+          >
             <Segmented
               label="On launch"
               value={s.startupSurface === "home" ? "overview" : s.startupSurface}
@@ -184,17 +188,23 @@ export function Settings() {
               ]}
             />
           </Row>
-          <Row label={isMac ? "Menu-bar icon click" : "System tray icon click"}>
-            <Segmented
-              label="Tray click"
-              value={s.trayClick}
-              onChange={(v) => saveSetting("trayClick", v)}
-              options={[
-                { value: "panel", label: "Quick Panel" },
-                { value: "dashboard", label: "Dashboard" },
-              ]}
-            />
-          </Row>
+          {isLinux ? (
+            <Row label="System tray interaction" hint="Linux tray APIs expose the menu, not direct icon clicks.">
+              <span className="text-[12.5px] text-muted">Open from menu</span>
+            </Row>
+          ) : (
+            <Row label={isMac ? "Menu-bar icon click" : "System tray icon click"}>
+              <Segmented
+                label="Tray click"
+                value={s.trayClick}
+                onChange={(v) => saveSetting("trayClick", v)}
+                options={[
+                  { value: "panel", label: "Quick Panel" },
+                  { value: "dashboard", label: "Dashboard" },
+                ]}
+              />
+            </Row>
+          )}
         </Group>
         )}
 

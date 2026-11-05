@@ -50,7 +50,7 @@ fn app_ready(window: tauri::Window) {
 
 fn setting_str(app: &AppHandle, key: &str) -> Option<String> {
     let state = app.state::<AppState>();
-    let store = state.store.lock().ok()?;
+    let store = state.store.try_lock().ok()?;
     store.settings().ok()?.get(key)?.as_str().map(str::to_string)
 }
 
@@ -103,10 +103,15 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Hopilo", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Hopilo", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&latest, &PredefinedMenuItem::separator(app)?, &open, &quit])?;
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
+    let icon_bytes: &[u8] = if cfg!(target_os = "macos") {
+        include_bytes!("../icons/tray.png")
+    } else {
+        include_bytes!("../icons/32x32.png")
+    };
+    let icon = tauri::image::Image::from_bytes(icon_bytes)?;
     TrayIconBuilder::with_id("hopilo")
         .icon(icon)
-        .icon_as_template(true)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Hopilo")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -165,7 +170,8 @@ pub fn run() {
             }
 
             let first_run = !settings.contains_key("onboarded");
-            let startup = settings.get("startupSurface").and_then(|v| v.as_str()).unwrap_or("tray");
+            let default_startup = if cfg!(target_os = "linux") { "overview" } else { "tray" };
+            let startup = settings.get("startupSurface").and_then(|v| v.as_str()).unwrap_or(default_startup);
             let want = first_run || startup != "tray";
             app.manage(StartupState { show_main: std::sync::atomic::AtomicBool::new(want) });
             if want {

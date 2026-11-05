@@ -650,13 +650,13 @@ pub async fn browser_status(app: AppHandle) -> CmdResult<BrowserStatus> {
 }
 
 #[tauri::command]
-pub fn register_browser_host(ids: Vec<String>) -> CmdResult<Vec<String>> {
-    crate::browser::register(&ids)
+pub async fn register_browser_host(ids: Vec<String>) -> CmdResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || crate::browser::register(&ids)).await.map_err(err)?
 }
 
 #[tauri::command]
 pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdResult<Vec<String>> {
-    let res = crate::browser::unregister(&ids)?;
+    let res = tauri::async_runtime::spawn_blocking(move || crate::browser::unregister(&ids)).await.map_err(err)??;
     blocking(app.clone(), move |app, state| {
         let targets = crate::browser::targets();
         let any_registered = targets.iter().any(|b| b.registered);

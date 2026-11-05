@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +43,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Stub desktop frontend
+        shell: bash
         run: mkdir -p apps/desktop/dist && echo '<!doctype html>' > apps/desktop/dist/index.html
 
       - name: Build browser bridge sidecar
