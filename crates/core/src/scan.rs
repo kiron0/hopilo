@@ -87,6 +87,35 @@ pub fn scan_pack(pack: &Pack, only: Option<&std::collections::HashSet<String>>) 
     out
 }
 
+pub fn redact_text(text: &str) -> String {
+    let mut out = text.to_string();
+    for (kind, re) in patterns() {
+        out = re.replace_all(&out, |_: &regex::Captures| format!("[REDACTED: {kind}]")).to_string();
+    }
+    out
+}
+
+pub fn redact_pack(pack: &mut Pack) {
+    for m in &mut pack.messages {
+        for b in &mut m.blocks {
+            match b {
+                crate::model::Block::Text { text } => *text = redact_text(text),
+                crate::model::Block::ToolCall { input, .. } => *input = redact_text(input),
+                crate::model::Block::ToolResult { output, .. } => *output = redact_text(output),
+                _ => {}
+            }
+        }
+    }
+    if let Some(note) = &mut pack.context.note {
+        *note = redact_text(note);
+    }
+    for a in &mut pack.attachments {
+        if let Some(t) = &mut a.text {
+            *t = redact_text(t);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,5 +133,15 @@ mod tests {
         let mut f = Vec::new();
         scan_text("fn main() { println!(\"hi\"); }", "m1", &mut f);
         assert!(f.is_empty());
+    }
+
+    #[test]
+    fn redacts_secrets() {
+        let raw = "Use key sk-ant-api03-abcdefghijklmnopqrstuvwxyz or contact admin@example.com";
+        let cleaned = redact_text(raw);
+        assert!(!cleaned.contains("sk-ant"));
+        assert!(!cleaned.contains("admin@example.com"));
+        assert!(cleaned.contains("[REDACTED: Anthropic API key]"));
+        assert!(cleaned.contains("[REDACTED: Email address]"));
     }
 }

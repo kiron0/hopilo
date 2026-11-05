@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type SessionRow } from "../lib/api";
-import { copySessions } from "../lib/actions";
 import { basename, plural, provider, relativeTime } from "../lib/format";
 import { prefetch, saveSetting, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
@@ -9,6 +8,7 @@ import { deviceNoun } from "../lib/platform";
 import { Button, Card, cx, ProviderBadge, Skeleton } from "../components/ui";
 import { RowSkeleton } from "../components/Skeletons";
 import { AddSessionModal } from "../components/AddSession";
+import { HandoffModal, type HandoffAction } from "../components/HandoffModal";
 import { sessionLoader } from "./Sessions";
 import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, Send, ShieldCheck, X } from "../components/Icons";
 import { Flow } from "../components/Flow";
@@ -208,7 +208,7 @@ function Tile({
       </div>
       {loading ? (
         <div aria-hidden className="lc-num">
-          <span className="inline-block h-9 w-20 rounded-xl bg-white/20 animate-pulse" />
+          <Skeleton className="my-1 h-9 w-24 rounded-xl" />
         </div>
       ) : (
         <div className="lc-num">
@@ -216,7 +216,7 @@ function Tile({
           <em>{unit}</em>
         </div>
       )}
-      <div className="lc-sub">{caption}</div>
+      <div className="lc-sub">{loading ? <Skeleton className="my-0.5 h-3.5 w-32 rounded-md" /> : caption}</div>
       <div className="lc-foot">
         <button
           type="button"
@@ -249,9 +249,8 @@ const STEPS = [
   },
 ];
 
-function RecentRow({ row }: { row: SessionRow }) {
+function RecentRow({ row, onCopy }: { row: SessionRow; onCopy: (id: string) => void }) {
   const navigate = useApp((s) => s.navigate);
-  const [busy, setBusy] = useState(false);
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <ProviderBadge id={row.provider} />
@@ -268,13 +267,8 @@ function RecentRow({ row }: { row: SessionRow }) {
       </button>
       <Button
         size="sm"
-        busy={busy}
         icon={<Copy size={13} />}
-        onClick={async () => {
-          setBusy(true);
-          await copySessions([row.id]);
-          setBusy(false);
-        }}
+        onClick={() => onCopy(row.id)}
       >
         Copy
       </Button>
@@ -289,8 +283,8 @@ export function Overview() {
   const settings = useApp((s) => s.settings);
   const stats = useLoad(() => api.stats());
   const sessions = useLoad(() => api.listSessions());
-  const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const s = stats.data;
   const loading = sessions.loading && !sessions.data;
@@ -379,12 +373,10 @@ export function Overview() {
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              disabled={!latest || busy}
-              onClick={async () => {
+              disabled={!latest}
+              onClick={() => {
                 if (!latest) return;
-                setBusy(true);
-                await copySessions([latest.id]);
-                setBusy(false);
+                setHandoff({ ids: [latest.id], action: "copy" });
               }}
               className="group flex h-12 items-center gap-2.5 rounded-full border border-line bg-surface py-1.5 pr-4 pl-1.5 shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:shadow-card active:scale-[0.98] disabled:opacity-50 disabled:hover:translate-y-0"
             >
@@ -392,7 +384,7 @@ export function Overview() {
                 <Copy size={15} />
               </span>
               <span className="text-left leading-tight">
-                <span className="block text-[13px] font-semibold">{busy ? "Copying…" : "Continue latest"}</span>
+                <span className="block text-[13px] font-semibold">Continue latest</span>
                 <span className="block max-w-[180px] truncate font-mono text-[10.5px] text-faint">{latest ? latest.title : "no session yet"}</span>
               </span>
             </button>
@@ -410,7 +402,7 @@ export function Overview() {
           </div>
           <div className="mt-5 flex items-center gap-2 font-mono text-[11px] text-faint">
             <span className={cx("h-1.5 w-1.5 rounded-full", all.length ? "bg-success" : "bg-faint")} />
-            {loading ? "loading…" : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · 100% offline
+            {loading ? <Skeleton className="inline-block h-3 w-16 rounded" /> : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · 100% offline
           </div>
         </Card>
         <SourcesMap sessions={all} loading={loading} />
@@ -449,7 +441,7 @@ export function Overview() {
           tone="c-green"
           icon={<Send size={15} />}
           title="Copies"
-          loading={!s}
+          loading={stats.loading && !s}
           value={String(s?.handoffsTotal ?? 0)}
           unit="made"
           caption={s?.lastHandoff ? `Last for ${target(s.lastHandoff.target).label} · ${relativeTime(s.lastHandoff.createdAt)}` : "None yet"}
@@ -497,7 +489,7 @@ export function Overview() {
             )}
             {sessions.data && recent.length === 0 && <div className="flex-1 flex items-center justify-center px-4 py-8 text-center text-[13px] text-muted">No sessions yet. Coding-agent sessions show up on their own.</div>}
             {recent.slice(0, 4).map((r) => (
-              <RecentRow key={r.id} row={r} />
+              <RecentRow key={r.id} row={r} onCopy={(id) => setHandoff({ ids: [id], action: "copy" })} />
             ))}
           </div>
         </Card>
@@ -531,6 +523,7 @@ export function Overview() {
         </Card>
       </section>
       {adding && <AddSessionModal onClose={() => setAdding(false)} />}
+      {handoff && <HandoffModal ids={handoff.ids} action={handoff.action} onClose={() => setHandoff(null)} />}
     </div>
   );
 }

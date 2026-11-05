@@ -12,7 +12,6 @@ import {
   Globe,
   LayoutGrid,
   List,
-  Loader2,
   MessagesSquare,
   Paperclip,
   Pin,
@@ -26,7 +25,7 @@ import {
   X,
 } from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
-import { copySessions, exportSessionsAs, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
+import { pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
 import { prefetch, saveSetting, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
@@ -34,6 +33,7 @@ import { target, TARGETS } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
 import { AddSessionModal } from "../components/AddSession";
 import { FileImportModal } from "../components/FileImport";
+import { HandoffModal, type HandoffAction } from "../components/HandoffModal";
 import { ProviderLogo } from "../components/ProviderLogos";
 import { Select, type SelectOption } from "../components/Select";
 import { SessionListSkeleton, SessionPageSkeleton } from "../components/Skeletons";
@@ -47,7 +47,6 @@ import {
   EmptyState,
   ErrorNote,
   IconButton,
-  Modal,
   PageHeader,
   Pagination,
   ProviderBadge,
@@ -137,134 +136,6 @@ function FilterSelect({ label, value, options, onChange, className = "w-36" }: {
   return <div className={`shrink-0 ${className}`}><Select size="sm" label={label} value={value} options={options} onChange={onChange} /></div>;
 }
 
-const FORMAT_KEYS = Object.keys(FORMATS) as Format[];
-const EXPORT_PICK_KEY = "hopilo.exportFormats";
-
-function loadPicked(): Format[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(EXPORT_PICK_KEY) ?? "[]");
-    const valid = Array.isArray(raw) ? FORMAT_KEYS.filter((f) => raw.includes(f)) : [];
-    return valid.length ? valid : ["md"];
-  } catch {
-    return ["md"];
-  }
-}
-
-function savePicked(f: Format[]) {
-  try {
-    localStorage.setItem(EXPORT_PICK_KEY, JSON.stringify(f));
-  } catch {}
-}
-
-function FormatThumb({ format }: { format: Format }) {
-  const line = "h-[3px] rounded-full bg-current opacity-25";
-  return (
-    <div aria-hidden className="relative mx-auto flex h-[62px] w-[50px] flex-col gap-[5px] rounded-[7px] border border-line bg-card px-[7px] pt-[9px] shadow-item">
-      {format === "md" && (
-        <>
-          <div className="h-[4px] w-[70%] rounded-full bg-current opacity-60" />
-          <div className={cx(line, "w-full")} />
-          <div className={cx(line, "w-[85%]")} />
-          <div className="flex gap-[3px]"><div className="h-[3px] w-[3px] rounded-full bg-current opacity-40" /><div className={cx(line, "w-[70%]")} /></div>
-          <div className="flex gap-[3px]"><div className="h-[3px] w-[3px] rounded-full bg-current opacity-40" /><div className={cx(line, "w-[55%]")} /></div>
-        </>
-      )}
-      {format === "txt" && [100, 92, 100, 74, 88].map((w, i) => <div key={i} className={line} style={{ width: `${w}%` }} />)}
-      {format === "json" && (
-        <div className="font-mono text-[7px] leading-[9px] opacity-60">
-          {"{"}
-          <div className="pl-[5px]">"id": …</div>
-          <div className="pl-[5px]">"msgs": [ ]</div>
-          {"}"}
-        </div>
-      )}
-      {format === "handoff" && (
-        <>
-          <div className="mx-auto h-[22px] w-[4px] bg-[repeating-linear-gradient(to_bottom,currentColor_0_3px,transparent_3px_6px)] opacity-40" />
-          <div className="mx-auto h-[8px] w-[10px] rounded-[2px] border border-current opacity-50" />
-        </>
-      )}
-      <span className="absolute -bottom-[7px] left-1/2 -translate-x-1/2 rounded-[5px] bg-surface-3 px-[5px] py-px font-mono text-[9px] font-semibold uppercase tracking-wide text-muted">
-        .{FORMATS[format].ext}
-      </span>
-    </div>
-  );
-}
-
-function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onClose: () => void }) {
-  const [picked, setPicked] = useState<Format[]>(loadPicked);
-  const [busy, setBusy] = useState(false);
-  const toggle = (f: Format) =>
-    setPicked((p) => {
-      const next = p.includes(f) ? p.filter((x) => x !== f) : FORMAT_KEYS.filter((x) => x === f || p.includes(x));
-      savePicked(next);
-      return next;
-    });
-  const label =
-    picked.length === 0
-      ? "Export"
-      : picked.length === 1
-      ? `Export ${FORMATS[picked[0]].name}`
-      : picked.length === FORMAT_KEYS.length
-      ? "Export all as .zip"
-      : `Export ${picked.length} as .zip`;
-
-  return (
-    <Modal
-      title={ids.length > 1 ? `Export ${ids.length} sessions` : "Export session"}
-      onClose={onClose}
-      wide
-      footer={(close) => (
-        <>
-          <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button
-            variant="primary"
-            busy={busy}
-            disabled={picked.length === 0}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                if (await exportSessionsAs(ids, picked, { level })) close();
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {label}
-          </Button>
-        </>
-      )}
-    >
-      <div role="group" aria-label="Formats" className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        {FORMAT_KEYS.map((f) => {
-          const on = picked.includes(f);
-          return (
-            <label
-              key={f}
-              className={cx(
-                "relative flex cursor-pointer flex-col items-center gap-3 rounded-2xl border px-2.5 pb-3 pt-4 text-center transition-all",
-                on ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-surface text-faint hover:border-line-strong hover:bg-surface-2",
-              )}
-            >
-              <span className="absolute right-2.5 top-2.5 flex">
-                <Checkbox label={`Include ${FORMATS[f].name}`} checked={on} onChange={() => toggle(f)} />
-              </span>
-              <FormatThumb format={f} />
-              <span className="mt-1 block">
-                <span className="block text-[13px] font-semibold text-ink">{FORMATS[f].name}</span>
-                <span className="mt-0.5 block text-[11px] text-faint">{FORMATS[f].hint}</span>
-              </span>
-            </label>
-          );
-        })}
-      </div>
-      <p className="mt-3 text-[12px] text-faint">
-        {picked.length > 1 ? "Several formats are saved together in one .zip file." : "Pick more than one format to get them all in a single .zip."}
-      </p>
-    </Modal>
-  );
-}
-
 function SessionList() {
   const { q, filter, provider: providerFilter, model: modelFilter, resource: resourceFilter, page, selected: picked } = useApp((s) => s.listView);
   const { data, error, loading, reload } = useLoad(() => (filter === "hidden" ? api.listHiddenSessions() : api.listSessions()), [filter]);
@@ -278,9 +149,8 @@ function SessionList() {
   const selected = useMemo(() => new Set(picked), [picked]);
   const setSelected = (n: Set<string>) => setListView({ selected: [...n] });
   const [syncing, setSyncing] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [confirmRestore, setConfirmRestore] = useState<{ id: string; title: string } | null>(null);
   const [confirmRestoreBulk, setConfirmRestoreBulk] = useState<string[] | null>(null);
   const limitChoice = useApp((s) => s.listView.limit);
@@ -397,10 +267,8 @@ function SessionList() {
     else n.add(id);
     setSelected(n);
   };
-  const copy = async (list: string[]) => {
-    setBusy(list.join());
-    await copySessions(list);
-    setBusy(null);
+  const copy = (list: string[]) => {
+    setHandoff({ ids: list, action: "copy" });
   };
   const openSession = (r: SessionRow) => {
     prefetch(sessionLoader(r.id), [r.id]);
@@ -412,7 +280,7 @@ function SessionList() {
         Restore
       </Button>
     ) : (
-      <Button size="sm" variant={on ? "secondary" : "primary"} busy={busy === r.id} icon={<Copy size={13} />} onClick={() => copy([r.id])} title={`Copy for ${target(settings.defaultTarget).label}`}>
+      <Button size="sm" variant={on ? "secondary" : "primary"} icon={<Copy size={13} />} onClick={() => copy([r.id])} title={`Copy for ${target(settings.defaultTarget).label}`}>
         Copy
       </Button>
     );
@@ -669,10 +537,10 @@ function SessionList() {
                   </Button>
                 ) : (
                   <>
-                    <Button size="sm" icon={<Download size={13} />} onClick={() => setExporting(true)}>
+                    <Button size="sm" icon={<Download size={13} />} onClick={() => setHandoff({ ids, action: "export" })}>
                       Export
                     </Button>
-                    <Button size="sm" variant="primary" busy={busy === ids.join()} icon={<Copy size={13} />} onClick={() => copy(ids)}>
+                    <Button size="sm" variant="primary" icon={<Copy size={13} />} onClick={() => setHandoff({ ids, action: "copy" })}>
                       {ids.length > 1 ? "Copy together" : "Copy"}
                     </Button>
                   </>
@@ -699,7 +567,7 @@ function SessionList() {
         </span>
       </PageFooter>
       {adding && <AddSessionModal onClose={() => setAdding(false)} />}
-      {exporting && <ExportModal ids={ids} level={settings.level} onClose={() => setExporting(false)} />}
+      {handoff && <HandoffModal ids={handoff.ids} action={handoff.action} onClose={() => setHandoff(null)} />}
       {confirmRestore && (
         <AlertDialog
           title="Restore session"
@@ -791,8 +659,7 @@ function SessionPage({ id }: { id: string }) {
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
   const [to, setTo] = useState(settings.defaultTarget);
   const [level, setLevel] = useState<Level>(settings.level);
-  const [busy, setBusy] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [paths, setPaths] = useState<string[] | null>(null);
@@ -804,11 +671,6 @@ function SessionPage({ id }: { id: string }) {
   const { row, source, messages, files, tokenEstimate } = data;
   const agent = row.kind === "local-agent";
 
-  const copy = async (markdown = false) => {
-    setBusy(true);
-    await copySessions([id], { target: to, level, markdown });
-    setBusy(false);
-  };
   const remove = async () => {
     try {
       await api.removeSession(id);
@@ -881,14 +743,14 @@ function SessionPage({ id }: { id: string }) {
           <TargetSelect value={to} onChange={setTo} />
         </div>
         <Segmented label="How much to include" value={level} onChange={setLevel} options={LEVELS} />
-        <Button variant="primary" busy={busy} icon={<Copy size={14} />} onClick={() => copy()}>
+        <Button variant="primary" icon={<Copy size={14} />} onClick={() => setHandoff({ ids: [id], action: "copy" })}>
           Copy
         </Button>
         <div className="flex-1" />
-        <Button size="sm" icon={<Copy size={13} />} onClick={() => copy(true)}>
+        <Button size="sm" icon={<Copy size={13} />} onClick={() => setHandoff({ ids: [id], action: "copy-markdown" })}>
           Copy Markdown
         </Button>
-        <Button size="sm" icon={<Download size={13} />} onClick={() => setExporting(true)}>
+        <Button size="sm" icon={<Download size={13} />} onClick={() => setHandoff({ ids: [id], action: "export" })}>
           Export
         </Button>
         <Button size="sm" icon={<FilePlus2 size={13} />} onClick={async () => { const p = await pickFiles(); if (p.length) setPaths(p); }}>
@@ -930,7 +792,6 @@ function SessionPage({ id }: { id: string }) {
               { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
             ]}
           />
-          {busy && <Loader2 size={14} className="animate-spin text-accent" />}
         </div>
         {tab === "conversation" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
@@ -940,7 +801,7 @@ function SessionPage({ id }: { id: string }) {
           <FilesTab files={files} />
         )}
       </Card>
-      {exporting && <ExportModal ids={[id]} level={level} onClose={() => setExporting(false)} />}
+      {handoff && <HandoffModal ids={handoff.ids} action={handoff.action} initialLevel={level} onClose={() => setHandoff(null)} />}
       {paths && <FileImportModal paths={paths} session={id} onClose={() => setPaths(null)} />}
       {confirmDelete && (
         <AlertDialog

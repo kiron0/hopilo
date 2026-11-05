@@ -257,6 +257,7 @@ pub fn run() {
             commands::register_browser_host,
             commands::unregister_browser_host,
             handoff::copy_sessions,
+            handoff::preflight_handoff,
             handoff::suggest_export_name,
             handoff::export_sessions,
             handoff::export_sessions_zip,

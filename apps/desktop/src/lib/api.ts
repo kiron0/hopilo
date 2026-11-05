@@ -94,12 +94,33 @@ export interface SessionDetail {
   tokenEstimate: number;
 }
 
-export interface CopyOptions {
+export interface Finding {
+  kind: string;
+  preview: string;
+  location: string;
+}
 
+export interface LevelStats {
+  messageCount: number;
+  tokenEstimate: number;
+}
+
+export interface HandoffPreflight {
+  title: string;
+  totalMessages: number;
+  totalTokens: number;
+  findings: Finding[];
+  full: LevelStats;
+  balanced: LevelStats;
+  minimal: LevelStats;
+}
+
+export interface CopyOptions {
   markdown?: boolean;
   target?: string;
   toolDetail?: ToolDetail;
   level?: Level;
+  excludeSecrets?: boolean;
 }
 
 export interface CopyOutcome {
@@ -227,6 +248,7 @@ export const api = {
   removeSession: (id: string) => invoke<void>("remove_session", { id }),
 
   copySessions: (ids: string[], opts: CopyOptions = {}) => invoke<CopyOutcome>("copy_sessions", { ids, opts }),
+  preflightHandoff: (ids: string[]) => invoke<HandoffPreflight>("preflight_handoff", { ids }),
   suggestExportName: (ids: string[], ext: string) => invoke<string>("suggest_export_name", { ids, ext }),
   exportSessions: (ids: string[], format: string, path: string, opts: CopyOptions = {}) => invoke<string>("export_sessions", { ids, format, path, opts }),
   exportSessionsZip: (ids: string[], formats: string[], path: string, opts: CopyOptions = {}) =>

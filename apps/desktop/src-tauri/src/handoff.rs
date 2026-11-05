@@ -48,14 +48,16 @@ fn defaults(state: &State<AppState>) -> Defaults {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CopyOptions {
     #[serde(default)]
-    markdown: bool,
-    target: Option<String>,
-    tool_detail: Option<ToolDetailOpt>,
-    level: Option<ContextLevel>,
+    pub markdown: bool,
+    pub target: Option<String>,
+    pub tool_detail: Option<ToolDetailOpt>,
+    pub level: Option<ContextLevel>,
+    #[serde(default)]
+    pub exclude_secrets: bool,
 }
 
 #[derive(Serialize)]
@@ -91,15 +93,99 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
     }
     let state = app.state::<AppState>();
     let d = defaults(&state);
-    let target = opts.target.filter(|t| !t.is_empty()).unwrap_or(d.target);
+    let target = opts.target.as_ref().filter(|t| !t.is_empty()).cloned().unwrap_or(d.target);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
-    let pack = with_store(&state, |s| s.compose(ids).map_err(err))?;
+    let mut pack = with_store(&state, |s| s.compose(ids).map_err(err))?;
+    if opts.exclude_secrets {
+        hopilo_core::scan::redact_pack(&mut pack);
+    }
     let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_handoff_prompt(&pack, &ropts) };
+    let text = if opts.exclude_secrets { hopilo_core::scan::redact_text(&text) } else { text };
     app.clipboard().write_text(text.clone()).map_err(|e| format!("Couldn't write to the clipboard: {e}"))?;
     let (rec_target, method) = if opts.markdown { ("other", "clipboard-markdown") } else { (target.as_str(), "clipboard") };
     with_store(&state, |s| s.record_copy(ids, rec_target, method, "copied").map_err(err))?;
     notify(app);
     Ok(outcome(&pack, ids, target, &text))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelStats {
+    pub message_count: usize,
+    pub token_estimate: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffPreflight {
+    pub title: String,
+    pub total_messages: usize,
+    pub total_tokens: usize,
+    pub findings: Vec<hopilo_core::scan::Finding>,
+    pub full: LevelStats,
+    pub balanced: LevelStats,
+    pub minimal: LevelStats,
+}
+
+#[tauri::command]
+pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<HandoffPreflight> {
+    blocking(app, move |app, _| {
+        if ids.is_empty() {
+            return Err("Choose at least one session".into());
+        }
+        let state = app.state::<AppState>();
+        with_store(&state, |s| {
+            let pack = s.compose(&ids).map_err(err)?;
+            let findings = hopilo_core::scan::scan_pack(&pack, None);
+            let total_messages = pack.messages.len();
+
+            let d = defaults(&state);
+            let ropts_full = render_opts(d.tool_detail, ContextLevel::Full);
+            let ropts_bal = render_opts(d.tool_detail, ContextLevel::Balanced);
+            let ropts_min = render_opts(d.tool_detail, ContextLevel::Minimal);
+
+            let txt_full = render_handoff_prompt(&pack, &ropts_full);
+            let txt_bal = render_handoff_prompt(&pack, &ropts_bal);
+            let txt_min = render_handoff_prompt(&pack, &ropts_min);
+
+            let msgs_full = hopilo_core::render::visible_messages(&pack, &ropts_full).len();
+            let msgs_bal = {
+                let all_vis = hopilo_core::render::visible_messages(&pack, &ropts_bal);
+                let split = all_vis.len().saturating_sub(hopilo_core::brief::BALANCED_RECENT);
+                let (earlier, recent) = all_vis.split_at(split);
+                let earlier_shown = earlier.iter().filter(|m| m.role != hopilo_core::model::Role::Tool && m.has_text()).count();
+                earlier_shown + recent.len()
+            };
+            let msgs_min = {
+                let all_vis = hopilo_core::render::visible_messages(&pack, &ropts_min);
+                let mut count = 0;
+                if hopilo_core::brief::first_user(&all_vis).is_some() { count += 1; }
+                if let Some(m) = hopilo_core::brief::last_with(&all_vis, hopilo_core::model::Role::User) {
+                    if Some(m.id.as_str()) != hopilo_core::brief::first_user(&all_vis).map(|f| f.id.as_str()) {
+                        count += 1;
+                    }
+                }
+                if hopilo_core::brief::last_with(&all_vis, hopilo_core::model::Role::Assistant).is_some() {
+                    count += 1;
+                }
+                count.max(if total_messages > 0 { 1 } else { 0 }).min(total_messages)
+            };
+
+            let tok_full = estimate_tokens(&txt_full);
+            let tok_bal = estimate_tokens(&txt_bal);
+            let tok_min = estimate_tokens(&txt_min);
+
+            Ok(HandoffPreflight {
+                title: pack.title,
+                total_messages,
+                total_tokens: tok_full,
+                findings,
+                full: LevelStats { message_count: msgs_full, token_estimate: tok_full },
+                balanced: LevelStats { message_count: msgs_bal, token_estimate: tok_bal },
+                minimal: LevelStats { message_count: msgs_min, token_estimate: tok_min },
+            })
+        })
+    }).await
 }
 
 #[tauri::command]
@@ -134,6 +220,7 @@ struct Prepared {
     pack: Pack,
     blobs: std::collections::HashMap<String, Vec<u8>>,
     ropts: RenderOptions,
+    exclude_secrets: bool,
 }
 
 fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opts: Option<CopyOptions>) -> CmdResult<Prepared> {
@@ -145,7 +232,10 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
     let want_blobs = formats.contains(&"handoff");
     with_store(state, |s| {
-        let pack = s.compose(ids).map_err(err)?;
+        let mut pack = s.compose(ids).map_err(err)?;
+        if opts.exclude_secrets {
+            hopilo_core::scan::redact_pack(&mut pack);
+        }
         let mut blobs = std::collections::HashMap::new();
         if want_blobs {
             for a in &pack.attachments {
@@ -154,14 +244,20 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
                 }
             }
         }
-        Ok(Prepared { pack, blobs, ropts })
+        Ok(Prepared { pack, blobs, ropts, exclude_secrets: opts.exclude_secrets })
     })
 }
 
 fn render_export(p: &Prepared, format: &str) -> CmdResult<Vec<u8>> {
     Ok(match format {
-        "md" => render_markdown(&p.pack, &p.ropts).into_bytes(),
-        "txt" => render_handoff_prompt(&p.pack, &p.ropts).into_bytes(),
+        "md" => {
+            let s = render_markdown(&p.pack, &p.ropts);
+            if p.exclude_secrets { hopilo_core::scan::redact_text(&s).into_bytes() } else { s.into_bytes() }
+        }
+        "txt" => {
+            let s = render_handoff_prompt(&p.pack, &p.ropts);
+            if p.exclude_secrets { hopilo_core::scan::redact_text(&s).into_bytes() } else { s.into_bytes() }
+        }
         "json" => hopilo_pack_format::to_json(&p.pack).map_err(err)?.into_bytes(),
         "handoff" => {
             let mut buf = std::io::Cursor::new(Vec::new());
