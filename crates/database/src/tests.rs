@@ -16,14 +16,69 @@ fn capture(origin: &str, text: &str) -> (Source, Vec<Message>) {
         missing_items: vec![],
         omitted: vec![],
     };
-    let msgs = vec![Message {
-        id: "m1".into(),
-        source_id: sid,
-        role: Role::User,
-        created_at: None,
-        blocks: vec![Block::text(text)],
-    }];
+    let msgs = vec![
+        Message { id: "m1".into(), source_id: sid.clone(), role: Role::User, created_at: None, blocks: vec![Block::text(text)] },
+        Message { id: "m2".into(), source_id: sid, role: Role::Assistant, created_at: None, blocks: vec![Block::text("On it.")] },
+    ];
     (source, msgs)
+}
+
+#[test]
+fn agent_sessions_without_a_reply_stay_out_of_the_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, mut m) = capture("/failed.jsonl", "prompt that errored");
+    m.truncate(1);
+    let id = db.insert_capture(&s, &m).unwrap().source_id;
+    assert!(db.list_sessions().unwrap().is_empty());
+    assert!(db.session_origins().unwrap().contains_key("/failed.jsonl"), "still tracked so sync skips it");
+
+    let (s2, m2) = capture("/failed.jsonl", "prompt that errored");
+    assert_eq!(db.insert_capture(&s2, &m2).unwrap().source_id, id);
+    assert_eq!(db.list_sessions().unwrap().len(), 1, "shows up once the agent answers");
+}
+
+#[test]
+fn session_list_and_transcripts_are_cached_until_the_next_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/c.jsonl", "first");
+    let id = db.insert_capture(&s, &m).unwrap().source_id;
+    let a = db.list_sessions().unwrap();
+    let before = db.conn.total_changes();
+    assert_eq!(db.list_sessions().unwrap().len(), a.len());
+    assert_eq!(db.get_source(&id).unwrap().1.len(), 2);
+    assert_eq!(db.get_source(&id).unwrap().1.len(), 2);
+    assert_eq!(db.conn.total_changes(), before);
+
+    db.update_session(&id, &SessionPatch { title: Some("Renamed".into()), ..Default::default() }).unwrap();
+    assert_eq!(db.list_sessions().unwrap()[0].title, "Renamed");
+    assert_eq!(db.get_source(&id).unwrap().0.title, "Renamed");
+
+    // A write from another connection (e.g. the native host) also invalidates.
+    let mut other = Store::open(dir.path()).unwrap();
+    other.update_session(&id, &SessionPatch { title: Some("From host".into()), ..Default::default() }).unwrap();
+    assert_eq!(db.list_sessions().unwrap()[0].title, "From host");
+}
+
+#[test]
+fn list_queries_use_indexes() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Store::open(dir.path()).unwrap();
+    let plan: Vec<String> = db
+        .conn
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT id FROM sources WHERE hidden = 0 AND (kind <> 'local-agent' OR reply_count > 0)
+             ORDER BY pinned DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC",
+        )
+        .unwrap()
+        .query_map([], |r| r.get::<_, String>(3))
+        .unwrap()
+        .flatten()
+        .collect();
+    let plan = plan.join("\n");
+    assert!(plan.contains("sources_list"), "{plan}");
+    assert!(!plan.contains("TEMP B-TREE"), "{plan}");
 }
 
 fn pack_from(source: Source, messages: Vec<Message>) -> Pack {
@@ -250,21 +305,21 @@ fn sessions_refresh_in_place_and_keep_pin_and_tags() {
         .unwrap();
 
     let (s2, mut m2) = capture("/s.jsonl", "first turn");
-    m2.push(Message { id: "m2".into(), source_id: s2.source_id.clone(), role: Role::Assistant, created_at: None, blocks: vec![Block::text("reply")] });
+    m2.push(Message { id: "m3".into(), source_id: s2.source_id.clone(), role: Role::User, created_at: None, blocks: vec![Block::text("next")] });
     let again = db.upsert_session(&s2, &m2, Some("2030-01-01T00:00:00Z")).unwrap();
     assert_eq!(again.source_id, first.source_id);
     assert!(again.duplicate_of.is_none());
 
     let rows = db.list_sessions().unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].message_count, 2);
+    assert_eq!(rows[0].message_count, 3);
     assert!(rows[0].pinned);
     assert_eq!(rows[0].tags, vec!["auth"]);
     assert_eq!(rows[0].updated_at, "2030-01-01T00:00:00Z");
     let (src, msgs) = db.get_source(&first.source_id).unwrap();
     assert_eq!(src.source_id, first.source_id);
     assert!(msgs.iter().all(|m| m.source_id == first.source_id));
-    assert_eq!(db.search("reply", 5).unwrap().len(), 1);
+    assert_eq!(db.search("next", 5).unwrap().len(), 1);
 }
 
 #[test]
@@ -319,7 +374,7 @@ fn compose_combines_sessions_with_their_files_and_logs_copies() {
 
     let pack = db.compose(&[a.clone(), b.clone()]).unwrap();
     assert_eq!(pack.sources.len(), 2);
-    assert_eq!(pack.messages.len(), 3);
+    assert_eq!(pack.messages.len(), 5);
     assert_eq!(pack.attachments.len(), 1);
     assert!(pack.title.starts_with("2 sessions"));
 
@@ -342,8 +397,8 @@ fn upgrade_folds_packs_and_loose_files_into_sessions() {
         let text = m[0].blocks[0].plain_text().to_string();
         db.conn
             .execute(
-                "INSERT INTO sources (id, kind, provider, title, origin, captured_at, capture_status, source_json, message_count, token_estimate, content_hash)
-                 VALUES (?1, 'local-agent', 'claude-code', 't', '/u.jsonl', ?2, 'complete', ?3, 1, 1, ?4)",
+                "INSERT INTO sources (id, kind, provider, title, origin, captured_at, capture_status, source_json, message_count, token_estimate, content_hash, reply_count)
+                 VALUES (?1, 'local-agent', 'claude-code', 't', '/u.jsonl', ?2, 'complete', ?3, 1, 1, ?4, 1)",
                 params![s.source_id, if text == "old" { "2020" } else { "2021" }, serde_json::to_string(s).unwrap(), text],
             )
             .unwrap();

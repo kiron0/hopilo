@@ -1672,6 +1672,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-window-state",
  "tempfile",
+ "zip",
 ]
 
 [[package]]

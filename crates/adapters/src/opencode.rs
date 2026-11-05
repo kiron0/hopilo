@@ -115,12 +115,20 @@ fn has_table(conn: &Connection, name: &str) -> bool {
 
 fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashMap<String, SessionRow>> {
     let mut map: std::collections::HashMap<String, SessionRow> = std::collections::HashMap::new();
+    // A session only counts once the agent actually answered: an assistant turn that failed
+    // before producing anything (e.g. a provider error) leaves an empty record behind, and
+    // listing it would show a transcript holding nothing but the user's prompt.
     let queries = [
         (Store::V1, "session", "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
-                (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id)
+                (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id),
+                EXISTS (SELECT 1 FROM message m JOIN part p ON p.message_id = m.id
+                        WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'assistant'
+                          AND json_extract(p.data, '$.type') IN ('text', 'tool'))
              FROM session s WHERE s.parent_id IS NULL AND s.time_archived IS NULL"),
         (Store::V2, "session_v2", "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
-                (SELECT COUNT(*) FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user', 'assistant'))
+                (SELECT COUNT(*) FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user', 'assistant')),
+                EXISTS (SELECT 1 FROM session_message m WHERE m.session_id = s.id AND m.type = 'assistant'
+                          AND json_array_length(m.data, '$.content') > 0)
              FROM session_v2 s WHERE s.parent_id IS NULL AND s.time_archived IS NULL"),
     ];
     for (store, table, sql) in queries {
@@ -130,9 +138,17 @@ fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashM
         let mut stmt = conn.prepare(sql).map_err(sql_err(db))?;
         let rows = stmt
             .query_map([], |r| {
+                let answered: bool = r.get(6)?;
                 Ok((
                     r.get::<_, String>(0)?,
-                    SessionRow { title: r.get(1)?, dir: r.get(2)?, model: r.get(3)?, updated: r.get(4)?, count: r.get(5)?, store },
+                    SessionRow {
+                        title: r.get(1)?,
+                        dir: r.get(2)?,
+                        model: r.get(3)?,
+                        updated: r.get(4)?,
+                        count: if answered { r.get(5)? } else { 0 },
+                        store,
+                    },
                 ))
             })
             .map_err(sql_err(db))?;
@@ -494,6 +510,33 @@ mod tests {
         assert!(cap.source.omitted.iter().any(|o| o.count == 1));
 
         assert_eq!(std::fs::read(&db).unwrap(), before);
+    }
+
+    #[test]
+    fn skips_sessions_whose_assistant_turn_produced_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = sample_db(dir.path());
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch(
+            r#"
+            INSERT INTO session VALUES ('ses_err', NULL, 'Failed run', '/work/x', NULL, 1, 5, NULL);
+            INSERT INTO message VALUES ('e1', 'ses_err', 10, 10, '{"role":"user"}');
+            INSERT INTO message VALUES ('e2', 'ses_err', 20, 20, '{"role":"assistant","error":{"type":"provider.error"}}');
+            INSERT INTO part VALUES ('ep1', 'e1', 'ses_err', 11, 11, '{"type":"text","text":"Do the thing"}');
+            CREATE TABLE session_v2 (id TEXT, parent_id TEXT, title TEXT, directory TEXT, model TEXT,
+                time_created INTEGER, time_updated INTEGER, time_archived INTEGER);
+            CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);
+            INSERT INTO session_v2 VALUES ('ses_err2', NULL, 'Failed v2', '/work/x', NULL, 1, 6, NULL);
+            INSERT INTO session_message VALUES ('x', 'ses_err2', 'user', 1, 10, 10, '{"text":"Hello","files":[]}');
+            INSERT INTO session_message VALUES ('y', 'ses_err2', 'assistant', 2, 11, 11, '{"content":[],"error":{"type":"provider.error"}}');
+            "#,
+        )
+        .unwrap();
+        drop(c);
+
+        let found = OpenCode.discover(dir.path()).unwrap();
+        let ids: Vec<&str> = found.iter().map(|s| s.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["ses_1"]);
     }
 
     #[test]

@@ -26,6 +26,7 @@ hopilo-database.workspace = true
 hopilo-native-host = { path = "../../../crates/native-host" }
 serde.workspace = true
 serde_json.workspace = true
+zip.workspace = true
 # macos-private-api: transparent borderless windows (rounded Quick Panel).
 # No vibrancy is used.
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }

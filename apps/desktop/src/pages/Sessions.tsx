@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Pin, Plus, RefreshCw, RotateCcw, Trash2, X } from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
-import { copySessions, exportSessions, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
+import { copySessions, exportSessionsAs, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
 import { prefetch, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
@@ -21,7 +21,6 @@ import {
   ErrorNote,
   IconButton,
   Modal,
-  useModalClose,
   PageHeader,
   Pagination,
   ProviderBadge,
@@ -84,31 +83,127 @@ function meta(r: SessionRow) {
     .join(" · ");
 }
 
-function ExportModalBody({ ids, level }: { ids: string[]; level: Level }) {
-  const close = useModalClose();
+const FORMAT_KEYS = Object.keys(FORMATS) as Format[];
+const EXPORT_PICK_KEY = "hopilo.exportFormats";
+
+function loadPicked(): Format[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(EXPORT_PICK_KEY) ?? "[]");
+    const valid = Array.isArray(raw) ? FORMAT_KEYS.filter((f) => raw.includes(f)) : [];
+    return valid.length ? valid : ["md"];
+  } catch {
+    return ["md"];
+  }
+}
+
+function savePicked(f: Format[]) {
+  try {
+    localStorage.setItem(EXPORT_PICK_KEY, JSON.stringify(f));
+  } catch {
+    /* storage unavailable: selection just isn't remembered */
+  }
+}
+
+/** Miniature page hinting at what each format looks like inside. */
+function FormatThumb({ format }: { format: Format }) {
+  const line = "h-[3px] rounded-full bg-current opacity-25";
   return (
-    <div className="grid grid-cols-2 gap-2.5">
-      {(Object.keys(FORMATS) as Format[]).map((f) => (
-        <button
-          key={f}
-          type="button"
-          onClick={async () => {
-            if (await exportSessions(ids, f, { level })) close?.();
-          }}
-          className="card card-sm p-3.5 text-left transition-all hover:-translate-y-px hover:shadow-pop"
-        >
-          <span className="block text-[13px] font-semibold">{FORMATS[f].name}</span>
-          <span className="mt-0.5 block font-mono text-[11px] text-faint">.{FORMATS[f].ext} · {FORMATS[f].hint}</span>
-        </button>
-      ))}
+    <div aria-hidden className="relative mx-auto flex h-[62px] w-[50px] flex-col gap-[5px] rounded-[7px] border border-line bg-card px-[7px] pt-[9px] shadow-item">
+      {format === "md" && (
+        <>
+          <div className="h-[4px] w-[70%] rounded-full bg-current opacity-60" />
+          <div className={cx(line, "w-full")} />
+          <div className={cx(line, "w-[85%]")} />
+          <div className="flex gap-[3px]"><div className="h-[3px] w-[3px] rounded-full bg-current opacity-40" /><div className={cx(line, "w-[70%]")} /></div>
+          <div className="flex gap-[3px]"><div className="h-[3px] w-[3px] rounded-full bg-current opacity-40" /><div className={cx(line, "w-[55%]")} /></div>
+        </>
+      )}
+      {format === "txt" && [100, 92, 100, 74, 88].map((w, i) => <div key={i} className={line} style={{ width: `${w}%` }} />)}
+      {format === "json" && (
+        <div className="font-mono text-[7px] leading-[9px] opacity-60">
+          {"{"}
+          <div className="pl-[5px]">"id": …</div>
+          <div className="pl-[5px]">"msgs": [ ]</div>
+          {"}"}
+        </div>
+      )}
+      {format === "handoff" && (
+        <>
+          <div className="mx-auto h-[22px] w-[4px] bg-[repeating-linear-gradient(to_bottom,currentColor_0_3px,transparent_3px_6px)] opacity-40" />
+          <div className="mx-auto h-[8px] w-[10px] rounded-[2px] border border-current opacity-50" />
+        </>
+      )}
+      <span className="absolute -bottom-[7px] left-1/2 -translate-x-1/2 rounded-[5px] bg-surface-3 px-[5px] py-px font-mono text-[9px] font-semibold uppercase tracking-wide text-muted">
+        .{FORMATS[format].ext}
+      </span>
     </div>
   );
 }
 
 function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onClose: () => void }) {
+  const [picked, setPicked] = useState<Format[]>(loadPicked);
+  const [busy, setBusy] = useState(false);
+  const toggle = (f: Format) =>
+    setPicked((p) => {
+      const next = p.includes(f) ? p.filter((x) => x !== f) : FORMAT_KEYS.filter((x) => x === f || p.includes(x));
+      savePicked(next);
+      return next;
+    });
+  const label =
+    picked.length === 0 ? "Export" : picked.length === 1 ? `Export ${FORMATS[picked[0]].name}` : `Export ${picked.length} as .zip`;
+
   return (
-    <Modal title={ids.length > 1 ? `Export ${ids.length} sessions` : "Export session"} onClose={onClose}>
-      <ExportModalBody ids={ids} level={level} />
+    <Modal
+      title={ids.length > 1 ? `Export ${ids.length} sessions` : "Export session"}
+      onClose={onClose}
+      wide
+      footer={(close) => (
+        <>
+          <Button variant="ghost" onClick={close}>Cancel</Button>
+          <Button
+            variant="primary"
+            busy={busy}
+            disabled={picked.length === 0}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                if (await exportSessionsAs(ids, picked, { level })) close();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {label}
+          </Button>
+        </>
+      )}
+    >
+      <div role="group" aria-label="Formats" className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {FORMAT_KEYS.map((f) => {
+          const on = picked.includes(f);
+          return (
+            <label
+              key={f}
+              className={cx(
+                "relative flex cursor-pointer flex-col items-center gap-3 rounded-2xl border px-2.5 pb-3 pt-4 text-center transition-all",
+                on ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-surface text-faint hover:border-line-strong hover:bg-surface-2",
+              )}
+            >
+              <span className="absolute right-2.5 top-2.5 flex">
+                <Checkbox label={`Include ${FORMATS[f].name}`} checked={on} onChange={() => toggle(f)} />
+              </span>
+              <FormatThumb format={f} />
+              <span className="mt-1 block">
+                <span className="block text-[13px] font-semibold text-ink">{FORMATS[f].name}</span>
+                <span className="mt-0.5 block text-[11px] text-faint">{FORMATS[f].hint}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-[12px] text-faint">
+        {picked.length > 1 ? "Several formats are saved together in one .zip file." : "Pick more than one format to get them all in a single .zip."}
+      </p>
     </Modal>
   );
 }

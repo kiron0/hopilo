@@ -55,6 +55,22 @@ export async function exportSessions(ids: string[], format: Format, opts: CopyOp
   }
 }
 
+/** One format saves that file alone; several are bundled into a single .zip. */
+export async function exportSessionsAs(ids: string[], formats: Format[], opts: CopyOptions = {}) {
+  if (formats.length === 1) return exportSessions(ids, formats[0], opts);
+  try {
+    const suggested = await api.suggestExportName(ids, "zip");
+    const path = await save({ defaultPath: suggested, filters: [{ name: "Zip archive", extensions: ["zip"] }] });
+    if (!path) return null;
+    const written = await api.exportSessionsZip(ids, formats, path, opts);
+    toast({ kind: "success", text: `Saved ${formats.length} formats to ${written}` });
+    return written;
+  } catch (e) {
+    toast({ kind: "error", text: `Export failed: ${errorText(e)}` });
+    return null;
+  }
+}
+
 export async function captureClipboard() {
   try {
     const out = await api.captureClipboard();

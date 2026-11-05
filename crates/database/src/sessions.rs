@@ -76,6 +76,12 @@ fn file_count(messages: &[Message]) -> i64 {
     messages.iter().flat_map(|m| m.blocks.iter()).filter(|b| matches!(b, Block::File { .. })).count() as i64
 }
 
+/// Messages that are not the user's own prompts. A local-agent session with none of these
+/// never got an answer (the run failed or is still starting) and stays out of the list.
+fn reply_count(messages: &[Message]) -> i64 {
+    messages.iter().filter(|m| m.role != Role::User).count() as i64
+}
+
 fn clean_tags(tags: &[String]) -> Vec<String> {
     let mut clean: Vec<String> =
         tags.iter().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty() && t.chars().count() <= 40).collect();
@@ -142,12 +148,13 @@ impl Store {
             source.missing_items.len() as i64,
             file_count(messages),
             updated,
+            reply_count(messages),
         ];
         if existing.is_some() {
             tx.execute(
                 "UPDATE sources SET kind = ?2, provider = ?3, title = ?4, origin = ?5, project = ?6, model = ?7,
                     captured_at = ?8, capture_status = ?9, source_json = ?10, message_count = ?11, token_estimate = ?12,
-                    content_hash = ?13, missing_count = ?14, file_count = ?15, updated_at = ?16, hidden = 0
+                    content_hash = ?13, missing_count = ?14, file_count = ?15, updated_at = ?16, reply_count = ?17, hidden = 0
                  WHERE id = ?1",
                 values,
             )?;
@@ -156,13 +163,13 @@ impl Store {
         } else {
             tx.execute(
                 "INSERT INTO sources (id, kind, provider, title, origin, project, model, captured_at, capture_status,
-                    source_json, message_count, token_estimate, content_hash, missing_count, file_count, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                    source_json, message_count, token_estimate, content_hash, missing_count, file_count, updated_at, reply_count)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 values,
             )?;
         }
         {
-            let mut stmt = tx.prepare(
+            let mut stmt = tx.prepare_cached(
                 "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for (i, m) in messages.iter().enumerate() {
@@ -177,16 +184,22 @@ impl Store {
     }
 
     pub fn list_sessions(&self) -> Result<Vec<SessionRow>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 0
+        let now = crate::cache::stamp(&self.conn);
+        if let Some(hit) = crate::cache::Cache::sessions(&self.cache, now) {
+            return Ok((*hit).clone());
+        }
+        // Served by the `sources_list` index: no table scan, no temp sort.
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 0 AND (kind <> 'local-agent' OR reply_count > 0)
              ORDER BY pinned DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC"
         ))?;
-        let rows = stmt.query_map([], row_from)?;
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
+        let rows: Vec<SessionRow> = stmt.query_map([], row_from)?.collect::<std::result::Result<_, _>>()?;
+        crate::cache::Cache::put_sessions(&self.cache, now, std::sync::Arc::new(rows.clone()));
+        Ok(rows)
     }
 
     pub fn list_hidden_sessions(&self) -> Result<Vec<SessionRow>> {
-        let mut stmt = self.conn.prepare(&format!(
+        let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 1
              ORDER BY COALESCE(updated_at, captured_at) DESC, rowid DESC"
         ))?;
@@ -203,7 +216,7 @@ impl Store {
         tx.execute("UPDATE sources SET hidden = 0 WHERE id = ?1", [id])?;
         let mut text = String::new();
         {
-            let mut stmt = tx.prepare("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
+            let mut stmt = tx.prepare_cached("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
             let rows = stmt.query_map([id], |r| r.get::<_, String>(0))?;
             for r in rows {
                 let blocks_json = r?;
@@ -232,7 +245,7 @@ impl Store {
     }
 
     pub fn session_origins(&self) -> Result<std::collections::HashMap<String, OriginState>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT origin, id, COALESCE(updated_at, captured_at), hidden FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
         )?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, OriginState { id: r.get(1)?, updated_at: r.get(2)?, hidden: r.get(3)? })))?;
@@ -409,8 +422,16 @@ impl Store {
         let text = messages_text(messages);
         let tx = self.conn.transaction()?;
         tx.execute(
-            "UPDATE sources SET message_count = ?2, token_estimate = ?3, content_hash = ?4, file_count = ?5, updated_at = ?6 WHERE id = ?1",
-            params![id, messages.len() as i64, estimate_tokens(&text) as i64, content_hash(messages)?, file_count(messages), now_rfc3339()],
+            "UPDATE sources SET message_count = ?2, token_estimate = ?3, content_hash = ?4, file_count = ?5, updated_at = ?6, reply_count = ?7 WHERE id = ?1",
+            params![
+                id,
+                messages.len() as i64,
+                estimate_tokens(&text) as i64,
+                content_hash(messages)?,
+                file_count(messages),
+                now_rfc3339(),
+                reply_count(messages)
+            ],
         )?;
         tx.execute("DELETE FROM messages WHERE source_id = ?1", [id])?;
         for (i, m) in messages.iter().enumerate() {
@@ -466,7 +487,7 @@ impl Store {
                      SELECT 1 FROM sources n WHERE n.origin = s.origin AND (n.captured_at > s.captured_at OR (n.captured_at = s.captured_at AND n.rowid > s.rowid))));",
         )?;
         let ids: Vec<String> = {
-            let mut stmt = self.conn.prepare("SELECT id FROM sources")?;
+            let mut stmt = self.conn.prepare_cached("SELECT id FROM sources")?;
             let rows = stmt.query_map([], |r| r.get(0))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
@@ -475,7 +496,7 @@ impl Store {
             self.conn.execute("UPDATE sources SET file_count = ?2 WHERE id = ?1", params![id, file_count(&msgs)])?;
         }
         let packs: Vec<(String, bool)> = {
-            let mut stmt = self.conn.prepare("SELECT id, pinned FROM packs WHERE archived = 0 ORDER BY created_at")?;
+            let mut stmt = self.conn.prepare_cached("SELECT id, pinned FROM packs WHERE archived = 0 ORDER BY created_at")?;
             let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
@@ -488,7 +509,7 @@ impl Store {
             }
         }
         let orphans: Vec<Attachment> = {
-            let mut stmt = self.conn.prepare(
+            let mut stmt = self.conn.prepare_cached(
                 "SELECT id, file_name, media_type, size, sha256, origin_path, text FROM attachments a
                  WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE instr(m.blocks_json, a.sha256) > 0)
                  ORDER BY created_at",

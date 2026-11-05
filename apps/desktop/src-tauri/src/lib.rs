@@ -243,6 +243,7 @@ pub fn run() {
             handoff::copy_sessions,
             handoff::suggest_export_name,
             handoff::export_sessions,
+            handoff::export_sessions_zip,
             handoff::capture_clipboard,
         ])
         .build(tauri::generate_context!())

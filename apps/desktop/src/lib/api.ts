@@ -228,6 +228,8 @@ export const api = {
   copySessions: (ids: string[], opts: CopyOptions = {}) => invoke<CopyOutcome>("copy_sessions", { ids, opts }),
   suggestExportName: (ids: string[], ext: string) => invoke<string>("suggest_export_name", { ids, ext }),
   exportSessions: (ids: string[], format: string, path: string, opts: CopyOptions = {}) => invoke<string>("export_sessions", { ids, format, path, opts }),
+  exportSessionsZip: (ids: string[], formats: string[], path: string, opts: CopyOptions = {}) =>
+    invoke<string>("export_sessions_zip", { ids, formats, path, opts }),
 
   importText: (text: string, kind: "clipboard" | "manual", title?: string, label?: string) =>
     invoke<ImportOutcome>("import_text", { text, kind, title, label }),

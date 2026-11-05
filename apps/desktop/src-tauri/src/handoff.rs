@@ -123,40 +123,85 @@ pub async fn export_sessions(app: AppHandle, ids: Vec<String>, format: String, p
     blocking(app, move |app, state| export_blocking(app, &state, &ids, &format, &path, opts)).await
 }
 
-fn export_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], format: &str, path: &str, opts: Option<CopyOptions>) -> CmdResult<String> {
-    if !matches!(format, "md" | "txt" | "json" | "handoff") {
-        return Err(format!("unknown export format {format}"));
+/// Sessions exported as several formats at once land in one `.zip`, one file per format.
+#[tauri::command]
+pub async fn export_sessions_zip(app: AppHandle, ids: Vec<String>, formats: Vec<String>, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
+    blocking(app, move |app, state| export_zip_blocking(app, &state, &ids, &formats, &path, opts)).await
+}
+
+const EXPORT_FORMATS: [&str; 4] = ["md", "txt", "json", "handoff"];
+
+struct Prepared {
+    pack: Pack,
+    blobs: std::collections::HashMap<String, Vec<u8>>,
+    ropts: RenderOptions,
+}
+
+fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opts: Option<CopyOptions>) -> CmdResult<Prepared> {
+    if let Some(bad) = formats.iter().find(|f| !EXPORT_FORMATS.contains(f)) {
+        return Err(format!("unknown export format {bad}"));
     }
     let opts = opts.unwrap_or_default();
     let d = defaults(state);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
-    let dest = PathBuf::from(path);
-
-    let (pack, blobs) = with_store(state, |s| {
+    let want_blobs = formats.contains(&"handoff");
+    with_store(state, |s| {
         let pack = s.compose(ids).map_err(err)?;
-        let mut blobs: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
-        if format == "handoff" {
+        let mut blobs = std::collections::HashMap::new();
+        if want_blobs {
             for a in &pack.attachments {
                 if let Some(bytes) = s.attachment_bytes(&a.sha256) {
                     blobs.insert(a.sha256.clone(), bytes);
                 }
             }
         }
-        Ok((pack, blobs))
-    })?;
+        Ok(Prepared { pack, blobs, ropts })
+    })
+}
 
-    match format {
-        "md" => write_atomic(&dest, render_markdown(&pack, &ropts).as_bytes())?,
-        "txt" => write_atomic(&dest, render_handoff_prompt(&pack, &ropts).as_bytes())?,
-        "json" => write_atomic(&dest, hopilo_pack_format::to_json(&pack).map_err(err)?.as_bytes())?,
+fn render_export(p: &Prepared, format: &str) -> CmdResult<Vec<u8>> {
+    Ok(match format {
+        "md" => render_markdown(&p.pack, &p.ropts).into_bytes(),
+        "txt" => render_handoff_prompt(&p.pack, &p.ropts).into_bytes(),
+        "json" => hopilo_pack_format::to_json(&p.pack).map_err(err)?.into_bytes(),
         "handoff" => {
             let mut buf = std::io::Cursor::new(Vec::new());
-            hopilo_pack_format::write_handoff(&pack, &ropts, &|a| blobs.get(&a.sha256).cloned(), &mut buf).map_err(err)?;
-            write_atomic(&dest, &buf.into_inner())?;
+            hopilo_pack_format::write_handoff(&p.pack, &p.ropts, &|a| p.blobs.get(&a.sha256).cloned(), &mut buf).map_err(err)?;
+            buf.into_inner()
         }
-        _ => unreachable!(),
-    }
+        other => return Err(format!("unknown export format {other}")),
+    })
+}
+
+fn export_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], format: &str, path: &str, opts: Option<CopyOptions>) -> CmdResult<String> {
+    let prepared = prepare_export(state, ids, &[format], opts)?;
+    let dest = PathBuf::from(path);
+    write_atomic(&dest, &render_export(&prepared, format)?)?;
     with_store(state, |s| s.record_copy(ids, "file", &format!("export-{format}"), "exported").map_err(err))?;
+    notify(app);
+    Ok(dest.display().to_string())
+}
+
+fn export_zip_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], formats: &[String], path: &str, opts: Option<CopyOptions>) -> CmdResult<String> {
+    use std::io::Write;
+    let mut formats: Vec<&str> = formats.iter().map(String::as_str).collect();
+    formats.sort_by_key(|f| EXPORT_FORMATS.iter().position(|x| x == f));
+    formats.dedup();
+    if formats.is_empty() {
+        return Err("pick at least one format".into());
+    }
+    let prepared = prepare_export(state, ids, &formats, opts)?;
+    let title = with_store(state, |s| s.composed_title(ids).map_err(err))?;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for f in &formats {
+        zip.start_file(hopilo_pack_format::export_filename_for(&title, 0, f), o).map_err(err)?;
+        zip.write_all(&render_export(&prepared, f)?).map_err(err)?;
+    }
+    let bytes = zip.finish().map_err(err)?.into_inner();
+    let dest = PathBuf::from(path);
+    write_atomic(&dest, &bytes)?;
+    with_store(state, |s| s.record_copy(ids, "file", &format!("export-zip-{}", formats.join("+")), "exported").map_err(err))?;
     notify(app);
     Ok(dest.display().to_string())
 }

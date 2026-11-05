@@ -6,6 +6,7 @@ use hopilo_core::{now_rfc3339, new_id, Attachment, Block, Message, Pack, Source}
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
+mod cache;
 mod migrations;
 mod sessions;
 
@@ -28,6 +29,21 @@ pub type Result<T> = std::result::Result<T, DbError>;
 pub struct Store {
     conn: Connection,
     root: PathBuf,
+    cache: std::cell::RefCell<cache::Cache>,
+}
+
+/// Connection tuning applied to every handle. WAL + `synchronous=NORMAL` is durable
+/// across app crashes (only an OS crash can lose the last commits); the rest keeps
+/// hot pages and temp sorts in memory and lets reads go through mmap.
+fn tune(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "PRAGMA synchronous = NORMAL;
+         PRAGMA temp_store = MEMORY;
+         PRAGMA cache_size = -65536;
+         PRAGMA mmap_size = 1073741824;",
+    )?;
+    conn.set_prepared_statement_cache_capacity(64);
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -271,6 +287,7 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        tune(&conn)?;
 
         let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if current > 0 && (current as usize) < migrations::latest() {
@@ -279,7 +296,7 @@ impl Store {
                 conn.execute("VACUUM INTO ?1", [backup.display().to_string()])?;
             }
         }
-        let mut store = Self { conn, root: root.to_path_buf() };
+        let mut store = Self { conn, root: root.to_path_buf(), cache: Default::default() };
         migrations::run(&mut store.conn)?;
         if current > 0 && current < 3 {
             store.upgrade_to_sessions()?;
@@ -287,6 +304,8 @@ impl Store {
         if current > 0 && (current as usize) < migrations::latest() {
             prune_backups(root, current + 1);
         }
+        // Refresh planner statistics only where they are stale; cheap when nothing changed.
+        let _ = store.conn.execute_batch("PRAGMA optimize = 0x10002;");
         Ok(store)
     }
 
@@ -297,7 +316,8 @@ impl Store {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI,
         )?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        Ok(Self { conn, root: root.to_path_buf() })
+        tune(&conn)?;
+        Ok(Self { conn, root: root.to_path_buf(), cache: Default::default() })
     }
 
     pub fn root(&self) -> &Path {
@@ -313,7 +333,7 @@ impl Store {
     }
 
     pub fn list_sources(&self) -> Result<Vec<SourceRow>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, kind, provider, title, origin, project, model, captured_at, capture_status,
                     message_count, token_estimate, missing_count
              FROM sources ORDER BY captured_at DESC, rowid DESC",
@@ -338,7 +358,7 @@ impl Store {
     }
 
     pub fn imported_origins(&self) -> Result<HashMap<String, (String, String)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT origin, id, captured_at FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
         )?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get(1)?, r.get(2)?))))?;
@@ -346,6 +366,16 @@ impl Store {
     }
 
     pub fn get_source(&self, id: &str) -> Result<(Source, Vec<Message>)> {
+        let now = cache::stamp(&self.conn);
+        if let Some(hit) = cache::Cache::source(&self.cache, now, id) {
+            return Ok((*hit).clone());
+        }
+        let loaded = self.load_source(id)?;
+        cache::Cache::put_source(&self.cache, now, id, std::sync::Arc::new(loaded.clone()));
+        Ok(loaded)
+    }
+
+    fn load_source(&self, id: &str) -> Result<(Source, Vec<Message>)> {
         let (json, title): (String, String) = self
             .conn
             .query_row("SELECT source_json, title FROM sources WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -353,7 +383,7 @@ impl Store {
             .ok_or_else(|| DbError::NotFound(format!("source {id}")))?;
         let mut source: Source = serde_json::from_str(&json)?;
         source.title = title;
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, role, created_at, blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal",
         )?;
         let rows = stmt.query_map([id], |r| {
@@ -447,7 +477,7 @@ impl Store {
     }
 
     pub fn list_attachments(&self) -> Result<Vec<Attachment>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, file_name, media_type, size, sha256, origin_path, text FROM attachments ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], Self::attachment_from_row)?;
@@ -525,7 +555,7 @@ impl Store {
     }
 
     pub fn list_packs(&self) -> Result<Vec<PackRow>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT p.id, p.title, p.created_at, p.updated_at, p.favorite, p.pinned, p.archived, p.latest_version,
                     v.message_count, v.token_estimate, v.providers, v.attachment_count, p.tags
              FROM packs p JOIN pack_versions v ON v.pack_id = p.id AND v.version = p.latest_version
@@ -553,7 +583,7 @@ impl Store {
     }
 
     pub fn list_versions(&self, pack_id: &str) -> Result<Vec<VersionRow>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT version, created_at, label, mode, message_count, token_estimate, content_hash
              FROM pack_versions WHERE pack_id = ?1 ORDER BY version DESC",
         )?;
@@ -644,7 +674,7 @@ impl Store {
     }
 
     pub fn relations(&self, pack_id: Option<&str>) -> Result<Vec<RelationRow>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT r.from_pack, r.from_version, a.title, r.to_pack, r.to_version, b.title, r.kind, r.created_at
              FROM pack_relations r LEFT JOIN packs a ON a.id = r.from_pack LEFT JOIN packs b ON b.id = r.to_pack
              WHERE ?1 IS NULL OR r.from_pack = ?1 OR r.to_pack = ?1 ORDER BY r.id",
@@ -678,7 +708,7 @@ impl Store {
     pub fn audit(&self) -> Result<AuditReport> {
         let database: String = self.conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
         let mut report = AuditReport { database, ..Default::default() };
-        let mut stmt = self.conn.prepare("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;
+        let mut stmt = self.conn.prepare_cached("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))?;
         for row in rows {
             let (pid, v, json, hash) = row?;
@@ -722,7 +752,7 @@ impl Store {
     }
 
     pub fn list_handoffs(&self, limit: i64) -> Result<Vec<HandoffRow>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT h.id, h.pack_id, COALESCE(p.title, s.title), h.version, h.target, h.method, h.status, h.created_at
              FROM handoffs h LEFT JOIN packs p ON p.id = h.pack_id LEFT JOIN sources s ON s.id = h.pack_id
              ORDER BY h.created_at DESC, h.rowid DESC LIMIT ?1",
@@ -745,7 +775,7 @@ impl Store {
     pub fn recent_activity(&self, limit: i64) -> Result<Vec<ActivityRow>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT kind, ref_id, detail, created_at FROM activity_events ORDER BY id DESC LIMIT ?1")?;
+            .prepare_cached("SELECT kind, ref_id, detail, created_at FROM activity_events ORDER BY id DESC LIMIT ?1")?;
         let rows = stmt.query_map([limit], |r| {
             Ok(ActivityRow { kind: r.get(0)?, ref_id: r.get(1)?, detail: r.get(2)?, created_at: r.get(3)? })
         })?;
@@ -753,7 +783,7 @@ impl Store {
     }
 
     pub fn settings(&self) -> Result<HashMap<String, serde_json::Value>> {
-        let mut stmt = self.conn.prepare("SELECT key, value FROM settings")?;
+        let mut stmt = self.conn.prepare_cached("SELECT key, value FROM settings")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         let mut out = HashMap::new();
         for row in rows {
@@ -778,7 +808,7 @@ impl Store {
 
     pub fn search(&self, q: &str, limit: i64) -> Result<Vec<SearchHit>> {
         let Some(query) = fts_query(q) else { return Ok(vec![]) };
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT kind, ref_id, title, snippet(search_index, 3, '[', ']', '…', 12)
              FROM search_index WHERE search_index MATCH ?1 ORDER BY rank LIMIT ?2",
         )?;
