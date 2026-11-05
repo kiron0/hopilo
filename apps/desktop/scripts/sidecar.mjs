@@ -31,7 +31,13 @@ const build = (target) => {
 const dest = join(tauriDir, "binaries", `hopilo-native-host-${triple}${exe}`);
 mkdirSync(dirname(dest), { recursive: true });
 if (triple === "universal-apple-darwin") {
-  const slices = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map(build);
+  const slices = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map((target) => {
+    const built = build(target);
+    const sliceDest = join(tauriDir, "binaries", `hopilo-native-host-${target}`);
+    copyFileSync(built, sliceDest);
+    chmodSync(sliceDest, 0o755);
+    return built;
+  });
   execFileSync("lipo", ["-create", "-output", dest, ...slices], { stdio: "inherit" });
 } else {
   copyFileSync(build(explicit ? triple : null), dest);
