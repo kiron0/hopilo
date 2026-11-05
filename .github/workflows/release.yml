@@ -1,0 +1,285 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version override (e.g. 0.1.0; empty reads from apps/desktop/src-tauri/tauri.conf.json)"
+        type: string
+        required: false
+        default: ""
+      prerelease:
+        description: "Mark this release as a pre-release"
+        type: boolean
+        required: false
+        default: false
+      draft:
+        description: "Create this release as a draft"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      draft: ${{ steps.resolve.outputs.draft }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: resolve
+        shell: bash
+        run: |
+          input_ver="${{ inputs.version }}"
+          if [ -n "$input_ver" ]; then
+            ver="$input_ver"
+          else
+            ver=$(node -e 'const conf = JSON.parse(require("fs").readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")); console.log(conf.version);')
+          fi
+          ver="${ver#v}"
+          tag="v$ver"
+          is_pre="${{ inputs.prerelease }}"
+          if [ "$is_pre" != "true" ] && echo "$ver" | grep -Eq '-(alpha|beta|rc)'; then
+            is_pre="true"
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$is_pre" >> "$GITHUB_OUTPUT"
+          echo "draft=${{ inputs.draft }}" >> "$GITHUB_OUTPUT"
+
+  build-desktop:
+    name: Desktop (${{ matrix.os }})
+    needs: [version]
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            os: macos
+            target: universal-apple-darwin
+          - platform: ubuntu-22.04
+            os: linux
+            target: ""
+          - platform: windows-latest
+            os: windows
+            target: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.30.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Apply version override
+        shell: bash
+        run: |
+          target_ver="${{ needs.version.outputs.version }}"
+          node -e '
+            const fs = require("fs");
+            const ver = process.argv[1];
+            for (const p of ["package.json", "apps/desktop/package.json", "apps/extension/package.json"]) {
+              if (fs.existsSync(p)) {
+                const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+                pkg.version = ver;
+                fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+              }
+            }
+            const tauriPath = "apps/desktop/src-tauri/tauri.conf.json";
+            if (fs.existsSync(tauriPath)) {
+              const conf = JSON.parse(fs.readFileSync(tauriPath, "utf8"));
+              conf.version = ver;
+              fs.writeFileSync(tauriPath, JSON.stringify(conf, null, 2) + "\n");
+            }
+          ' "$target_ver"
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Build native host
+        run: cargo build --release -p hopilo-native-host
+
+      - name: Build Tauri desktop
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: "apps/desktop"
+          args: ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
+      - name: Stage desktop release assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          find target -type f \( -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.exe" -o -name "*.msi" \) -exec cp {} dist/ \;
+          for app_dir in target/*/release/bundle/macos/*.app target/release/bundle/macos/*.app; do
+            if [ -d "$app_dir" ]; then
+              base=$(basename "$app_dir")
+              dir=$(dirname "$app_dir")
+              tar -czf "dist/Hopilo-${{ needs.version.outputs.version }}-${{ matrix.os }}.tar.gz" -C "$dir" "$base"
+              break
+            fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  build-extension:
+    name: Browser Extensions
+    needs: [version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.30.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Apply version override
+        shell: bash
+        run: |
+          target_ver="${{ needs.version.outputs.version }}"
+          node -e '
+            const fs = require("fs");
+            const ver = process.argv[1];
+            const p = "apps/extension/package.json";
+            if (fs.existsSync(p)) {
+              const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+              pkg.version = ver;
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+            }
+          ' "$target_ver"
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Build extensions
+        run: pnpm --filter @hopilo/extension build
+
+      - name: Package extension archives
+        shell: bash
+        run: |
+          mkdir -p dist-assets
+          cd apps/extension/dist
+          zip -rq "$GITHUB_WORKSPACE/dist-assets/hopilo-extension-chrome-${{ needs.version.outputs.version }}.zip" .
+          cd "$GITHUB_WORKSPACE/apps/extension/dist-firefox"
+          zip -rq "$GITHUB_WORKSPACE/dist-assets/hopilo-extension-firefox-${{ needs.version.outputs.version }}.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-extension
+          path: dist-assets/*
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: [version, build-desktop, build-extension]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Compute checksums
+        shell: bash
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS.txt
+
+      - name: Create or update GitHub release
+        shell: bash
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          IS_DRAFT: ${{ needs.version.outputs.draft }}
+          IS_PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          title="Hopilo $TAG"
+          args=(
+            "$TAG"
+            --title "$title"
+            --generate-notes
+          )
+          if [ "$IS_DRAFT" = "true" ]; then
+            args+=(--draft)
+          fi
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber *
+          else
+            gh release create "${args[@]}" *
+          fi
+
+      - name: Release summary
+        shell: bash
+        working-directory: release-assets
+        run: |
+          {
+            echo "### Release ${{ needs.version.outputs.tag }} Assets"
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+

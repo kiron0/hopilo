@@ -26,7 +26,7 @@ export const PROVIDERS: Provider[] = [
   { id: "codex", label: "Codex CLI", kind: "agent", color: "#0f8f6f", capture: "auto", hint: "Run `codex` in the project folder and paste as your first message." },
   { id: "cursor", label: "Cursor", kind: "agent", color: "#27272a", capture: "auto", hint: "Start a chat in Cursor and paste as your first message." },
   { id: "gemini-cli", label: "Gemini CLI", kind: "agent", color: "#3b78e7", capture: "auto", hint: "Run `gemini` in the project folder and paste as your first message." },
-  { id: "opencode", label: "OpenCode", kind: "agent", color: "#6b7280", capture: "auto", hint: "Run `opencode` in the project folder and paste as your first message." },
+  { id: "opencode", label: "OpenCode", kind: "agent", color: "#1e1e24", capture: "auto", hint: "Run `opencode` in the project folder and paste as your first message." },
   { id: "qwen-code", label: "Qwen Code", kind: "agent", color: "#615ced", capture: "auto", hint: "Run `qwen` in the project folder and paste as your first message." },
   { id: "zed", label: "Zed", kind: "agent", color: "#0751cf", capture: "auto", hint: "Start a chat in Zed and paste as your first message." },
   { id: "aider", label: "Aider", kind: "agent", color: "#14b8a6", capture: "file", hint: AGENT_HINT },

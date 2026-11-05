@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo tests
+        run: cargo test --workspace
+
+      - name: Check lockfile unchanged
+        run: git diff --exit-code -- Cargo.lock
+
+  web:
+    name: Web & Desktop Frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.30.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Desktop typecheck
+        run: pnpm --filter @hopilo/desktop typecheck
+
+      - name: Desktop unit tests
+        run: pnpm --filter @hopilo/desktop test
+
+      - name: Desktop frontend build
+        run: pnpm --filter @hopilo/desktop build
+
+      - name: Extension typecheck
+        run: pnpm --filter @hopilo/extension typecheck
+
+      - name: Extension unit tests
+        run: pnpm --filter @hopilo/extension test
+
+      - name: Extension build
+        run: pnpm --filter @hopilo/extension build
+
