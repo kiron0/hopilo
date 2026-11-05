@@ -1,10 +1,3 @@
-// Builds the browser bridge (hopilo-native-host) and places it where Tauri's
-// `bundle.externalBin` expects it: src-tauri/binaries/<name>-<target-triple>.
-// Tauri then ships it next to the app binary, where browser.rs looks for it.
-//
-//   node scripts/sidecar.mjs            debug build (tauri dev)
-//   node scripts/sidecar.mjs --release  release build (tauri build)
-
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -22,7 +15,6 @@ const hostTriple = () => {
   return line.slice(5).trim();
 };
 
-// Tauri sets this for before*Command when building for an explicit --target.
 const triple = process.env.TAURI_ENV_TARGET_TRIPLE || hostTriple();
 const explicit = Boolean(process.env.TAURI_ENV_TARGET_TRIPLE) && process.env.TAURI_ENV_TARGET_TRIPLE !== hostTriple();
 const exe = triple.includes("windows") ? ".exe" : "";
@@ -39,7 +31,6 @@ const build = (target) => {
 const dest = join(tauriDir, "binaries", `hopilo-native-host-${triple}${exe}`);
 mkdirSync(dirname(dest), { recursive: true });
 if (triple === "universal-apple-darwin") {
-  // A universal app needs a universal sidecar: build both slices, then lipo.
   const slices = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map(build);
   execFileSync("lipo", ["-create", "-output", dest, ...slices], { stdio: "inherit" });
 } else {
