@@ -22,7 +22,7 @@ pub struct AppState {
 
 fn scan_depth(adapter: &str) -> usize {
     match adapter {
-        "opencode" => 0,
+        "opencode" | "zed" | "cursor" => 0,
         "claude-code" => 1,
         "gemini-cli" | "qwen-code" => 2,
         _ => 4,

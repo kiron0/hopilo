@@ -23,6 +23,7 @@ base64 = "0.22"
 hex = "0.4"
 regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
+zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
 

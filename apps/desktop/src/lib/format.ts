@@ -14,6 +14,49 @@ export function relativeTime(iso: string | null | undefined, now: Date = new Dat
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: d > 300 ? "numeric" : undefined });
 }
 
+export function humanizeDateTime(iso: string | null | undefined, now: Date = new Date()): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return `Today at ${time}`;
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday at ${time}`;
+
+  const isSameYear = d.getFullYear() === now.getFullYear();
+  const dateStr = d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: isSameYear ? undefined : "numeric",
+  });
+  return `${dateStr} at ${time}`;
+}
+
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export function formatFullDateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    dateStyle: "full",
+    timeStyle: "medium",
+  });
+}
+
 export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB"];

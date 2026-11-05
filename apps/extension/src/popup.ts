@@ -12,8 +12,24 @@ function host<T>(body: Record<string, unknown>): Promise<HostResponse<T>> {
   return chrome.runtime.sendMessage({ kind: "host", body });
 }
 
+async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
+  try {
+    const [t1] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (t1?.id) return t1;
+  } catch {}
+  try {
+    const [t2] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (t2?.id) return t2;
+  } catch {}
+  try {
+    const tabs = await chrome.tabs.query({ active: true });
+    if (tabs.length > 0 && tabs[0]?.id) return tabs[0];
+  } catch {}
+  return null;
+}
+
 async function tab<T>(msg: TabRequest): Promise<T | null> {
-  const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const t = await getActiveTab();
   if (!t?.id) return null;
   try {
     return await chrome.tabs.sendMessage(t.id, msg);
@@ -26,6 +42,7 @@ async function tab<T>(msg: TabRequest): Promise<T | null> {
             target: { tabId: t.id },
             files: ["content.js"],
           });
+          await new Promise((r) => setTimeout(r, 120));
           return await chrome.tabs.sendMessage(t.id, msg);
         }
       } catch {
@@ -74,11 +91,24 @@ async function init() {
   page = await tab<PingReply>({ kind: "ping" });
   const cap = $<HTMLButtonElement>("capture");
   if (page?.provider) {
-    $("site").textContent = `${NAMES[page.provider]} · ${page.messageCount} message${page.messageCount === 1 ? "" : "s"} visible`;
-    cap.disabled = page.messageCount === 0;
+    $("site").textContent = page.messageCount > 0 ? `${NAMES[page.provider]} · ${page.messageCount} message${page.messageCount === 1 ? "" : "s"} visible` : `${NAMES[page.provider]} · ready to capture`;
+    cap.disabled = false;
   } else {
-    $("site").textContent = "Open a ChatGPT, Claude, Gemini, DeepSeek, Grok or Perplexity chat to capture it.";
-    cap.disabled = true;
+    const t = await getActiveTab();
+    let fallbackAdapter = null;
+    if (t?.url) {
+      try {
+        fallbackAdapter = adapterFor(new URL(t.url).hostname);
+      } catch {}
+    }
+    if (fallbackAdapter) {
+      page = { provider: fallbackAdapter.id, composer: true, messageCount: 1 };
+      $("site").textContent = `${NAMES[fallbackAdapter.id]} · ready to capture`;
+      cap.disabled = false;
+    } else {
+      $("site").textContent = "Open a ChatGPT, Claude, Gemini, DeepSeek, Grok or Perplexity chat to capture it.";
+      cap.disabled = true;
+    }
   }
 
   const sessions = await host<SessionSummary[]>({ type: "session.list" });

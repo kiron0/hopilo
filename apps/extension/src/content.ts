@@ -2,25 +2,30 @@ import { adapterFor } from "./adapters";
 import { capture, insertDraft } from "./adapters/common";
 import type { CaptureReply, Draft, HostResponse, InsertReply, PingReply, TabRequest } from "./protocol";
 
-const adapter = adapterFor(location.hostname);
+function currentAdapter() {
+  return adapterFor(location.hostname);
+}
 
 function host<T>(body: Record<string, unknown>): Promise<HostResponse<T>> {
   return chrome.runtime.sendMessage({ kind: "host", body });
 }
 
-if (!(window as unknown as { __hopilo_injected?: boolean }).__hopilo_injected) {
-  (window as unknown as { __hopilo_injected?: boolean }).__hopilo_injected = true;
-
-  chrome.runtime.onMessage.addListener((msg: TabRequest, sender, reply) => {
-    if (sender.id !== chrome.runtime.id || !adapter) return false;
+chrome.runtime.onMessage.addListener((msg: TabRequest, sender, reply) => {
+  const adapter = currentAdapter();
+  if ((sender.id && sender.id !== chrome.runtime.id) || !adapter) return false;
+  try {
     if (msg.kind === "ping") {
-      reply({ provider: adapter.id, composer: !!adapter.composer(document), messageCount: adapter.messages(document).length } satisfies PingReply);
+      let count = 0;
+      let composer = false;
+      try { count = adapter.messages(document).length; } catch {}
+      try { composer = !!adapter.composer(document); } catch {}
+      reply({ provider: adapter.id, composer, messageCount: count } satisfies PingReply);
       return false;
     }
     if (msg.kind === "capture") {
       capture(adapter, document, { includeOlder: true })
         .then((payload) => reply({ ok: true, payload } satisfies CaptureReply))
-        .catch((e) => reply({ ok: false, error: String(e) } satisfies CaptureReply));
+        .catch((e) => reply({ ok: false, error: String(e?.message ?? e) } satisfies CaptureReply));
       return true;
     }
     if (msg.kind === "insert") {
@@ -32,9 +37,12 @@ if (!(window as unknown as { __hopilo_injected?: boolean }).__hopilo_injected) {
       reply({ ok: insertDraft(box, msg.text) } satisfies InsertReply);
       return false;
     }
+  } catch (err) {
+    reply({ ok: false, error: String(err) });
     return false;
-  });
-}
+  }
+  return false;
+});
 
 const SESSION_REF = /^hopilo:\/\/session\/([0-9A-Za-z]{10,40})$/;
 
@@ -72,7 +80,9 @@ function overlay() {
   return { hostEl, zone, toast };
 }
 
-if (adapter) {
+const adapter = currentAdapter();
+if (adapter && !(window as unknown as { __hopilo_overlay_injected?: boolean }).__hopilo_overlay_injected) {
+  (window as unknown as { __hopilo_overlay_injected?: boolean }).__hopilo_overlay_injected = true;
   const ui = overlay();
   let depth = 0;
   const hasText = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("text/plain");
@@ -97,9 +107,10 @@ if (adapter) {
     if (!m) return ui.toast("That isn't a Hopilo session. Drag a session from the Hopilo app.");
     const resp = await host<Draft>({ type: "session.getDraft", ids: [m[1]], level: "balanced" });
     if (!resp.ok) return ui.toast(resp.error.message);
-    const box = adapter.composer(document);
+    const activeAdapter = currentAdapter();
+    const box = activeAdapter?.composer(document);
     const ok = !!box && insertDraft(box, resp.result.text);
-    await host({ type: "handoff.record", ids: resp.result.ids, target: adapter.id, status: ok ? "drafted" : "failed" });
+    await host({ type: "handoff.record", ids: resp.result.ids, target: activeAdapter?.id ?? adapter.id, status: ok ? "drafted" : "failed" });
     ui.toast(ok ? `Draft ready: “${resp.result.title}”. Review it, then send.` : "Couldn't insert here. Open the Hopilo extension to copy it instead.");
   });
   window.addEventListener("drop", () => {

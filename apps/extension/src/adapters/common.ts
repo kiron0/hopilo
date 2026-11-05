@@ -113,6 +113,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function loadOlder(adapter: WebAdapter, doc: Document, timeoutMs = 20000): Promise<boolean> {
   const first = adapter.messages(doc)[0]?.el ?? null;
+  if (!first) return true;
   const box = scrollParent(first);
   if (!box) return true;
   const restore = box.scrollTop;

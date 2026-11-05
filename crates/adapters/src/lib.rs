@@ -8,10 +8,12 @@ use serde::Serialize;
 pub mod aider;
 pub mod claude_code;
 pub mod codex;
+pub mod cursor;
 pub mod exports;
 pub mod gemini_cli;
 pub mod opencode;
 mod text;
+pub mod zed;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {
@@ -79,7 +81,15 @@ pub trait LocalAgentAdapter: Send + Sync {
 }
 
 pub fn all_adapters() -> Vec<Box<dyn LocalAgentAdapter>> {
-    vec![Box::new(claude_code::ClaudeCode), Box::new(codex::Codex), Box::new(gemini_cli::GEMINI_CLI), Box::new(opencode::OpenCode), Box::new(gemini_cli::QWEN_CODE)]
+    vec![
+        Box::new(claude_code::ClaudeCode),
+        Box::new(codex::Codex),
+        Box::new(cursor::Cursor),
+        Box::new(gemini_cli::GEMINI_CLI),
+        Box::new(opencode::OpenCode),
+        Box::new(gemini_cli::QWEN_CODE),
+        Box::new(zed::Zed),
+    ]
 }
 
 pub fn adapter_by_id(id: &str) -> Option<Box<dyn LocalAgentAdapter>> {

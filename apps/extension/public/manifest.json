@@ -9,17 +9,22 @@
   "permissions": [
     "nativeMessaging",
     "scripting",
-    "activeTab"
+    "activeTab",
+    "tabs"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
+    "https://www.chatgpt.com/*",
     "https://chat.openai.com/*",
+    "https://www.chat.openai.com/*",
     "https://*.oaiusercontent.com/*",
     "https://claude.ai/*",
+    "https://www.claude.ai/*",
     "https://gemini.google.com/*",
     "https://*.googleusercontent.com/*",
     "https://chat.deepseek.com/*",
     "https://grok.com/*",
+    "https://www.grok.com/*",
     "https://assets.grok.com/*",
     "https://www.perplexity.ai/*",
     "https://perplexity.ai/*",
@@ -48,11 +53,15 @@
     {
       "matches": [
         "https://chatgpt.com/*",
+        "https://www.chatgpt.com/*",
         "https://chat.openai.com/*",
+        "https://www.chat.openai.com/*",
         "https://claude.ai/*",
+        "https://www.claude.ai/*",
         "https://gemini.google.com/*",
         "https://chat.deepseek.com/*",
         "https://grok.com/*",
+        "https://www.grok.com/*",
         "https://www.perplexity.ai/*",
         "https://perplexity.ai/*"
       ],
