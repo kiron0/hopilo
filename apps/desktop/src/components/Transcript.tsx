@@ -1,10 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, ChevronRight, FileImage, FileText, MessagesSquare, Wrench } from "./Icons";
 import type { Block, Message } from "../lib/api";
 import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
-import { Button, Checkbox, cx, EmptyState } from "./ui";
-
-const MarkdownBlock = lazy(() => import("./MarkdownViewer").then((module) => ({ default: module.MarkdownBlock })));
+import { Checkbox, cx, EmptyState } from "./ui";
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
 
@@ -13,7 +11,12 @@ function ToolBlock({ title, body, error }: { title: string; body: string; error?
   const firstLine = body.split("\n").find((l) => l.trim()) ?? "";
   return (
     <div className="rounded-lg border border-line bg-surface-2">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px]"
+      >
         <ChevronRight size={13} className={cx("shrink-0 text-faint transition-transform", open && "rotate-90")} />
         <Wrench size={12} className={error ? "text-danger" : "text-faint"} />
         <span className={cx("font-medium", error ? "text-danger" : "text-muted")}>{title}</span>
@@ -28,77 +31,10 @@ function ToolBlock({ title, body, error }: { title: string; body: string; error?
   );
 }
 
-function runWhenIdle(cb: () => void): () => void {
-  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-    const handle = (window as unknown as {
-      requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number;
-      cancelIdleCallback: (handle: number) => void;
-    }).requestIdleCallback(cb, { timeout: 1200 });
-    return () => {
-      (window as unknown as { cancelIdleCallback: (handle: number) => void }).cancelIdleCallback(handle);
-    };
-  }
-  const timer = setTimeout(cb, 32);
-  return () => clearTimeout(timer);
-}
-
-function DeferredMarkdown({ text, eager }: { text: string; eager?: boolean }) {
-  const [shouldRender, setShouldRender] = useState(Boolean(eager));
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (shouldRender) return;
-    const el = containerRef.current;
-    if (!el) return;
-
-    if (typeof IntersectionObserver === "undefined") {
-      setShouldRender(true);
-      return;
-    }
-
-    let cancelIdle: (() => void) | null = null;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry && entry.isIntersecting) {
-          observer.disconnect();
-          cancelIdle = runWhenIdle(() => {
-            setShouldRender(true);
-          });
-        }
-      },
-      { rootMargin: "600px 0px" },
-    );
-
-    observer.observe(el);
-
-    return () => {
-      observer.disconnect();
-      if (cancelIdle) cancelIdle();
-    };
-  }, [shouldRender]);
-
-  if (!shouldRender) {
-    return (
-      <div ref={containerRef} data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
-        {text}
-      </div>
-    );
-  }
-
-  return (
-    <Suspense fallback={<div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{text}</div>}>
-      <MarkdownBlock text={text} />
-    </Suspense>
-  );
-}
-
-function BlockView({ b, renderMarkdown, eager }: { b: Block; renderMarkdown?: boolean; eager?: boolean }) {
+function BlockView({ b }: { b: Block }) {
   switch (b.type) {
     case "text":
-      return renderMarkdown ? (
-        <DeferredMarkdown text={b.text} eager={eager} />
-      ) : (
+      return (
         <div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
           {b.text}
         </div>
@@ -132,12 +68,10 @@ export function Transcript({
   messages,
   selected,
   onToggle,
-  renderMarkdown = true,
 }: {
   messages: Message[];
   selected?: Set<string>;
   onToggle?: (id: string) => void;
-  renderMarkdown?: boolean;
 }) {
   const [shown, setShown] = useState(PAGE);
   const visible = messages.length > shown ? messages.slice(0, shown) : messages;
@@ -154,7 +88,7 @@ export function Transcript({
           setShown((curr) => Math.min(messages.length, curr + PAGE));
         }
       },
-      { rootMargin: "500px 0px" },
+      { rootMargin: "600px 0px" },
     );
 
     observer.observe(el);
@@ -172,7 +106,7 @@ export function Transcript({
   return (
     <>
       <ol className="space-y-3">
-        {visible.map((m, index) => {
+        {visible.map((m) => {
           const isSel = selected?.has(m.id);
           return (
             <li
@@ -196,7 +130,7 @@ export function Transcript({
                   )}
                 </div>
                 {m.blocks.map((b, i) => (
-                  <BlockView key={i} b={b} renderMarkdown={renderMarkdown} eager={index < 4} />
+                  <BlockView key={i} b={b} />
                 ))}
               </div>
             </li>
@@ -204,13 +138,7 @@ export function Transcript({
         })}
       </ol>
       {messages.length > shown && (
-        <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-2 py-2">
-          <span className="text-[12.5px] text-muted">
-            Showing {shown} of {messages.length} messages
-          </span>
-          <Button size="sm" onClick={() => setShown((n) => Math.min(messages.length, n + PAGE * 2))}>Show more</Button>
-          <Button size="sm" variant="ghost" onClick={() => setShown(messages.length)}>Show all</Button>
-        </div>
+        <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
       )}
     </>
   );

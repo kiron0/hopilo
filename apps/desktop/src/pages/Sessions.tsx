@@ -788,7 +788,7 @@ function SessionPage({ id }: { id: string }) {
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
   const settings = useApp((s) => s.settings);
-  const [tab, setTab] = useState<"conversation" | "markdown" | "files">("conversation");
+  const [tab, setTab] = useState<"conversation" | "files">("conversation");
   const [to, setTo] = useState(settings.defaultTarget);
   const [level, setLevel] = useState<Level>(settings.level);
   const [busy, setBusy] = useState(false);
@@ -924,10 +924,9 @@ function SessionPage({ id }: { id: string }) {
           <Segmented
             label="View"
             value={tab}
-            onChange={(v) => setTab(v as "conversation" | "markdown" | "files")}
+            onChange={(v) => setTab(v as "conversation" | "files")}
             options={[
               { value: "conversation", label: "Conversation" },
-              { value: "markdown", label: "Markdown" },
               { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
             ]}
           />
@@ -935,11 +934,7 @@ function SessionPage({ id }: { id: string }) {
         </div>
         {tab === "conversation" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-            <Transcript key={`${id}-conversation`} messages={messages} renderMarkdown={false} />
-          </div>
-        ) : tab === "markdown" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-            <Transcript key={`${id}-markdown`} messages={messages} renderMarkdown={true} />
+            <Transcript key={id} messages={messages} />
           </div>
         ) : (
           <FilesTab files={files} />
