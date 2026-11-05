@@ -141,19 +141,10 @@ export function RouteSkeleton({ page }: { page: Route["page"] }) {
       return (
         <div role="status" aria-label="Loading settings">
           <Header />
-          <PageToolbar>
-            {[70, 92, 50, 66, 62, 64, 54].map((w, i) => (
-              <Skeleton key={i} className="h-7.5 rounded-full" style={{ width: w }} />
-            ))}
-          </PageToolbar>
-          {[4, 2, 3].map((rows, g) => (
-            <div key={g} className="grid grid-cols-[200px_minmax(0,1fr)] gap-6 border-b border-line py-6 first:pt-1">
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-3 w-40" />
-              </div>
+          <div>
+            <div>
               <Card className="divide-y divide-line px-5 py-1">
-                {Array.from({ length: rows }, (_, i) => (
+                {Array.from({ length: 4 }, (_, i) => (
                   <div key={i} className="flex min-h-14 items-center justify-between gap-6 py-3">
                     <div className="space-y-1.5">
                       <Skeleton className="h-3.5 w-32" />
@@ -164,7 +155,7 @@ export function RouteSkeleton({ page }: { page: Route["page"] }) {
                 ))}
               </Card>
             </div>
-          ))}
+          </div>
         </div>
       );
     default:

@@ -61,6 +61,8 @@ export const DEFAULT_SETTINGS: Settings = {
 
 interface State {
   route: Route;
+  /** Last page outside Settings, so the sidebar's back button returns there. */
+  lastAppRoute: Route;
   navigate: (r: Route) => void;
   toasts: Toast[];
   toast: (t: Omit<Toast, "id">) => void;
@@ -80,7 +82,10 @@ let toastId = 0;
 
 export const useApp = create<State>((set, get) => ({
   route: { page: "overview" },
+  lastAppRoute: { page: "overview" },
   navigate: (route) => {
+    const prev = get().route;
+    if (route.page === "settings" && prev.page !== "settings") set({ lastAppRoute: prev });
 
     if (route.page === "sessions" && route.filter) set({ listView: { ...get().listView, filter: route.filter, page: 0, q: "" } });
     set({ route });

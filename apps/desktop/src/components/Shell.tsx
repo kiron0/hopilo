@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { OverviewIcon, SearchIcon, SessionsIcon, SettingsIcon, BrowserIcon } from "./Icons";
+import { ArrowLeft, OverviewIcon, SearchIcon, SessionsIcon, SettingsIcon, BrowserIcon } from "./Icons";
+import { SETTINGS_GROUPS, settingsGroupFor } from "./settingsNav";
 import { api } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useLoad } from "../lib/hooks";
@@ -62,6 +63,15 @@ export function Shell({ children }: { children: ReactNode }) {
         e.preventDefault();
         navigate({ page: "settings" });
       }
+      // Esc leaves Settings, unless something on top (a dialog, the palette, a field) should get it first.
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        const st = useApp.getState();
+        const t = e.target as HTMLElement | null;
+        const typing = !!t?.closest("input, textarea, select, [contenteditable='true']");
+        if (st.route.page === "settings" && !st.paletteOpen && !typing && !document.querySelector("[role='dialog'], [role='alertdialog']")) {
+          navigate(st.lastAppRoute);
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -108,11 +118,44 @@ export function Shell({ children }: { children: ReactNode }) {
             <img src="/hopilo-mark.svg" alt="" className="h-7 w-7 drop-shadow-[0_3px_6px_rgb(40_30_120/0.25)]" draggable={false} />
             <span data-tauri-drag-region className="brand-name font-display text-[19px] font-medium tracking-tight">Hopilo</span>
           </div>
-          <nav aria-label="Main" className="flex-1 overflow-auto">
-            <ul className="space-y-1">{NAV.map(link)}</ul>
-          </nav>
+          {route.page === "settings" ? (
+            <nav key="settings" aria-label="Settings" className="flex-1 overflow-auto">
+              <button
+                type="button"
+                onClick={() => navigate(useApp.getState().lastAppRoute)}
+                title="Back (Esc)"
+                className="nav-item h-10 w-full cursor-pointer text-left"
+              >
+                <ArrowLeft size={18} className="ic" />
+                <span className="flex-1 text-[14px] font-medium">Back to app</span>
+              </button>
+              <div className="mx-3 mt-4 mb-2 font-display text-[15px] font-semibold">Settings</div>
+              <ul className="sy-stagger space-y-1">
+                {SETTINGS_GROUPS.map((g) => {
+                  const on = settingsGroupFor(route.section) === g.id;
+                  return (
+                    <li key={g.id}>
+                      <button
+                        type="button"
+                        aria-current={on ? "page" : undefined}
+                        onClick={() => navigate({ page: "settings", section: g.id })}
+                        className={`nav-item h-10 w-full text-left cursor-pointer ${on ? "on" : ""}`}
+                      >
+                        <g.icon size={20} active={on} className="ic" />
+                        <span className="flex-1 text-[14px] font-medium">{g.label}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+          ) : (
+            <nav key="main" aria-label="Main" className="flex-1 overflow-auto">
+              <ul className="space-y-1">{NAV.map(link)}</ul>
+            </nav>
+          )}
           <div className="space-y-2 pt-2">
-            <ul>{link({ page: "settings", label: "Settings", icon: SettingsIcon, hint: "Preferences" })}</ul>
+            {route.page !== "settings" && <ul>{link({ page: "settings", label: "Settings", icon: SettingsIcon, hint: "Preferences" })}</ul>}
             <LibraryCard />
           </div>
         </aside>

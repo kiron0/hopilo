@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { AlertTriangle, CheckCircle2, CircleDashed, Copy, FolderOpen, RefreshCw } from "../components/Icons";
+import { AlertTriangle, CheckCircle2, CircleDashed, Copy, Download, ExternalLink, FolderOpen, RefreshCw } from "../components/Icons";
+import { RELEASES_LATEST_URL, RELEASES_URL, openExternal } from "../lib/updates";
 import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { useLoad } from "../lib/hooks";
@@ -27,8 +28,49 @@ function Step({ n, title, children, done }: { n: number; title: string; children
   );
 }
 
+/** Asset names match the release workflow's "Package extension archives" step. */
+function releaseAsset(browser: "chrome" | "firefox", version: string) {
+  const name = `hopilo-extension-${browser}-${version}.zip`;
+  return { name, url: `${RELEASES_URL}/download/v${version}/${name}` };
+}
+
+/** Installed app: the extension isn't on disk, so point at the matching GitHub release. */
+function ReleaseSteps({ version }: { version: string | undefined }) {
+  const chrome = version ? releaseAsset("chrome", version) : null;
+  const firefox = version ? releaseAsset("firefox", version) : null;
+  const code = "font-mono text-[12px]";
+  return (
+    <div className="space-y-3 text-muted">
+      <ol className="list-decimal space-y-1.5 pl-4 marker:text-faint">
+        <li>
+          Download <code className={code}>{chrome?.name ?? "hopilo-extension-chrome-<version>.zip"}</code> from the GitHub release that matches this app.
+        </li>
+        <li>Unzip it into a folder you'll keep. The browser loads the extension from that folder, so don't delete it.</li>
+        <li>
+          In Chrome, Edge, Brave or Arc: open <code className={code}>chrome://extensions</code>, turn on <b>Developer mode</b>, choose <b>Load unpacked</b> and select the unzipped folder.
+        </li>
+      </ol>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => openExternal(chrome?.url ?? RELEASES_LATEST_URL)}>
+          Download for Chrome
+        </Button>
+        <Button size="sm" icon={<Download size={13} />} onClick={() => openExternal(firefox?.url ?? RELEASES_LATEST_URL)}>
+          Download for Firefox
+        </Button>
+        <Button size="sm" variant="ghost" icon={<ExternalLink size={13} />} onClick={() => openExternal(version ? `${RELEASES_URL}/tag/v${version}` : RELEASES_LATEST_URL)}>
+          Open release page
+        </Button>
+      </div>
+      <p>
+        Firefox 128 or newer: download the Firefox build, open <code className={code}>about:debugging#/runtime/this-firefox</code>, choose <b>Load Temporary Add-on</b> and pick the downloaded <code className={code}>.zip</code>.
+      </p>
+    </div>
+  );
+}
+
 export function Browser() {
   const { data, error, loading, reload } = useLoad(() => api.browserStatus());
+  const version = useLoad(() => api.appInfo()).data?.version;
   const toast = useApp((s) => s.toast);
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,20 +106,22 @@ export function Browser() {
       />
 
       <Step n={1} title="Add the extension to your browser" done={seen}>
-        <p className="text-muted">
-          In Chrome, Edge, Brave or Arc: open <code className="font-mono text-[12px]">chrome://extensions</code>, turn on <b>Developer mode</b>, choose <b>Load unpacked</b> and select this folder.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <code data-selectable className="max-w-full truncate rounded-xl border border-line bg-surface-2 px-3 py-1.5 font-mono text-[12px]">{data.extensionDir ?? "apps/extension/dist (run pnpm --filter @hopilo/extension build)"}</code>
-          {data.extensionDir && (
-            <>
+        {data.extensionDir ? (
+          <>
+            <p className="text-muted">
+              In Chrome, Edge, Brave or Arc: open <code className="font-mono text-[12px]">chrome://extensions</code>, turn on <b>Developer mode</b>, choose <b>Load unpacked</b> and select this folder.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <code data-selectable className="max-w-full truncate rounded-xl border border-line bg-surface-2 px-3 py-1.5 font-mono text-[12px]">{data.extensionDir}</code>
               <Button size="sm" icon={<FolderOpen size={13} />} onClick={() => revealItemInDir(data.extensionDir!)}>Show folder</Button>
               <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => writeText(data.extensionDir!).then(() => toast({ kind: "success", text: "Folder path copied." }))}>Copy path</Button>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        ) : (
+          <ReleaseSteps version={version} />
+        )}
         <p className="mt-2 font-mono text-[11px] text-faint">Extension ID {data.extensionId}</p>
-        {data.firefoxExtensionDir && (
+        {data.extensionDir && data.firefoxExtensionDir && (
           <p className="mt-3 text-muted">
             Firefox 128 or newer: open <code className="font-mono text-[12px]">about:debugging#/runtime/this-firefox</code>, choose <b>Load Temporary Add-on</b> and pick <code className="font-mono text-[12px]">manifest.json</code> in{" "}
             <button type="button" className="text-accent hover:underline" onClick={() => revealItemInDir(data.firefoxExtensionDir!)}>

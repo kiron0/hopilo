@@ -14,6 +14,7 @@ import {
   RefreshCw,
   SparkIcon,
 } from "../components/Icons";
+import { SETTINGS_GROUPS, settingsGroupFor } from "../components/settingsNav";
 import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
@@ -37,7 +38,7 @@ import {
   type UpdateCheckResult,
 } from "../lib/updates";
 import { UpdateModal } from "../components/UpdateModal";
-import { AlertDialog, Badge, Button, Card, PageHeader, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
+import { AlertDialog, Badge, Button, Card, PageHeader, SectionLabel, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
   { value: "mist", label: "Mist" },
@@ -52,13 +53,11 @@ const THEMES: { value: "light" | "dark" | "system"; label: string; swatchClass: 
   { value: "system", label: "System", swatchClass: "theme-system" },
 ];
 
-function Group({ id, title, description, children }: { id: string; title: string; description: string; children: React.ReactNode }) {
+/** The page header names the group; `title` labels a section only when a group holds more than one, as on the Browser page. */
+function Group({ id, title, children }: { id: string; title?: string; children: React.ReactNode }) {
   return (
-    <section id={`settings-${id}`} aria-labelledby={`settings-${id}-title`} className="grid scroll-mt-4 grid-cols-[200px_minmax(0,1fr)] gap-6 border-b border-line py-6 first:pt-1 last:border-0">
-      <div>
-        <h2 id={`settings-${id}-title`} className="font-display text-[15px] font-semibold">{title}</h2>
-        <p className="mt-1 text-[12.5px] text-muted">{description}</p>
-      </div>
+    <section id={`settings-${id}`} aria-label={title} className="scroll-mt-4 pb-6 last:pb-0">
+      {title && <SectionLabel>{title}</SectionLabel>}
       <Card className="divide-y divide-line px-5 py-1">{children}</Card>
     </section>
   );
@@ -114,16 +113,31 @@ export function Settings() {
     }
   };
 
+  // The group comes from the route, so the main sidebar and links into Settings share one source of truth.
   const section = useApp((st) => (st.route.page === "settings" ? st.route.section : undefined));
+  const tab = settingsGroupFor(section);
   useEffect(() => {
-    if (section) requestAnimationFrame(() => document.getElementById(`settings-${section}`)?.scrollIntoView({ block: "start" }));
+    requestAnimationFrame(() => {
+      const target = section && document.getElementById(`settings-${section}`);
+      if (target) target.scrollIntoView({ block: "start" });
+      else document.querySelector(".cleanly-main")?.scrollTo({ top: 0 });
+    });
   }, [section]);
+
+  const subtitles: Record<typeof tab, string> = {
+    general: "Startup and window behavior. Changes save immediately.",
+    customize: "Window canvas, theme and animations, and what Copy puts on the clipboard. Changes save immediately.",
+    sources: `Coding agents Hopilo reads on this ${deviceNoun}. Their files are only read, never changed.`,
+    data: `What Hopilo can see and send, and the one folder on this ${deviceNoun} where your library lives.`,
+    about: "Hopilo: every AI session in one place.",
+  };
 
   return (
     <div className="space-y-4 pb-6">
-      <PageHeader title="Settings" subtitle="Changes save immediately." />
-      <div className="sy-stagger">
-        <Group id="general" title="General" description="Startup and window behavior.">
+      <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === tab)?.label ?? "Settings"} subtitle={subtitles[tab]} />
+      <div key={tab} className="sy-stagger">
+        {tab === "general" && (
+        <Group id="general">
           <Row
             label={autostartLabel}
             hint={
@@ -184,8 +198,11 @@ export function Settings() {
             />
           </Row>
         </Group>
+        )}
 
-        <Group id="appearance" title="Appearance" description="Window canvas, theme, and animations.">
+        {tab === "customize" && (
+        <>
+        <Group id="appearance" title="Appearance">
           <div className="py-3">
             <div>
               <div className="text-[13px] font-medium">Background</div>
@@ -231,22 +248,25 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="handoff" title="Copy" description="What Copy puts on the clipboard. No AI is used: the levels are fixed rules.">
+        <Group id="handoff" title="Copy">
           <Row label="Default destination">
             <TargetSelect value={s.defaultTarget} onChange={(v) => saveSetting("defaultTarget", v)} className="w-56" />
           </Row>
           <Row label="Tool activity" hint="How tool calls and outputs appear in copies.">
             <Segmented label="Tool activity" value={s.toolDetail} onChange={(v) => saveSetting("toolDetail", v)} options={[{ value: "truncated", label: "Trimmed" }, { value: "full", label: "Full" }, { value: "omit", label: "Leave out" }]} />
           </Row>
-          <Row label="How much to include" hint="Full is everything; Balanced keeps every request and recent messages; Minimal is goal, latest exchange and key references.">
+          <Row label="How much to include" hint="Full is everything; Balanced keeps every request and recent messages; Minimal is goal, latest exchange and key references. No AI is used: the levels are fixed rules.">
             <Segmented label="Default level" value={s.level} onChange={(v) => saveSetting("level", v)} options={[{ value: "full", label: "Full" }, { value: "balanced", label: "Balanced" }, { value: "minimal", label: "Minimal" }]} />
           </Row>
           <Row label="Delivery" hint="Copy and export only. Hopilo never submits a message.">
             <span className="text-[12.5px] text-muted">Draft only</span>
           </Row>
         </Group>
+        </>
+        )}
 
-        <Group id="sources" title="Sources" description={`Coding agents Hopilo reads on this ${deviceNoun}. Their files are only read, never changed.`}>
+        {tab === "sources" && (
+        <Group id="sources">
           {info.data?.adapters.map((a) => (
             <Row key={a.id} label={a.displayName} hint={a.roots.join(" · ")}>
               {a.available ? <Badge tone="success">Found</Badge> : <span className="text-[12.5px] text-faint">Not installed</span>}
@@ -256,8 +276,11 @@ export function Settings() {
             <Button size="sm" onClick={() => useApp.getState().navigate({ page: "browser" })}>Set up</Button>
           </Row>
         </Group>
+        )}
 
-        <Group id="privacy" title="Privacy" description="What Hopilo can see and send.">
+        {tab === "data" && (
+        <>
+        <Group id="privacy" title="Privacy">
           <Row label="Network" hint="No accounts, analytics, telemetry or AI calls. Only Check for Updates contacts GitHub, when you click it.">
             <span className="text-[12.5px] text-success">{`Nothing leaves your ${deviceNoun}`}</span>
           </Row>
@@ -269,7 +292,7 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="storage" title="Storage" description={`Your library lives in one folder on this ${deviceNoun}.`}>
+        <Group id="storage" title="Storage">
           <Row label="Data folder" hint={info.data?.dataDir}>
             <Button size="sm" icon={<FolderOpen size={13} />} disabled={!info.data} onClick={() => info.data && revealItemInDir(`${info.data.dataDir}/hopilo.db`)}>
               {`Show in ${fileManagerLabel}`}
@@ -314,8 +337,11 @@ export function Settings() {
             </Button>
           </Row>
         </Group>
+        </>
+        )}
 
-        <Group id="about" title="About" description="Hopilo: every AI session in one place.">
+        {tab === "about" && (
+        <Group id="about">
           <div className="py-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-line bg-gradient-to-br from-accent-soft/30 via-surface to-surface p-4 shadow-item">
               <div className="flex items-center gap-3.5 min-w-0">
@@ -512,6 +538,7 @@ export function Settings() {
             </div>
           </div>
         </Group>
+        )}
       </div>
 
       {showUpdateModal && updateState.update && (
