@@ -46,6 +46,7 @@ pub struct OriginState {
     pub id: String,
     pub updated_at: String,
     pub hidden: bool,
+    pub project: Option<String>,
 }
 
 const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
@@ -114,7 +115,26 @@ impl Store {
         if let Some((id, old_hash, hidden, _)) = &existing {
             if *old_hash == hash && !hidden {
                 let tx = self.conn.transaction()?;
-                tx.execute("UPDATE sources SET updated_at = MAX(COALESCE(updated_at, ''), ?2) WHERE id = ?1", params![id, updated])?;
+                let mut refreshed = source.clone();
+                refreshed.source_id = id.clone();
+                tx.execute(
+                    "UPDATE sources SET kind = ?2, provider = ?3, origin = ?4, project = ?5, model = ?6,
+                        capture_status = ?7, source_json = ?8, missing_count = ?9, file_count = ?10,
+                        updated_at = MAX(COALESCE(updated_at, ''), ?11) WHERE id = ?1",
+                    params![
+                        id,
+                        kebab(&source.kind),
+                        source.provider,
+                        source.origin,
+                        source.project,
+                        source.model,
+                        kebab(&source.capture_status),
+                        serde_json::to_string(&refreshed)?,
+                        source.missing_items.len() as i64,
+                        file_count(messages),
+                        updated,
+                    ],
+                )?;
                 let retitled = tx.execute(
                     "UPDATE sources SET title = ?2 WHERE id = ?1 AND title_edited = 0 AND title <> ?2",
                     params![id, source.title],
@@ -245,9 +265,19 @@ impl Store {
 
     pub fn session_origins(&self) -> Result<std::collections::HashMap<String, OriginState>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT origin, id, COALESCE(updated_at, captured_at), hidden FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
+            "SELECT origin, id, COALESCE(updated_at, captured_at), hidden, project FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
         )?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, OriginState { id: r.get(1)?, updated_at: r.get(2)?, hidden: r.get(3)? })))?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                OriginState {
+                    id: r.get(1)?,
+                    updated_at: r.get(2)?,
+                    hidden: r.get(3)?,
+                    project: r.get(4)?,
+                },
+            ))
+        })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 

@@ -338,6 +338,31 @@ fn removed_agent_sessions_stay_hidden_until_captured_again() {
 }
 
 #[test]
+fn duplicate_content_refreshes_source_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (mut source, messages) = capture("/same.jsonl", "same content");
+    source.project = Some("/work/app/src/pages".into());
+    let id = db.insert_capture(&source, &messages).unwrap().source_id;
+
+    let (mut refreshed, refreshed_messages) = capture("/same.jsonl", "same content");
+    refreshed.project = Some("/work/app".into());
+    refreshed.missing_items = vec!["new parser notice".into()];
+    refreshed.capture_status = CaptureStatus::Partial;
+    let result = db
+        .upsert_session(&refreshed, &refreshed_messages, Some("2030-01-01T00:00:00Z"))
+        .unwrap();
+
+    assert_eq!(result.source_id, id);
+    assert_eq!(result.duplicate_of.as_deref(), Some(id.as_str()));
+    let (stored, _) = db.get_source(&id).unwrap();
+    assert_eq!(stored.project.as_deref(), Some("/work/app"));
+    assert_eq!(stored.missing_items, vec!["new parser notice"]);
+    assert_eq!(stored.capture_status, CaptureStatus::Partial);
+    assert_eq!(db.session_origins().unwrap()["/same.jsonl"].project.as_deref(), Some("/work/app"));
+}
+
+#[test]
 fn restore_session_unhides_and_reindexes() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = Store::open(dir.path()).unwrap();

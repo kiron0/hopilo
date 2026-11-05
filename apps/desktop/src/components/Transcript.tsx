@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AlertTriangle, ChevronRight, FileImage, FileText, MessagesSquare, Wrench } from "./Icons";
 import type { Block, Message } from "../lib/api";
 import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
 import { Button, Checkbox, cx, EmptyState } from "./ui";
-import { MarkdownBlock } from "./MarkdownViewer";
+
+const MarkdownBlock = lazy(() => import("./MarkdownViewer").then((module) => ({ default: module.MarkdownBlock })));
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
 
@@ -31,7 +32,9 @@ function BlockView({ b, renderMarkdown }: { b: Block; renderMarkdown?: boolean }
   switch (b.type) {
     case "text":
       return renderMarkdown ? (
-        <MarkdownBlock text={b.text} />
+        <Suspense fallback={<div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{b.text}</div>}>
+          <MarkdownBlock text={b.text} />
+        </Suspense>
       ) : (
         <div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
           {b.text}

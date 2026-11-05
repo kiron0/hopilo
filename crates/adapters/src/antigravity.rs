@@ -129,13 +129,38 @@ fn extract_project(s: &str) -> Option<String> {
     if let Some(pos) = s.find("Active Document:") {
         let after = &s[pos + "Active Document:".len()..];
         if let Some(line) = after.lines().next() {
-            let path_str = line.split('(').next().unwrap_or(line).trim();
-            if let Some(parent) = Path::new(path_str).parent() {
-                return Some(parent.display().to_string());
+            let path_str = line.split(" (").next().unwrap_or(line).trim();
+            if let Some(root) = project_root(Path::new(path_str)) {
+                return Some(root.display().to_string());
             }
         }
     }
     None
+}
+
+fn project_root(document: &Path) -> Option<PathBuf> {
+    let start = if document.is_dir() { document } else { document.parent()? };
+
+    for dir in start.ancestors() {
+        if [".git", ".hg", ".svn"].iter().any(|marker| dir.join(marker).exists()) {
+            return Some(dir.to_path_buf());
+        }
+    }
+
+    for dir in start.ancestors() {
+        if ["pnpm-workspace.yaml", "go.work", "lerna.json", "nx.json", "turbo.json"]
+            .iter()
+            .any(|marker| dir.join(marker).is_file())
+        {
+            return Some(dir.to_path_buf());
+        }
+        let cargo = dir.join("Cargo.toml");
+        if cargo.is_file() && std::fs::read_to_string(cargo).is_ok_and(|text| text.contains("[workspace]")) {
+            return Some(dir.to_path_buf());
+        }
+    }
+
+    Some(start.to_path_buf())
 }
 
 fn quick_scan(transcript: &Path, session_dir: &Path) -> Option<DiscoveredSession> {
@@ -360,5 +385,17 @@ mod tests {
         assert_eq!(cap.messages[1].role, Role::Assistant);
         assert_eq!(cap.messages[2].role, Role::Tool);
     }
-}
 
+    #[test]
+    fn active_document_resolves_to_repository_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let pages = dir.path().join("apps/desktop/src/pages");
+        std::fs::create_dir_all(&pages).unwrap();
+        let document = pages.join("Sessions.tsx");
+        std::fs::write(&document, "").unwrap();
+
+        let metadata = format!("Active Document: {} (LANGUAGE_TYPESCRIPT)", document.display());
+        assert_eq!(extract_project(&metadata), Some(dir.path().display().to_string()));
+    }
+}

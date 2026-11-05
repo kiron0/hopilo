@@ -141,6 +141,7 @@ struct Tally {
     unreadable: usize,
     images: usize,
     compactions: usize,
+    recovered_compactions: usize,
     files: Vec<hopilo_core::CapturedFile>,
 }
 
@@ -181,6 +182,7 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
             "compacted" => {
                 t.compactions += 1;
                 if let Some(summary) = item.get("message").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+                    t.recovered_compactions += 1;
                     messages.push(Message {
                         id: new_id(),
                         source_id: source_id.clone(),
@@ -290,10 +292,11 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
     }
 
     let mut missing = Vec::new();
-    if t.compactions > 0 {
+    let unavailable_compactions = t.compactions.saturating_sub(t.recovered_compactions);
+    if unavailable_compactions > 0 {
         missing.push(format!(
-            "{} compaction(s): earlier history is stored encrypted or summarized by Codex and could not be recovered",
-            t.compactions
+            "{} compaction(s): Codex stored the summary encrypted without decryption material",
+            unavailable_compactions
         ));
     }
     if t.unreadable > 0 {
@@ -362,5 +365,48 @@ mod tests {
         let found = Codex.discover(&root).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].message_count, 4);
+    }
+
+    #[test]
+    fn includes_plaintext_compaction_summary_without_marking_it_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-summary.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"session_meta","payload":{"cwd":"/work/app"}}"#, "\n",
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Build it"}]}}"#, "\n",
+                r#"{"type":"compacted","payload":{"message":"Goal: finish the app."}}"#, "\n",
+            ),
+        )
+        .unwrap();
+
+        let cap = Codex.read(&path).unwrap();
+        assert_eq!(cap.source.capture_status, CaptureStatus::Complete);
+        assert!(cap.source.missing_items.is_empty());
+        assert!(cap.messages.iter().any(|m| {
+            m.role == Role::System && m.blocks.iter().any(|b| b.plain_text().contains("Goal: finish the app."))
+        }));
+    }
+
+    #[test]
+    fn reports_encrypted_compaction_without_claiming_it_can_be_decrypted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-encrypted.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Build it"}]}}"#, "\n",
+                r#"{"type":"response_item","payload":{"type":"compaction","encrypted_content":"opaque"}}"#, "\n",
+            ),
+        )
+        .unwrap();
+
+        let cap = Codex.read(&path).unwrap();
+        assert_eq!(cap.source.capture_status, CaptureStatus::Partial);
+        assert_eq!(
+            cap.source.missing_items,
+            vec!["1 compaction(s): Codex stored the summary encrypted without decryption material"]
+        );
     }
 }

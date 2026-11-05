@@ -208,7 +208,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     let mut pending = false;
     for d in found {
         let prior = known.get(&d.path);
-        if prior.is_some_and(|p| p.hidden || p.updated_at >= d.modified_at) {
+        if prior.is_some_and(|p| p.hidden || (p.updated_at >= d.modified_at && p.project == d.project)) {
             continue;
         }
         let saved = read_session(&d.adapter, &d.path).and_then(|(source, messages, files)| {
