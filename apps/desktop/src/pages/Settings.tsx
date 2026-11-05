@@ -299,7 +299,7 @@ export function Settings() {
           <Row label="Space used">
             {stats.data ? <span className="text-[12.5px] text-muted">{bytes(stats.data.storageBytes)}</span> : <Skeleton className="h-3 w-14" />}
           </Row>
-          <Row label="Verify library" hint="Re-checks every stored file against its fingerprint.">
+          <Row label="Verify library" hint="Verifies the integrity of all saved files in your library.">
             <Button
               size="sm"
               disabled={verifying}
@@ -312,8 +312,8 @@ export function Settings() {
                   toast({
                     kind: problems.length || r.database !== "ok" ? "warning" : "success",
                     text: problems.length || r.database !== "ok"
-                      ? `Found ${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${r.database !== "ok" ? `; database: ${r.database}` : ""}`
-                      : `All good: database intact, ${r.attachmentsChecked} files match their fingerprints.`,
+                      ? `Found ${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${r.database !== "ok" ? `; status: ${r.database}` : ""}`
+                      : `All good: library intact, all ${r.attachmentsChecked} saved files verified.`,
                   });
                 } catch (e) {
                   toast({ kind: "error", text: `Could not verify the library: ${errorText(e)}` });
@@ -384,7 +384,9 @@ export function Settings() {
                     {updateState.status === "error" && (
                       <>
                         <AlertTriangle size={12} className="text-warning" />
-                        <span>Check unavailable</span>
+                        <span className="text-warning font-medium">
+                          {updateState.error?.toLowerCase().includes("offline") ? "Offline · check paused" : "Check failed"}
+                        </span>
                       </>
                     )}
                     {updateState.status === "idle" && (
@@ -430,7 +432,7 @@ export function Settings() {
                   <span>100% Offline</span>
                 </div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
-                  Runs entirely on your machine with fast local SQLite.
+                  Everything runs locally on your device with fast storage.
                 </div>
               </div>
               <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">

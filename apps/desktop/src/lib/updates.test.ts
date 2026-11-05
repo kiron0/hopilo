@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { isNewerVersion } from "./updates";
+import { describe, expect, it, vi } from "vitest";
+import { checkGitHubRelease, isNewerVersion } from "./updates";
 
 describe("isNewerVersion", () => {
   it("detects newer semantic versions", () => {
@@ -15,6 +15,20 @@ describe("isNewerVersion", () => {
     expect(isNewerVersion("0.0.9", "0.1.0")).toBe(false);
     expect(isNewerVersion("v0.1.0", "0.1.0")).toBe(false);
     expect(isNewerVersion("1.0.0", "2.0.0")).toBe(false);
+  });
+});
+
+describe("checkGitHubRelease offline error handling", () => {
+  it("returns proper error when network fetch fails", async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    try {
+      const res = await checkGitHubRelease("0.1.0");
+      expect(res.status).toBe("error");
+      expect(res.error).toBe("You are offline. Connect to the internet to check for updates.");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 });
 

@@ -72,6 +72,14 @@ export function isNewerVersion(remote: string, current: string): boolean {
 }
 
 export async function checkGitHubRelease(currentVersion: string = "0.1.0"): Promise<UpdateCheckResult> {
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    return {
+      status: "error",
+      currentVersion,
+      error: "You are offline. Connect to the internet to check for updates.",
+    };
+  }
+
   try {
     const res = await fetch("https://api.github.com/repos/kiron0/hopilo/releases/latest", {
       headers: {
@@ -134,10 +142,15 @@ export async function checkGitHubRelease(currentVersion: string = "0.1.0"): Prom
       currentVersion,
     };
   } catch (e) {
+    const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+    const msg = e instanceof Error ? e.message : String(e);
+    const isNetworkErr = isOffline || /failed to fetch|networkerror|load failed|econnrefused|fetch failed/i.test(msg);
     return {
       status: "error",
       currentVersion,
-      error: e instanceof Error ? e.message : "Network error checking for updates.",
+      error: isNetworkErr
+        ? "You are offline. Connect to the internet to check for updates."
+        : `Could not check updates: ${msg}`,
     };
   }
 }

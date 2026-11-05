@@ -38,7 +38,7 @@
 - Imports pasted text, ChatGPT and Claude data exports, Aider history, files and `.handoff` archives.
 - Warns about keys, tokens and emails before you paste anything.
 - Lives in the menu bar: tap a recent session to copy it, or **Copy latest session** without opening anything.
-- **100% Offline & Local-First**: agent folders are only read locally, the library is an embedded SQLite file on your machine, and nothing is ever uploaded or synced to the cloud. The only network touchpoint is the manual **Check for Updates** button.
+- **100% Offline & Local-First**: agent folders are only read locally, all your data stays stored on your device, and nothing is ever uploaded or synced to the cloud. The only network touchpoint is the manual **Check for Updates** button.
 
 ## How it works
 

@@ -129,6 +129,8 @@ function SessionList() {
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState<{ id: string; title: string } | null>(null);
+  const [confirmRestoreBulk, setConfirmRestoreBulk] = useState<string[] | null>(null);
   const [limitChoice, setLimitChoice] = useState<number | "auto">("auto");
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
   const pageSize = Math.max(10, limitChoice === "auto" ? autoPageSize : limitChoice);
@@ -278,15 +280,9 @@ function SessionList() {
                       size="sm"
                       variant="secondary"
                       icon={<RotateCcw size={13} />}
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.stopPropagation();
-                        try {
-                          await api.restoreSession(r.id);
-                          reload();
-                          toast({ kind: "success", text: `Restored “${r.title}” to Sessions` });
-                        } catch (err) {
-                          toast({ kind: "error", text: errorText(err) });
-                        }
+                        setConfirmRestore({ id: r.id, title: r.title });
                       }}
                     >
                       Restore
@@ -315,12 +311,25 @@ function SessionList() {
                   Clear
                 </Button>
                 <div className="flex-1" />
-                <Button size="sm" icon={<Download size={13} />} onClick={() => setExporting(true)}>
-                  Export
-                </Button>
-                <Button size="sm" variant="primary" busy={busy === ids.join()} icon={<Copy size={13} />} onClick={() => copy(ids)}>
-                  {ids.length > 1 ? "Copy together" : "Copy"}
-                </Button>
+                {filter === "hidden" ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<RotateCcw size={13} />}
+                    onClick={() => setConfirmRestoreBulk(ids)}
+                  >
+                    Restore {plural(ids.length, "session")}
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" icon={<Download size={13} />} onClick={() => setExporting(true)}>
+                      Export
+                    </Button>
+                    <Button size="sm" variant="primary" busy={busy === ids.join()} icon={<Copy size={13} />} onClick={() => copy(ids)}>
+                      {ids.length > 1 ? "Copy together" : "Copy"}
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <Pagination
@@ -344,6 +353,49 @@ function SessionList() {
       </PageFooter>
       {adding && <AddSessionModal onClose={() => setAdding(false)} />}
       {exporting && <ExportModal ids={ids} level={settings.level} onClose={() => setExporting(false)} />}
+      {confirmRestore && (
+        <AlertDialog
+          title="Restore session"
+          description={`Restore “${confirmRestore.title}” back to your active Sessions list?`}
+          confirmLabel="Restore"
+          destructive={false}
+          icon={<RotateCcw size={15} />}
+          onClose={() => setConfirmRestore(null)}
+          onConfirm={async () => {
+            try {
+              await api.restoreSession(confirmRestore.id);
+              reload();
+              toast({ kind: "success", text: `Restored “${confirmRestore.title}” to Sessions` });
+              setConfirmRestore(null);
+            } catch (err) {
+              toast({ kind: "error", text: errorText(err) });
+            }
+          }}
+        />
+      )}
+      {confirmRestoreBulk && (
+        <AlertDialog
+          title={`Restore ${plural(confirmRestoreBulk.length, "session")}`}
+          description={`Restore ${plural(confirmRestoreBulk.length, "session")} back to your active Sessions list?`}
+          confirmLabel="Restore"
+          destructive={false}
+          icon={<RotateCcw size={15} />}
+          onClose={() => setConfirmRestoreBulk(null)}
+          onConfirm={async () => {
+            try {
+              for (const sid of confirmRestoreBulk) {
+                await api.restoreSession(sid);
+              }
+              reload();
+              setSelected(new Set());
+              toast({ kind: "success", text: `Restored ${plural(confirmRestoreBulk.length, "session")} to Sessions` });
+              setConfirmRestoreBulk(null);
+            } catch (err) {
+              toast({ kind: "error", text: errorText(err) });
+            }
+          }}
+        />
+      )}
     </FillPage>
   );
 }
@@ -395,6 +447,7 @@ function SessionPage({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const [paths, setPaths] = useState<string[] | null>(null);
   const back = () => navigate({ page: "sessions" });
 
@@ -464,7 +517,7 @@ function SessionPage({ id }: { id: string }) {
               <span>{row.pinned ? "Pinned" : "Pin"}</span>
             </button>
             {row.hidden ? (
-              <Button size="sm" icon={<RotateCcw size={13} />} onClick={restore}>
+              <Button size="sm" icon={<RotateCcw size={13} />} onClick={() => setConfirmRestore(true)}>
                 Restore
               </Button>
             ) : (
@@ -515,7 +568,7 @@ function SessionPage({ id }: { id: string }) {
         {row.hidden && (
           <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-[12.5px] text-muted">
             <span>This session is hidden from Hopilo. The files on your computer are untouched.</span>
-            <Button size="sm" variant="secondary" icon={<RotateCcw size={13} />} onClick={restore}>
+            <Button size="sm" variant="secondary" icon={<RotateCcw size={13} />} onClick={() => setConfirmRestore(true)}>
               Restore to Sessions
             </Button>
           </div>
@@ -555,6 +608,17 @@ function SessionPage({ id }: { id: string }) {
           destructive
           onClose={() => setConfirmDelete(false)}
           onConfirm={remove}
+        />
+      )}
+      {confirmRestore && (
+        <AlertDialog
+          title="Restore session"
+          description={`Restore “${row.title}” back to your active Sessions list?`}
+          confirmLabel="Restore"
+          destructive={false}
+          icon={<RotateCcw size={15} />}
+          onClose={() => setConfirmRestore(false)}
+          onConfirm={restore}
         />
       )}
     </FillPage>

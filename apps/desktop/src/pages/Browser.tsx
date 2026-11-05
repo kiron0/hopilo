@@ -6,7 +6,7 @@ import { relativeTime } from "../lib/format";
 import { useLoad } from "../lib/hooks";
 import { provider } from "../lib/providers";
 import { useApp } from "../lib/store";
-import { Badge, Button, Card, Checkbox, ErrorNote, PageHeader, ProviderChip, SectionLabel } from "../components/ui";
+import { AlertDialog, Badge, Button, Card, Checkbox, ErrorNote, PageHeader, ProviderChip, SectionLabel } from "../components/ui";
 import { RouteSkeleton } from "../components/Skeletons";
 
 const WEB = ["claude", "gemini", "deepseek", "grok", "perplexity"];
@@ -74,6 +74,7 @@ export function Browser() {
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   useEffect(() => {
     const onFocus = () => reload();
@@ -113,7 +114,7 @@ export function Browser() {
     <div className="space-y-4 pb-6">
       <PageHeader
         title="Browser"
-        subtitle="The Hopilo extension saves Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It communicates 100% offline via local OS pipes with this app."
+        subtitle="The Hopilo extension saves Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It communicates 100% offline directly with this app."
         actions={<Button icon={<RefreshCw size={14} />} onClick={reload}>Refresh</Button>}
       />
 
@@ -163,7 +164,7 @@ export function Browser() {
       <Step n={2} title="Connect your browsers" done={anyRegistered}>
         {!data.hostBinaryExists && (
           <div className="mb-3 flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2 text-[12.5px] text-warning">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" /> The bridge program wasn't found at {data.hostBinary}. Build it with <code className="font-mono">cargo build -p hopilo-native-host</code>.
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" /> The companion bridge was not found at {data.hostBinary}. Please reinstall or update Hopilo.
           </div>
         )}
         {data.browsers.length === 0 ? (
@@ -202,21 +203,13 @@ export function Browser() {
           {anyRegistered && (
             <Button
               variant="ghost"
-              onClick={async () => {
-                try {
-                  await api.unregisterBrowserHost(data.browsers.filter((b) => b.registered).map((b) => b.id));
-                  toast({ kind: "success", text: "Disconnected all browsers." });
-                } catch (e) {
-                  toast({ kind: "error", text: `Could not disconnect: ${errorText(e)}` });
-                }
-                reload();
-              }}
+              onClick={() => setConfirmDisconnect(true)}
             >
               Disconnect all
             </Button>
           )}
         </div>
-        <p className="mt-2 text-[12px] text-faint">Connecting writes one small file per browser that lets only the Hopilo extension start the bridge.</p>
+        <p className="mt-2 text-[12px] text-faint">Connecting allows only the Hopilo extension to communicate securely with the desktop app.</p>
       </Step>
 
       <Step n={3} title="Check it works" done={isConnected}>
@@ -253,6 +246,26 @@ export function Browser() {
           Sites change their pages often. If a capture or insert fails, the extension says so and copies the draft to your clipboard instead.
         </p>
       </section>
+
+      {confirmDisconnect && (
+        <AlertDialog
+          title="Disconnect all browsers"
+          description="Disconnect all registered browsers from Hopilo? You can reconnect them anytime."
+          confirmLabel="Disconnect all"
+          destructive
+          onClose={() => setConfirmDisconnect(false)}
+          onConfirm={async () => {
+            try {
+              await api.unregisterBrowserHost(data.browsers.filter((b) => b.registered).map((b) => b.id));
+              toast({ kind: "success", text: "Disconnected all browsers." });
+              setConfirmDisconnect(false);
+            } catch (e) {
+              toast({ kind: "error", text: `Could not disconnect: ${errorText(e)}` });
+            }
+            reload();
+          }}
+        />
+      )}
     </div>
   );
 }
