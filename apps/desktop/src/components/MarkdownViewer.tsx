@@ -12,6 +12,7 @@ type BlockToken =
   | { type: "taskList"; items: { checked: boolean; text: string }[] }
   | { type: "list"; ordered: boolean; items: string[] }
   | { type: "rule" }
+  | { type: "blank" }
   | { type: "paragraph"; text: string };
 
 function parseMarkdown(md: string): BlockToken[] {
@@ -23,7 +24,16 @@ function parseMarkdown(md: string): BlockToken[] {
     const line = lines[i];
 
     if (!line.trim()) {
-      i++;
+      let emptyCount = 0;
+      while (i < lines.length && !lines[i].trim()) {
+        emptyCount++;
+        i++;
+      }
+      if (blocks.length > 0 && emptyCount > 1) {
+        for (let k = 1; k < emptyCount; k++) {
+          blocks.push({ type: "blank" });
+        }
+      }
       continue;
     }
 
@@ -221,6 +231,21 @@ function renderInline(text: string): ReactNode[] {
   return nodes;
 }
 
+function renderInlineContent(text: string): ReactNode[] {
+  if (!text) return [];
+  const lines = text.split("\n");
+  const nodes: ReactNode[] = [];
+  lines.forEach((line, idx) => {
+    if (idx > 0) {
+      nodes.push(<br key={`br-${idx}`} />);
+    }
+    if (line) {
+      nodes.push(...renderInline(line));
+    }
+  });
+  return nodes;
+}
+
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -262,22 +287,25 @@ export function MarkdownBlock({ text }: { text: string }) {
   const blocks = useMemo(() => parseMarkdown(text), [text]);
 
   return (
-    <div className="space-y-2 text-[13px] leading-relaxed text-ink" data-selectable>
+    <div className="text-[13px] leading-relaxed text-ink" data-selectable>
       {blocks.map((block, idx) => {
         switch (block.type) {
           case "paragraph":
             return (
-              <p key={idx} className="my-1.5 break-words whitespace-pre-wrap leading-relaxed">
-                {renderInline(block.text)}
+              <p key={idx} className="mb-3 break-words leading-relaxed text-ink last:mb-0">
+                {renderInlineContent(block.text)}
               </p>
             );
 
+          case "blank":
+            return <div key={idx} className="h-3.5" aria-hidden="true" />;
+
           case "heading": {
-            const content = renderInline(block.text);
-            if (block.level === 1) return <h1 key={idx} className="mt-4 mb-2 text-lg font-bold text-ink">{content}</h1>;
-            if (block.level === 2) return <h2 key={idx} className="mt-3.5 mb-1.5 text-base font-bold text-ink">{content}</h2>;
-            if (block.level === 3) return <h3 key={idx} className="mt-3 mb-1 text-[14.5px] font-semibold text-ink">{content}</h3>;
-            return <h4 key={idx} className="mt-2 mb-1 text-[13.5px] font-semibold text-ink">{content}</h4>;
+            const content = renderInlineContent(block.text);
+            if (block.level === 1) return <h1 key={idx} className="mt-5 mb-2.5 text-lg font-bold text-ink first:mt-0">{content}</h1>;
+            if (block.level === 2) return <h2 key={idx} className="mt-4 mb-2 text-base font-bold text-ink first:mt-0">{content}</h2>;
+            if (block.level === 3) return <h3 key={idx} className="mt-3.5 mb-1.5 text-[14.5px] font-semibold text-ink first:mt-0">{content}</h3>;
+            return <h4 key={idx} className="mt-3 mb-1 text-[13.5px] font-semibold text-ink first:mt-0">{content}</h4>;
           }
 
           case "code":
@@ -286,11 +314,11 @@ export function MarkdownBlock({ text }: { text: string }) {
           case "alert": {
             const cfg = ALERT_CONFIG[block.kind] || ALERT_CONFIG.NOTE;
             return (
-              <div key={idx} className={cx("my-2.5 rounded-xl border p-3 text-[12.5px]", cfg.tone)}>
+              <div key={idx} className={cx("my-3 rounded-xl border p-3.5 text-[12.5px]", cfg.tone)}>
                 <div className="font-semibold">{cfg.label}</div>
-                <div className="mt-1 space-y-1 text-ink">
+                <div className="mt-1.5 space-y-1 text-ink">
                   {block.content.map((c, cidx) => (
-                    <div key={cidx}>{renderInline(c)}</div>
+                    <div key={cidx}>{renderInlineContent(c)}</div>
                   ))}
                 </div>
               </div>
@@ -299,16 +327,16 @@ export function MarkdownBlock({ text }: { text: string }) {
 
           case "quote":
             return (
-              <blockquote key={idx} className="my-2 border-l-2 border-accent/60 pl-3 italic text-muted">
+              <blockquote key={idx} className="my-3 border-l-2 border-accent/60 pl-3.5 italic text-muted">
                 {block.lines.map((l, lidx) => (
-                  <div key={lidx}>{renderInline(l)}</div>
+                  <div key={lidx}>{renderInlineContent(l)}</div>
                 ))}
               </blockquote>
             );
 
           case "table":
             return (
-              <div key={idx} className="my-2.5 overflow-x-auto rounded-xl border border-line">
+              <div key={idx} className="my-3 overflow-x-auto rounded-xl border border-line">
                 <table className="w-full border-collapse text-left text-[12.5px]">
                   <thead className="border-b border-line bg-surface-2 font-semibold">
                     <tr>
@@ -318,7 +346,7 @@ export function MarkdownBlock({ text }: { text: string }) {
                           style={{ textAlign: block.alignments[hidx] || "left" }}
                           className="px-3.5 py-2 text-ink"
                         >
-                          {renderInline(h)}
+                          {renderInlineContent(h)}
                         </th>
                       ))}
                     </tr>
@@ -332,7 +360,7 @@ export function MarkdownBlock({ text }: { text: string }) {
                             style={{ textAlign: block.alignments[cidx] || "left" }}
                             className="px-3.5 py-2 text-muted"
                           >
-                            {renderInline(c)}
+                            {renderInlineContent(c)}
                           </td>
                         ))}
                       </tr>
@@ -344,7 +372,7 @@ export function MarkdownBlock({ text }: { text: string }) {
 
           case "taskList":
             return (
-              <ul key={idx} className="my-1.5 space-y-1 pl-1">
+              <ul key={idx} className="my-2.5 space-y-1.5 pl-1">
                 {block.items.map((item, tidx) => (
                   <li key={tidx} className="flex items-start gap-2">
                     <input
@@ -354,7 +382,7 @@ export function MarkdownBlock({ text }: { text: string }) {
                       className="mt-1 h-3.5 w-3.5 rounded border-line text-accent"
                     />
                     <span className={cx(item.checked ? "text-faint line-through" : "text-ink")}>
-                      {renderInline(item.text)}
+                      {renderInlineContent(item.text)}
                     </span>
                   </li>
                 ))}
@@ -364,27 +392,27 @@ export function MarkdownBlock({ text }: { text: string }) {
           case "list":
             if (block.ordered) {
               return (
-                <ol key={idx} className="my-1.5 list-decimal space-y-1 pl-5 text-muted">
+                <ol key={idx} className="my-2.5 list-decimal space-y-1 pl-5 text-muted">
                   {block.items.map((li, lidx) => (
                     <li key={lidx} className="leading-relaxed">
-                      {renderInline(li)}
+                      {renderInlineContent(li)}
                     </li>
                   ))}
                 </ol>
               );
             }
             return (
-              <ul key={idx} className="my-1.5 list-disc space-y-1 pl-5 text-muted">
+              <ul key={idx} className="my-2.5 list-disc space-y-1 pl-5 text-muted">
                 {block.items.map((li, lidx) => (
                   <li key={lidx} className="leading-relaxed">
-                    {renderInline(li)}
+                    {renderInlineContent(li)}
                   </li>
                 ))}
               </ul>
             );
 
           case "rule":
-            return <hr key={idx} className="my-3 border-line" />;
+            return <hr key={idx} className="my-4 border-line" />;
 
           default:
             return null;
