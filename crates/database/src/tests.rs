@@ -162,6 +162,16 @@ fn reopen_keeps_data_and_schema() {
 }
 
 #[test]
+fn remove_setting_deletes_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    db.set_setting("theme", &serde_json::json!("dark")).unwrap();
+    assert_eq!(db.settings().unwrap()["theme"], "dark");
+    db.remove_setting("theme").unwrap();
+    assert!(!db.settings().unwrap().contains_key("theme"));
+}
+
+#[test]
 fn fts_query_is_injection_safe() {
     assert_eq!(fts_query("auth \"OR\" x"), Some("\"auth\"* \"OR\"* \"x\"*".into()));
     assert_eq!(fts_query("   "), None);

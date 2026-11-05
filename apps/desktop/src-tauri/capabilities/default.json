@@ -19,8 +19,7 @@
     "dialog:allow-save",
     "dialog:allow-confirm",
     "dialog:allow-message",
-    "opener:allow-reveal-item-in-dir",
-    "opener:allow-open-url",
+    "opener:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled"

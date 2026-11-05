@@ -771,6 +771,11 @@ impl Store {
         Ok(())
     }
 
+    pub fn remove_setting(&mut self, key: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
     pub fn search(&self, q: &str, limit: i64) -> Result<Vec<SearchHit>> {
         let Some(query) = fts_query(q) else { return Ok(vec![]) };
         let mut stmt = self.conn.prepare(

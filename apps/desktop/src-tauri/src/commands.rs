@@ -499,6 +499,12 @@ pub async fn save_file(app: AppHandle, sha: String, path: String) -> CmdResult<S
 }
 
 #[tauri::command]
+pub fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_url(url, None::<&str>).map_err(err)
+}
+
+#[tauri::command]
 pub async fn open_file(app: AppHandle, sha: String) -> CmdResult<()> {
     blocking(app, move |app, state| open_file_blocking(app, &state, &sha)).await
 }
@@ -649,8 +655,24 @@ pub fn register_browser_host(ids: Vec<String>) -> CmdResult<Vec<String>> {
 }
 
 #[tauri::command]
-pub fn unregister_browser_host(ids: Vec<String>) -> CmdResult<Vec<String>> {
-    crate::browser::unregister(&ids)
+pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdResult<Vec<String>> {
+    let res = crate::browser::unregister(&ids)?;
+    blocking(app.clone(), move |app, state| {
+        let targets = crate::browser::targets();
+        let any_registered = targets.iter().any(|b| b.registered);
+        if !any_registered {
+            with_store(&state, |s| {
+                let _ = s.remove_setting("browser.lastSeen");
+                let _ = s.remove_setting("browser.extensionVersion");
+                Ok(())
+            })?;
+            let _ = app.emit("hopilo://settings-changed", ("browser.lastSeen", &serde_json::Value::Null));
+        }
+        notify(app);
+        Ok(())
+    })
+    .await?;
+    Ok(res)
 }
 
 #[cfg(test)]

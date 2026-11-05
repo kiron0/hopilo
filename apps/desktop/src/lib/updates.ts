@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export const APP_NAME = "Hopilo";
@@ -12,9 +13,13 @@ export const RELEASES_LATEST_URL = "https://github.com/kiron0/hopilo/releases/la
 export async function openExternal(url: string) {
   try {
     await openUrl(url);
-  } catch {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
+    return;
+  } catch {}
+  try {
+    await invoke("open_url", { url });
+    return;
+  } catch {}
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 export interface GitHubAsset {

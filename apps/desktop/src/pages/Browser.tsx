@@ -1,7 +1,5 @@
-import { useState } from "react";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { AlertTriangle, CheckCircle2, CircleDashed, Copy, Download, ExternalLink, FolderOpen, RefreshCw } from "../components/Icons";
+import { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Download, ExternalLink, RefreshCw } from "../components/Icons";
 import { RELEASES_LATEST_URL, RELEASES_URL, openExternal } from "../lib/updates";
 import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
@@ -28,20 +26,22 @@ function Step({ n, title, children, done }: { n: number; title: string; children
   );
 }
 
-function releaseAsset(browser: "chrome" | "firefox", version: string) {
-  const name = `hopilo-extension-${browser}-${version}.zip`;
-  return { name, url: `${RELEASES_URL}/download/v${version}/${name}` };
+function releaseAsset(browser: "chrome" | "firefox", version: string | undefined) {
+  const v = version ?? "0.1.0";
+  const name = `hopilo-extension-${browser}-${v}.zip`;
+  const url = version ? `${RELEASES_URL}/download/v${version}/${name}` : `${RELEASES_LATEST_URL}/download/${name}`;
+  return { name, url };
 }
 
-function ReleaseSteps({ version }: { version: string | undefined }) {
-  const chrome = version ? releaseAsset("chrome", version) : null;
-  const firefox = version ? releaseAsset("firefox", version) : null;
+function ReleaseSteps({ version, extensionId }: { version: string | undefined; extensionId: string }) {
+  const chrome = releaseAsset("chrome", version);
+  const firefox = releaseAsset("firefox", version);
   const code = "font-mono text-[12px]";
   return (
     <div className="space-y-3 text-muted">
       <ol className="list-decimal space-y-1.5 pl-4 marker:text-faint">
         <li>
-          Download <code className={code}>{chrome?.name ?? "hopilo-extension-chrome-<version>.zip"}</code> from the GitHub release that matches this app.
+          Download <code className={code}>{chrome.name}</code> from the GitHub release that matches this app.
         </li>
         <li>Unzip it into a folder you'll keep. The browser loads the extension from that folder, so don't delete it.</li>
         <li>
@@ -49,10 +49,10 @@ function ReleaseSteps({ version }: { version: string | undefined }) {
         </li>
       </ol>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => openExternal(chrome?.url ?? RELEASES_LATEST_URL)}>
+        <Button size="sm" variant="primary" icon={<Download size={13} />} onClick={() => openExternal(chrome.url)}>
           Download for Chrome
         </Button>
-        <Button size="sm" icon={<Download size={13} />} onClick={() => openExternal(firefox?.url ?? RELEASES_LATEST_URL)}>
+        <Button size="sm" icon={<Download size={13} />} onClick={() => openExternal(firefox.url)}>
           Download for Firefox
         </Button>
         <Button size="sm" variant="ghost" icon={<ExternalLink size={13} />} onClick={() => openExternal(version ? `${RELEASES_URL}/tag/v${version}` : RELEASES_LATEST_URL)}>
@@ -62,6 +62,7 @@ function ReleaseSteps({ version }: { version: string | undefined }) {
       <p>
         Firefox 128 or newer: download the Firefox build, open <code className={code}>about:debugging#/runtime/this-firefox</code>, choose <b>Load Temporary Add-on</b> and pick the downloaded <code className={code}>.zip</code>.
       </p>
+      <p className="font-mono text-[11px] text-faint">Extension ID {extensionId}</p>
     </div>
   );
 }
@@ -72,6 +73,17 @@ export function Browser() {
   const toast = useApp((s) => s.toast);
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+
+  useEffect(() => {
+    const onFocus = () => reload();
+    window.addEventListener("focus", onFocus);
+    const timer = setInterval(reload, 10000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(timer);
+    };
+  }, [reload]);
 
   if (error) return <ErrorNote text={error} />;
   if (loading && !data) return <RouteSkeleton page="browser" />;
@@ -80,7 +92,9 @@ export function Browser() {
   const installed = data.browsers.filter((b) => b.installed);
   const chosen = picked ?? new Set(installed.map((b) => b.id));
   const anyRegistered = data.browsers.some((b) => b.registered);
-  const seen = !!data.lastSeen;
+  const CONNECTED_WINDOW_MS = 10 * 60 * 1000;
+  const lastSeenTs = data.lastSeen ? new Date(data.lastSeen).getTime() : 0;
+  const isConnected = anyRegistered && !!data.lastSeen && !isNaN(lastSeenTs) && Date.now() - lastSeenTs < CONNECTED_WINDOW_MS;
 
   const connect = async () => {
     setBusy(true);
@@ -103,30 +117,46 @@ export function Browser() {
         actions={<Button icon={<RefreshCw size={14} />} onClick={reload}>Refresh</Button>}
       />
 
-      <Step n={1} title="Add the extension to your browser" done={seen}>
-        {data.extensionDir ? (
-          <>
-            <p className="text-muted">
-              In Chrome, Edge, Brave or Arc: open <code className="font-mono text-[12px]">chrome://extensions</code>, turn on <b>Developer mode</b>, choose <b>Load unpacked</b> and select this folder.
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <code data-selectable className="max-w-full truncate rounded-xl border border-line bg-surface-2 px-3 py-1.5 font-mono text-[12px]">{data.extensionDir}</code>
-              <Button size="sm" icon={<FolderOpen size={13} />} onClick={() => revealItemInDir(data.extensionDir!)}>Show folder</Button>
-              <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => writeText(data.extensionDir!).then(() => toast({ kind: "success", text: "Folder path copied." }))}>Copy path</Button>
+      <Step n={1} title="Add the extension to your browser" done={isConnected}>
+        {isConnected && !showInstructions ? (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-success/30 bg-success-soft px-2.5 py-1 text-[12px] font-medium text-success">
+                  <CheckCircle2 size={13} /> Extension connected
+                </span>
+                {data.extensionVersion && (
+                  <span className="text-[12.5px] text-muted">v{data.extensionVersion}</span>
+                )}
+                {data.lastSeen && (
+                  <span className="text-[12px] text-faint">· active {relativeTime(data.lastSeen)}</span>
+                )}
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setShowInstructions(true)}>
+                Reinstall or add to another browser
+              </Button>
             </div>
-          </>
+            <p className="font-mono text-[11px] text-faint">Extension ID {data.extensionId}</p>
+          </div>
         ) : (
-          <ReleaseSteps version={version} />
-        )}
-        <p className="mt-2 font-mono text-[11px] text-faint">Extension ID {data.extensionId}</p>
-        {data.extensionDir && data.firefoxExtensionDir && (
-          <p className="mt-3 text-muted">
-            Firefox 128 or newer: open <code className="font-mono text-[12px]">about:debugging#/runtime/this-firefox</code>, choose <b>Load Temporary Add-on</b> and pick <code className="font-mono text-[12px]">manifest.json</code> in{" "}
-            <button type="button" className="text-accent hover:underline" onClick={() => revealItemInDir(data.firefoxExtensionDir!)}>
-              the Firefox build folder
-            </button>
-            .
-          </p>
+          <>
+            {isConnected ? (
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-[12px] text-muted">Setup instructions</span>
+                <Button size="sm" variant="ghost" onClick={() => setShowInstructions(false)}>
+                  Hide instructions
+                </Button>
+              </div>
+            ) : data.lastSeen ? (
+              <div className="mb-3 flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-[12.5px] text-muted">
+                <CircleDashed size={14} className="shrink-0 text-faint" />
+                <span>
+                  Not connected right now (last active {relativeTime(data.lastSeen)}). Open the Hopilo extension in your browser to reconnect, or download below.
+                </span>
+              </div>
+            ) : null}
+            <ReleaseSteps version={version} extensionId={data.extensionId} />
+          </>
         )}
       </Step>
 
@@ -154,7 +184,15 @@ export function Browser() {
                   }}
                 />
                 <span className="flex-1 font-medium">{b.name}</span>
-                {!b.installed ? <Badge>Not installed</Badge> : b.registered ? <Badge tone="success"><CheckCircle2 size={11} /> Connected</Badge> : <Badge><CircleDashed size={11} /> Not connected</Badge>}
+                {!b.installed ? (
+                  <Badge>Not installed</Badge>
+                ) : b.registered && isConnected ? (
+                  <Badge tone="success"><CheckCircle2 size={11} /> Connected</Badge>
+                ) : b.registered ? (
+                  <Badge tone="neutral"><CircleDashed size={11} /> Host registered</Badge>
+                ) : (
+                  <Badge><CircleDashed size={11} /> Not registered</Badge>
+                )}
               </li>
             ))}
           </ul>
@@ -167,6 +205,7 @@ export function Browser() {
               onClick={async () => {
                 try {
                   await api.unregisterBrowserHost(data.browsers.filter((b) => b.registered).map((b) => b.id));
+                  toast({ kind: "success", text: "Disconnected all browsers." });
                 } catch (e) {
                   toast({ kind: "error", text: `Could not disconnect: ${errorText(e)}` });
                 }
@@ -180,9 +219,13 @@ export function Browser() {
         <p className="mt-2 text-[12px] text-faint">Connecting writes one small file per browser that lets only the Hopilo extension start the bridge.</p>
       </Step>
 
-      <Step n={3} title="Check it works" done={seen}>
+      <Step n={3} title="Check it works" done={isConnected}>
         <p className="text-muted">
-          {seen ? `Last heard from the extension ${relativeTime(data.lastSeen)}${data.extensionVersion ? ` (version ${data.extensionVersion})` : ""}.` : "Open a Claude or Gemini chat and click the Hopilo toolbar icon. It will show “Connected”."}
+          {isConnected
+            ? `Active now · last heard from extension ${relativeTime(data.lastSeen)}${data.extensionVersion ? ` (v${data.extensionVersion})` : ""}.`
+            : data.lastSeen
+            ? `Not active right now. Last heard from the extension ${relativeTime(data.lastSeen)}. Open the Hopilo extension icon in your browser to reconnect.`
+            : "Open a Claude or Gemini chat and click the Hopilo toolbar icon. It will show “Connected”."}
         </p>
       </Step>
 
