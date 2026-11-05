@@ -177,16 +177,23 @@ export function Settings() {
               ]}
             />
           </Row>
-          <Row label="Closing the window" hint={isMac ? "Hide keeps Hopilo in the menu bar." : "Hide keeps Hopilo running in the system tray."}>
-            <Segmented
-              label="Close button"
-              value={s.closeButton}
-              onChange={(v) => saveSetting("closeButton", v)}
-              options={[
-                { value: "hide", label: "Hide" },
-                { value: "quit", label: "Quit" },
-              ]}
-            />
+          <Row
+            label="Closing the window"
+            hint={isMac ? "Red close button hides Hopilo. Use ⌘Q or Quit Hopilo to fully stop it." : "Hide keeps Hopilo running in the system tray."}
+          >
+            {isMac ? (
+              <span className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] font-medium text-muted">Hide to menu bar</span>
+            ) : (
+              <Segmented
+                label="Close button"
+                value={s.closeButton}
+                onChange={(v) => saveSetting("closeButton", v)}
+                options={[
+                  { value: "hide", label: "Hide" },
+                  { value: "quit", label: "Quit" },
+                ]}
+              />
+            )}
           </Row>
           {isLinux ? (
             <Row label="System tray interaction" hint="Linux tray APIs expose the menu, not direct icon clicks.">

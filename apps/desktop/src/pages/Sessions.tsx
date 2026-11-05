@@ -892,15 +892,23 @@ function SessionPage({ id }: { id: string }) {
             onChange={(v) => setTab(v as "conversation" | "markdown" | "files")}
             options={[
               { value: "conversation", label: "Conversation" },
-              { value: "markdown", label: "Markdown" },
+              { value: "markdown", label: "Markdown preview" },
               { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
             ]}
           />
           {busy && <Loader2 size={14} className="animate-spin text-accent" />}
         </div>
-        {tab === "conversation" || tab === "markdown" ? (
+        {tab === "conversation" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-            <Transcript messages={messages} renderMarkdown={tab === "markdown"} />
+            <Transcript key={`${id}-conversation`} messages={messages} />
+          </div>
+        ) : tab === "markdown" ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto px-6 py-5">
+            <div className="mb-4 flex items-center gap-2 border-b border-line pb-3">
+              <span className="rounded-md border border-accent/30 bg-accent-soft px-2 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-accent">Preview</span>
+              <span className="text-[12px] text-muted">Rendered Markdown · code highlighting enabled</span>
+            </div>
+            <Transcript key={`${id}-markdown`} messages={messages} renderMarkdown />
           </div>
         ) : (
           <FilesTab files={files} />

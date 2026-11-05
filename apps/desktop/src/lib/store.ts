@@ -44,16 +44,44 @@ const DEFAULT_LIST_VIEW: ListView = {
   hideUnanswered: false,
 };
 
+const SESSION_FILTERS = new Set<SessionFilter>(["all", "agents", "web", "added", "pinned", "hidden"]);
+const RESOURCE_FILTERS = new Set<ListView["resource"]>(["all", "with-files", "without-files"]);
+
+export function normalizeListView(raw: unknown, base: ListView = DEFAULT_LIST_VIEW): ListView {
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const selected = Array.isArray(value.selected)
+    ? [...new Set(value.selected.filter((id): id is string => typeof id === "string"))]
+    : base.selected;
+  const limit = value.limit === "auto" || (typeof value.limit === "number" && Number.isInteger(value.limit) && value.limit > 0)
+    ? value.limit
+    : base.limit;
+  return {
+    q: typeof value.q === "string" ? value.q : base.q,
+    filter: typeof value.filter === "string" && SESSION_FILTERS.has(value.filter as SessionFilter) ? value.filter as SessionFilter : base.filter,
+    provider: typeof value.provider === "string" ? value.provider : base.provider,
+    model: typeof value.model === "string" ? value.model : base.model,
+    resource: typeof value.resource === "string" && RESOURCE_FILTERS.has(value.resource as ListView["resource"])
+      ? value.resource as ListView["resource"]
+      : base.resource,
+    page: typeof value.page === "number" && Number.isInteger(value.page) && value.page >= 0 ? value.page : base.page,
+    selected,
+    limit,
+    hideUnanswered: typeof value.hideUnanswered === "boolean" ? value.hideUnanswered : base.hideUnanswered,
+  };
+}
+
 function loadListView(): ListView {
+  if (typeof localStorage === "undefined") return DEFAULT_LIST_VIEW;
   try {
     const saved = JSON.parse(localStorage.getItem(LIST_VIEW_KEY) ?? "{}");
-    return { ...DEFAULT_LIST_VIEW, ...saved, selected: [] };
+    return normalizeListView({ ...saved, selected: [] });
   } catch {
     return DEFAULT_LIST_VIEW;
   }
 }
 
 function saveListView(v: ListView) {
+  if (typeof localStorage === "undefined") return;
   try {
     const { selected: _, ...rest } = v;
     localStorage.setItem(LIST_VIEW_KEY, JSON.stringify(rest));
@@ -116,6 +144,7 @@ interface State {
   setPaletteOpen: (o: boolean) => void;
   listView: ListView;
   setListView: (v: Partial<ListView>) => void;
+  hydrateListView: (v: Partial<ListView>) => void;
 }
 
 let toastId = 0;
@@ -145,8 +174,9 @@ export const useApp = create<State>((set, get) => ({
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   listView: loadListView(),
   setListView: (v) => {
-    const listView = { ...get().listView, ...v };
+    const listView = normalizeListView(v, get().listView);
     saveListView(listView);
     set({ listView });
   },
+  hydrateListView: (v) => set({ listView: normalizeListView(v, get().listView) }),
 }));

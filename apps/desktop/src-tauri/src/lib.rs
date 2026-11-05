@@ -40,6 +40,16 @@ struct StartupState {
     show_main: std::sync::atomic::AtomicBool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseAction {
+    Hide,
+    Quit,
+}
+
+fn close_action(macos: bool, setting: Option<&str>) -> CloseAction {
+    if macos || setting != Some("quit") { CloseAction::Hide } else { CloseAction::Quit }
+}
+
 #[tauri::command]
 fn app_ready(window: tauri::Window) {
     let app = window.app_handle();
@@ -188,11 +198,15 @@ pub fn run() {
         })
         .on_window_event(|window, event| match (window.label(), event) {
             ("main", WindowEvent::CloseRequested { api, .. }) => {
-                if setting_str(window.app_handle(), "closeButton").as_deref() == Some("quit") {
-                    window.app_handle().exit(0);
-                } else {
-                    api.prevent_close();
-                    let _ = window.hide();
+                match close_action(cfg!(target_os = "macos"), setting_str(window.app_handle(), "closeButton").as_deref()) {
+                    CloseAction::Quit => window.app_handle().exit(0),
+                    CloseAction::Hide => {
+                        api.prevent_close();
+                        if let Some(quick) = window.app_handle().get_webview_window("quick") {
+                            let _ = quick.hide();
+                        }
+                        let _ = window.hide();
+                    }
                 }
             }
             ("main" | "quick", WindowEvent::Focused(true)) => {
@@ -257,4 +271,16 @@ pub fn run() {
         }
         let _ = (app, event);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macos_close_always_hides_but_other_platforms_honor_setting() {
+        assert_eq!(close_action(true, Some("quit")), CloseAction::Hide);
+        assert_eq!(close_action(false, Some("quit")), CloseAction::Quit);
+        assert_eq!(close_action(false, Some("hide")), CloseAction::Hide);
+    }
 }

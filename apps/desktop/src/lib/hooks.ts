@@ -84,6 +84,7 @@ function applyAppearance(s: Settings) {
 
 export function useBootstrap() {
   const setSettings = useApp((s) => s.setSettings);
+  const hydrateListView = useApp((s) => s.hydrateListView);
   const bump = useApp((s) => s.bump);
   const settings = useApp((s) => s.settings);
   const [ready, setReady] = useState(false);
@@ -96,18 +97,28 @@ export function useBootstrap() {
           setSettings({ ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) });
           const savedList = raw[LIST_VIEW_KEY];
           if (savedList && typeof savedList === "object") {
-            useApp.getState().setListView(savedList as Partial<ListView>);
+            hydrateListView(savedList as Partial<ListView>);
           }
         })
         .finally(() => setReady(true));
     load();
     const un1 = listen("hopilo://library-changed", () => bump());
-    const un2 = listen("hopilo://settings-changed", () => load());
+    const un2 = listen<[string, unknown]>("hopilo://settings-changed", ({ payload }) => {
+      if (!Array.isArray(payload) || typeof payload[0] !== "string") return;
+      const [key, value] = payload;
+      if (key === LIST_VIEW_KEY && value && typeof value === "object") {
+        hydrateListView(value as Partial<ListView>);
+      } else if (key in DEFAULT_SETTINGS) {
+        setSettings({ [key]: value } as Partial<Settings>);
+      } else {
+        load();
+      }
+    });
     return () => {
       un1.then((f) => f());
       un2.then((f) => f());
     };
-  }, [setSettings, bump]);
+  }, [setSettings, hydrateListView, bump]);
 
   useEffect(() => {
     applyAppearance(settings);
