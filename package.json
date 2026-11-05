@@ -1,11 +1,13 @@
 {
   "name": "hopilo",
+  "version": "0.1.1",
   "private": true,
   "packageManager": "pnpm@10.30.0",
   "scripts": {
     "dev": "pnpm --filter @hopilo/desktop tauri dev",
     "build": "pnpm --filter @hopilo/desktop tauri build",
     "typecheck": "pnpm --filter @hopilo/desktop typecheck && pnpm --filter @hopilo/extension typecheck",
-    "test": "cargo test --workspace && pnpm --filter @hopilo/desktop test && pnpm --filter @hopilo/extension test"
+    "test": "cargo test --workspace && pnpm --filter @hopilo/desktop test && pnpm --filter @hopilo/extension test",
+    "bump": "./scripts/bump-version.sh"
   }
 }

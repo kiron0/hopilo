@@ -95,7 +95,7 @@ jobs:
           node -e '
             const fs = require("fs");
             const ver = process.argv[1];
-            for (const p of ["package.json", "apps/desktop/package.json", "apps/extension/package.json"]) {
+            for (const p of ["package.json", "apps/desktop/package.json", "apps/extension/package.json", "apps/extension/public/manifest.json"]) {
               if (fs.existsSync(p)) {
                 const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
                 pkg.version = ver;
@@ -110,11 +110,9 @@ jobs:
             }
             const cargoPath = "Cargo.toml";
             const cargo = fs.readFileSync(cargoPath, "utf8");
-            const nextCargo = cargo.replace(
-              /(\[workspace\.package\][\s\S]*?\nversion\s*=\s*)"[^"]+"/,
-              `$1"${ver}"`,
-            );
-            if (nextCargo === cargo) throw new Error("workspace package version not found");
+            const pattern = /(\[workspace\.package\][\s\S]*?\nversion\s*=\s*)"[^"]+"/;
+            if (!pattern.test(cargo)) throw new Error("workspace package version not found");
+            const nextCargo = cargo.replace(pattern, `$1"${ver}"`);
             fs.writeFileSync(cargoPath, nextCargo);
           ' "$target_ver"
 
@@ -172,11 +170,12 @@ jobs:
           node -e '
             const fs = require("fs");
             const ver = process.argv[1];
-            const p = "apps/extension/package.json";
-            if (fs.existsSync(p)) {
-              const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
-              pkg.version = ver;
-              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+            for (const p of ["apps/extension/package.json", "apps/extension/public/manifest.json"]) {
+              if (fs.existsSync(p)) {
+                const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+                pkg.version = ver;
+                fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+              }
             }
           ' "$target_ver"
 
