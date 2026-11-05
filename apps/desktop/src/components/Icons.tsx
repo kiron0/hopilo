@@ -227,8 +227,30 @@ export const Type = make("M5 7.5V5h14v2.5M12 5v14m-2.5 0h5");
 export const Archive = make([rr(3.5, 4.5, 17, 4.5, 1.2), "M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9", "M10 13h4"], "M5 9h14v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z");
 const STAR = "M12 3.8 14.5 8.9l5.6.8-4 3.9.9 5.6-5-2.6-5 2.6.9-5.6-4-3.9 5.6-.8z";
 export const Star = make(STAR, STAR);
-const PIN = "M10 3.5h4V9l3 3.5V14H7v-1.5L10 9z";
-export const Pin = make(["M9 3.5h6", PIN, "M12 14v6.5"], PIN);
+export const Pin = ({ size = 18, active, filled, className, ...rest }: IconProps & { filled?: boolean }) => {
+  const isFilled = filled ?? active;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+      {...rest}
+    >
+      <line x1="12" y1="15" x2="12" y2="21" strokeWidth={1.7} />
+      <path
+        d="M9 3.5h6M10 3.5h4V9l3 3.5V15H7v-2.5L10 9z"
+        fill={isFilled ? "currentColor" : "none"}
+      />
+    </svg>
+  );
+};
 const TAG = "M3.5 12.2V5.5a2 2 0 0 1 2-2h6.7a2 2 0 0 1 1.4.6l7.3 7.3a2 2 0 0 1 0 2.8l-6.7 6.7a2 2 0 0 1-2.8 0L4.1 13.6a2 2 0 0 1-.6-1.4z";
 export const Tag = make([TAG, "M8 8h.01"], TAG);
 export const PanelBottom = make([rr(3.5, 4.5, 17, 15, 2.5), "M3.5 14.5h17"], "M3.5 14.5h17V17a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17z");

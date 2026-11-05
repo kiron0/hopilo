@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Plus, RefreshCw, Star, Trash2, X } from "../components/Icons";
+import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Pin, Plus, RefreshCw, Trash2, X } from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
 import { copySessions, exportSessions, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
@@ -224,7 +224,12 @@ function SessionList() {
                   >
                     <span className="flex items-center gap-2">
                       <span className="truncate font-medium">{r.title}</span>
-                      {r.pinned && <Star size={12} className="shrink-0 text-accent" aria-label="Pinned" />}
+                      {r.pinned && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs">
+                          <Pin size={10} filled className="shrink-0 fill-current" />
+                          <span>Pinned</span>
+                        </span>
+                      )}
                       {r.missingCount > 0 && <AlertTriangle size={12} className="shrink-0 text-warning" aria-label="Partly captured" />}
                       {r.tags.slice(0, 2).map((t) => (
                         <Badge key={t}>{t}</Badge>
@@ -386,9 +391,20 @@ function SessionPage({ id }: { id: string }) {
         actions={
           <>
             <StatusBadge status={source.captureStatus} />
-            <IconButton label={row.pinned ? "Unpin" : "Pin to the top"} onClick={() => api.updateSession(id, { pinned: !row.pinned })}>
-              <Star size={15} className={row.pinned ? "text-accent" : ""} />
-            </IconButton>
+            <button
+              type="button"
+              onClick={() => api.updateSession(id, { pinned: !row.pinned })}
+              className={cx(
+                "inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-[12px] font-medium transition-all cursor-pointer",
+                row.pinned
+                  ? "border border-accent/40 bg-accent-soft text-accent shadow-xs hover:bg-accent-soft/80 active:scale-[0.98]"
+                  : "border border-line bg-surface text-muted hover:border-line-strong hover:text-ink active:scale-[0.98]"
+              )}
+              title={row.pinned ? "Pinned to top · Click to unpin" : "Pin to the top"}
+            >
+              <Pin size={13} filled={row.pinned} className={row.pinned ? "fill-current" : "-rotate-45 text-muted"} />
+              <span>{row.pinned ? "Pinned" : "Pin"}</span>
+            </button>
             {canDelete && (
               <IconButton label="Delete" onClick={() => setConfirmDelete(true)}>
                 <Trash2 size={15} />
