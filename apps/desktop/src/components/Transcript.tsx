@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ChevronRight, FileImage, FileText, MessagesSquare, Wrench } from "./Icons";
 import type { Block, Message } from "../lib/api";
 import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
@@ -28,13 +28,76 @@ function ToolBlock({ title, body, error }: { title: string; body: string; error?
   );
 }
 
-function BlockView({ b, renderMarkdown }: { b: Block; renderMarkdown?: boolean }) {
+function runWhenIdle(cb: () => void): () => void {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    const handle = (window as unknown as {
+      requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback: (handle: number) => void;
+    }).requestIdleCallback(cb, { timeout: 1200 });
+    return () => {
+      (window as unknown as { cancelIdleCallback: (handle: number) => void }).cancelIdleCallback(handle);
+    };
+  }
+  const timer = setTimeout(cb, 32);
+  return () => clearTimeout(timer);
+}
+
+function DeferredMarkdown({ text, eager }: { text: string; eager?: boolean }) {
+  const [shouldRender, setShouldRender] = useState(Boolean(eager));
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (shouldRender) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (typeof IntersectionObserver === "undefined") {
+      setShouldRender(true);
+      return;
+    }
+
+    let cancelIdle: (() => void) | null = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry && entry.isIntersecting) {
+          observer.disconnect();
+          cancelIdle = runWhenIdle(() => {
+            setShouldRender(true);
+          });
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+
+    observer.observe(el);
+
+    return () => {
+      observer.disconnect();
+      if (cancelIdle) cancelIdle();
+    };
+  }, [shouldRender]);
+
+  if (!shouldRender) {
+    return (
+      <div ref={containerRef} data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
+        {text}
+      </div>
+    );
+  }
+
+  return (
+    <Suspense fallback={<div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{text}</div>}>
+      <MarkdownBlock text={text} />
+    </Suspense>
+  );
+}
+
+function BlockView({ b, renderMarkdown, eager }: { b: Block; renderMarkdown?: boolean; eager?: boolean }) {
   switch (b.type) {
     case "text":
       return renderMarkdown ? (
-        <Suspense fallback={<div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">{b.text}</div>}>
-          <MarkdownBlock text={b.text} />
-        </Suspense>
+        <DeferredMarkdown text={b.text} eager={eager} />
       ) : (
         <div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
           {b.text}
@@ -63,7 +126,7 @@ function BlockView({ b, renderMarkdown }: { b: Block; renderMarkdown?: boolean }
   }
 }
 
-const PAGE = 60;
+const PAGE = 40;
 
 export function Transcript({
   messages,
@@ -78,6 +141,25 @@ export function Transcript({
 }) {
   const [shown, setShown] = useState(PAGE);
   const visible = messages.length > shown ? messages.slice(0, shown) : messages;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (shown >= messages.length) return;
+    const el = sentinelRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setShown((curr) => Math.min(messages.length, curr + PAGE));
+        }
+      },
+      { rootMargin: "500px 0px" },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shown, messages.length]);
 
   if (messages.length === 0) {
     return (
@@ -90,7 +172,7 @@ export function Transcript({
   return (
     <>
       <ol className="space-y-3">
-        {visible.map((m) => {
+        {visible.map((m, index) => {
           const isSel = selected?.has(m.id);
           return (
             <li
@@ -114,7 +196,7 @@ export function Transcript({
                   )}
                 </div>
                 {m.blocks.map((b, i) => (
-                  <BlockView key={i} b={b} renderMarkdown={renderMarkdown} />
+                  <BlockView key={i} b={b} renderMarkdown={renderMarkdown} eager={index < 4} />
                 ))}
               </div>
             </li>
@@ -122,11 +204,11 @@ export function Transcript({
         })}
       </ol>
       {messages.length > shown && (
-        <div className="mt-3 flex items-center justify-center gap-2">
+        <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-2 py-2">
           <span className="text-[12.5px] text-muted">
             Showing {shown} of {messages.length} messages
           </span>
-          <Button size="sm" onClick={() => setShown((n) => n + PAGE * 4)}>Show more</Button>
+          <Button size="sm" onClick={() => setShown((n) => Math.min(messages.length, n + PAGE * 2))}>Show more</Button>
           <Button size="sm" variant="ghost" onClick={() => setShown(messages.length)}>Show all</Button>
         </div>
       )}

@@ -242,6 +242,7 @@ pub fn run() {
             commands::add_files,
             commands::save_file,
             commands::open_file,
+            commands::open_folder,
             commands::open_url,
             commands::list_handoffs,
             commands::recent_activity,

@@ -505,6 +505,16 @@ pub fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
+pub fn open_folder(app: AppHandle, path: String) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("Folder does not exist: {path}"));
+    }
+    app.opener().open_path(path, None::<&str>).map_err(err)
+}
+
+#[tauri::command]
 pub async fn open_file(app: AppHandle, sha: String) -> CmdResult<()> {
     blocking(app, move |app, state| open_file_blocking(app, &state, &sha)).await
 }

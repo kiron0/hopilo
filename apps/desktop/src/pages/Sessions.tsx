@@ -1,9 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Bot,
-  CheckIcon,
   Copy,
   Download,
   FileImage,
@@ -602,19 +601,54 @@ function SessionList() {
       {rows.length > 0 && (
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
-            {groups.map((group) => (
-              <section key={group.key} aria-label={group.label || "Sessions"} className={settings.sessionGroup === "none" ? undefined : "border-b border-line last:border-b-0"}>
-                {group.label && (
-                  <div className="flex items-center gap-2 border-b border-line bg-surface-2/70 px-4 py-2">
-                    <h2 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-muted" title={group.key === "__none" ? undefined : group.key}>{group.label}</h2>
-                    <span className="font-mono text-[10.5px] text-faint">{group.rows.length}</span>
+            {groups.map((group) => {
+              const isFolder = settings.sessionGroup === "folder";
+              const groupRowIds = group.rows.map((r) => r.id);
+              const allSelected = groupRowIds.length > 0 && groupRowIds.every((id) => selected.has(id));
+              const toggleGroup = () => {
+                const next = new Set(selected);
+                if (allSelected) {
+                  for (const id of groupRowIds) next.delete(id);
+                } else {
+                  for (const id of groupRowIds) next.add(id);
+                }
+                setSelected(next);
+              };
+
+              return (
+                <section key={group.key} aria-label={group.label || "Sessions"} className={settings.sessionGroup === "none" ? undefined : "border-b border-line last:border-b-0"}>
+                  {group.label && (
+                    <div className="flex items-center gap-2 border-b border-line bg-surface-2/70 px-4 py-2">
+                      {isFolder && (
+                        <Checkbox
+                          label={`Select all in ${group.label}`}
+                          checked={allSelected}
+                          onChange={toggleGroup}
+                        />
+                      )}
+                      <h2 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-muted" title={group.key === "__none" ? undefined : group.key}>
+                        {group.label}
+                      </h2>
+                      <span className="font-mono text-[10.5px] text-faint">{group.rows.length}</span>
+                      {isFolder && group.key !== "__none" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={<FolderOpen size={13} />}
+                          onClick={() => api.openFolder(group.key).catch((e) => toast({ kind: "error", text: errorText(e) }))}
+                          title={`Open folder: ${group.key}`}
+                        >
+                          Open folder
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  <div className={settings.sessionLayout === "thumbnails" ? "grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" : "divide-y divide-line"}>
+                    {group.rows.map(settings.sessionLayout === "thumbnails" ? thumbnail : listRow)}
                   </div>
-                )}
-                <div className={settings.sessionLayout === "thumbnails" ? "grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" : "divide-y divide-line"}>
-                  {group.rows.map(settings.sessionLayout === "thumbnails" ? thumbnail : listRow)}
-                </div>
-              </section>
-            ))}
+                </section>
+              );
+            })}
           </div>
           <div className="shrink-0 border-t border-line bg-surface-2/50 px-4 py-2.5">
             {ids.length > 0 ? (
@@ -745,112 +779,6 @@ function FilesTab({ files }: { files: Attachment[] }) {
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-const MarkdownBlock = lazy(() => import("../components/MarkdownViewer").then((m) => ({ default: m.MarkdownBlock })));
-
-function SessionMarkdownDocument({
-  row,
-  messages,
-  onCopyMarkdown,
-}: {
-  row: SessionRow;
-  messages: import("../lib/api").Message[];
-  onCopyMarkdown: () => void;
-}) {
-  const [view, setView] = useState<"rendered" | "raw">("rendered");
-  const [copied, setCopied] = useState(false);
-
-  const doc = useMemo(() => {
-    const lines: string[] = [];
-    lines.push(`# ${row.title || "Untitled Session"}\n`);
-    lines.push(`_${row.updatedAt || new Date().toISOString()} · exported by Hopilo_\n`);
-    lines.push("## Sources\n");
-    const meta: string[] = [];
-    if (row.project) meta.push(`project \`${row.project}\``);
-    if (row.model) meta.push(`model \`${row.model}\``);
-    lines.push(
-      `- **${row.title || "Session"}** (${row.provider}) — capture ${row.captureStatus}${meta.length ? ` · ${meta.join(" · ")}` : ""}\n`,
-    );
-
-    if (messages.length > 0) {
-      lines.push("## Transcript\n");
-      for (const m of messages) {
-        const roleLabel =
-          m.role === "user" ? "User" : m.role === "assistant" ? "Assistant" : m.role === "system" ? "System" : "Tool";
-        const timeStr = m.createdAt ? ` · ${m.createdAt}` : "";
-        lines.push(`### ${roleLabel}${timeStr}\n`);
-        for (const b of m.blocks) {
-          if (b.type === "text") {
-            lines.push(b.text.trimEnd() + "\n");
-          } else if (b.type === "toolCall") {
-            lines.push(`\`\`\`\n// Tool call: ${b.name}\n${b.input}\n\`\`\`\n`);
-          } else if (b.type === "toolResult") {
-            lines.push(`\`\`\`\n// Tool ${b.isError ? "error" : "result"}${b.name ? `: ${b.name}` : ""}\n${b.output}\n\`\`\`\n`);
-          } else if (b.type === "missing") {
-            lines.push(`> ⚠️ Referenced but not recovered: ${b.description}\n`);
-          } else if (b.type === "file") {
-            lines.push(`> 📎 Attachment: \`${b.name}\` (${b.mediaType})\n`);
-          }
-        }
-      }
-    }
-    return lines.join("\n");
-  }, [row, messages]);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(doc);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-      onCopyMarkdown();
-    } catch {
-      onCopyMarkdown();
-    }
-  };
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-line bg-surface-2/60 px-5 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="rounded-md border border-accent/30 bg-accent-soft px-2 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-accent">
-            Markdown Document
-          </span>
-          <span className="text-[12px] text-muted">Full session export format</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Segmented
-            label="Format"
-            value={view}
-            onChange={(v) => setView(v as "rendered" | "raw")}
-            options={[
-              { value: "rendered", label: "Rendered" },
-              { value: "raw", label: "Raw text" },
-            ]}
-          />
-          <Button size="sm" icon={copied ? <CheckIcon size={12} className="text-success" /> : <Copy size={12} />} onClick={handleCopy}>
-            {copied ? "Copied" : "Copy Markdown"}
-          </Button>
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-auto p-6">
-        {view === "rendered" ? (
-          <div className="mx-auto w-full max-w-4xl rounded-2xl border border-line bg-card p-8 shadow-card">
-            <Suspense fallback={<div className="font-mono text-[12px] whitespace-pre-wrap">{doc}</div>}>
-              <MarkdownBlock text={doc} />
-            </Suspense>
-          </div>
-        ) : (
-          <pre
-            data-selectable
-            className="mx-auto w-full max-w-4xl overflow-auto rounded-2xl border border-line bg-surface-2 p-6 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink select-all"
-          >
-            {doc}
-          </pre>
-        )}
-      </div>
     </div>
   );
 }
@@ -1007,10 +935,12 @@ function SessionPage({ id }: { id: string }) {
         </div>
         {tab === "conversation" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-            <Transcript key={`${id}-conversation`} messages={messages} renderMarkdown />
+            <Transcript key={`${id}-conversation`} messages={messages} renderMarkdown={false} />
           </div>
         ) : tab === "markdown" ? (
-          <SessionMarkdownDocument row={row} messages={messages} onCopyMarkdown={() => copy(true)} />
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
+            <Transcript key={`${id}-markdown`} messages={messages} renderMarkdown={true} />
+          </div>
         ) : (
           <FilesTab files={files} />
         )}

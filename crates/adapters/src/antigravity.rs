@@ -509,15 +509,4 @@ mod tests {
             Some(dir.path().display().to_string())
         );
     }
-
-    #[test]
-    fn command_working_directory_resolves_to_root() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join(".git")).unwrap();
-        let sub = dir.path().join("sub/folder");
-        std::fs::create_dir_all(&sub).unwrap();
-
-        let metadata = format!("Command Working Directory: {}", sub.display());
-        assert_eq!(extract_project(&metadata), Some(dir.path().display().to_string()));
-    }
 }

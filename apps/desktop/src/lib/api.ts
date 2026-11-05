@@ -246,6 +246,7 @@ export const api = {
 
   addFiles: (session: string | null, paths: string[]) => invoke<{ sessionId: string | null; added: number; errors: string[] }>("add_files", { session, paths }),
   openFile: (sha: string) => invoke<void>("open_file", { sha }),
+  openFolder: (path: string) => invoke<void>("open_folder", { path }),
   saveFile: (sha: string, path: string) => invoke<string>("save_file", { sha, path }),
 
   listHandoffs: (limit?: number) => invoke<HandoffRow[]>("list_handoffs", { limit }),
