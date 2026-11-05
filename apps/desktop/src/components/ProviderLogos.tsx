@@ -119,7 +119,18 @@ function NoteLogo({ size = 16, className }: LogoProps) {
   );
 }
 
+function AntigravityLogo({ size = 16, className }: LogoProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+      <path d="M12 3L4 17h16L12 3z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+      <path d="M5 21h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const LOGO_MAP: Record<string, (props: LogoProps) => ReactNode> = {
+  antigravity: AntigravityLogo,
   chatgpt: ChatGptLogo,
   claude: ClaudeLogo,
   "claude-code": ClaudeLogo,

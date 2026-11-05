@@ -11,7 +11,7 @@ import { ExportImportModal, pickChatExport } from "./ExportImport";
 import { Button, cx, Field, Modal, ProviderBadge, ProviderChip, TextArea, TextInput } from "./ui";
 import { Select } from "./Select";
 
-const QUICK_PICKS = ["chatgpt", "claude", "gemini", "grok", "deepseek", "perplexity"];
+const QUICK_PICKS = ["claude", "gemini", "grok", "deepseek", "perplexity"];
 
 function Way({ icon, title, body, onClick }: { icon: React.ReactNode; title: string; body: string; onClick: () => void }) {
   return (

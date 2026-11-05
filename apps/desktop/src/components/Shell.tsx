@@ -17,7 +17,7 @@ type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string
 const NAV: NavItem[] = [
   { page: "overview", label: "Overview", icon: OverviewIcon, hint: "Overview and quick actions" },
   { page: "sessions", label: "Sessions", icon: SessionsIcon, hint: "Every conversation, with its files" },
-  { page: "browser", label: "Browser", icon: BrowserIcon, hint: "Extension for ChatGPT, Claude, Gemini and more" },
+  { page: "browser", label: "Browser", icon: BrowserIcon, hint: "Extension for Claude, Gemini and more" },
 ];
 
 function LibraryCard() {

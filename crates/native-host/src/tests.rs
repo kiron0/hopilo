@@ -69,7 +69,7 @@ fn capture_is_stored_with_status_and_clean_url() {
 #[test]
 fn partial_capture_says_so() {
     let (_d, mut h) = host();
-    let resp = h.handle(&capture_req("chatgpt", "partial"));
+    let resp = h.handle(&capture_req("claude", "partial"));
     let sid = resp["result"]["sourceId"].as_str().unwrap().to_string();
     let (src, _) = h.store.get_source(&sid).unwrap();
     assert_eq!(src.capture_status, CaptureStatus::Partial);
@@ -96,7 +96,7 @@ fn draft_renders_requested_level() {
     let list = h.handle(&json!({"type": "session.list", "requestId": "l"}));
     assert_eq!(list["result"][0]["id"], sid.as_str());
 
-    let rec = h.handle(&json!({"type": "handoff.record", "requestId": "h", "ids": [sid], "target": "chatgpt", "status": "drafted"}));
+    let rec = h.handle(&json!({"type": "handoff.record", "requestId": "h", "ids": [sid], "target": "claude", "status": "drafted"}));
     assert_eq!(rec["ok"], true);
     assert_eq!(h.store.list_handoffs(1).unwrap()[0].status, "drafted");
     assert!(h.handle(&json!({"type": "session.getDraft", "requestId": "x", "ids": ["../etc"]}))["error"]["code"] == "bad_request");
@@ -127,9 +127,9 @@ fn firefox_caller_by_extension_id() {
 fn capture_stores_shared_files_and_flags_unreadable_ones() {
     let (_d, mut h) = host();
     let req = json!({
-        "type": "capture.import", "requestId": "r2", "provider": "chatgpt",
+        "type": "capture.import", "requestId": "r2", "provider": "claude",
         "payload": {
-            "title": "Spec review", "url": "https://chatgpt.com/c/1", "status": "complete",
+            "title": "Spec review", "url": "https://claude.ai/chat/1", "status": "complete",
             "messages": [
                 { "role": "user", "text": "See the spec", "files": [
                     { "name": "spec.md", "mediaType": "text/markdown", "data": "IyBTcGVj" },

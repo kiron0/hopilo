@@ -54,7 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trayClick: "panel",
   toolDetail: "truncated",
   level: "full",
-  defaultTarget: "chatgpt",
+  defaultTarget: "claude",
   onboarded: false,
 };
 

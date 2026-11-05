@@ -1,7 +1,7 @@
 export const HOST_NAME = "dev.hopilo.host";
 export const PROTOCOL = "2";
 
-export type Provider = "chatgpt" | "claude" | "gemini" | "deepseek" | "grok" | "perplexity";
+export type Provider = "claude" | "gemini" | "deepseek" | "grok" | "perplexity";
 export type Level = "balanced" | "full" | "minimal";
 
 export interface CapturedMessage {

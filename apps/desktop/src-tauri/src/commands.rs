@@ -25,6 +25,7 @@ fn scan_depth(adapter: &str) -> usize {
         "opencode" | "zed" | "cursor" => 0,
         "claude-code" => 1,
         "gemini-cli" | "qwen-code" => 2,
+        "antigravity" => 3,
         _ => 4,
     }
 }

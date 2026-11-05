@@ -2,7 +2,7 @@ import { PROTOCOL } from "./protocol";
 import type { CaptureReply, Draft, HostResponse, InsertReply, Level, PingReply, SessionSummary, Provider, TabRequest } from "./protocol";
 import { adapterFor } from "./adapters";
 
-const NAMES: Record<Provider, string> = { chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek (experimental)", grok: "Grok (experimental)", perplexity: "Perplexity (experimental)" };
+const NAMES: Record<Provider, string> = { claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek (experimental)", grok: "Grok (experimental)", perplexity: "Perplexity (experimental)" };
 
 const SESSION_ICON = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path class="duo" d="M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z"/><path d="M8.5 8V6a2 2 0 0 1 2-2H18a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-1v2.2"/><path d="M4 10a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 2.5V17a2 2 0 0 1-2-2z"/></svg>`;
 
@@ -109,7 +109,7 @@ async function init() {
       $("site").textContent = `${NAMES[fallbackAdapter.id]} · ready to capture`;
       cap.disabled = false;
     } else {
-      $("site").textContent = "Open a ChatGPT, Claude, Gemini, DeepSeek, Grok or Perplexity chat to capture it.";
+      $("site").textContent = "Open a Claude, Gemini, DeepSeek, Grok or Perplexity chat to capture it.";
       cap.disabled = true;
     }
   }

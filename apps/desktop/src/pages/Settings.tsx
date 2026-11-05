@@ -251,7 +251,7 @@ export function Settings() {
               {a.available ? <Badge tone="success">Found</Badge> : <span className="text-[12.5px] text-faint">Not installed</span>}
             </Row>
           ))}
-          <Row label="Web chats" hint="ChatGPT, Claude, Gemini, DeepSeek, Grok and Perplexity, through the browser extension.">
+          <Row label="Web chats" hint="Claude, Gemini, DeepSeek, Grok and Perplexity, through the browser extension.">
             <Button size="sm" onClick={() => useApp.getState().navigate({ page: "browser" })}>Set up</Button>
           </Row>
         </Group>

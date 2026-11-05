@@ -26,11 +26,11 @@ const session = (id: string, provider: string, kind: string, title: string, min:
 const SESSIONS = [
   session("s1", "claude-code", "local-agent", "DevDock architecture review", 2, { pinned: true, fileCount: 2, tags: ["backend"], lastCopiedAt: ago(10) }),
   session("s2", "codex", "local-agent", "Add pagination to GET /v1/orders", 90, { captureStatus: "partial", missingCount: 1 }),
-  session("s3", "chatgpt", "browser-chat", "Postgres index advice", 300, { fileCount: 1 }),
+  session("s3", "antigravity", "local-agent", "Hopilo architecture review", 300, { fileCount: 1 }),
   session("s4", "claude", "browser-chat", "Auth migration decisions", 60 * 26),
   session("s5", "deepseek", "manual", "Pricing model brainstorm", 60 * 30),
   session("s6", "gemini-cli", "local-agent", "Why does the build fail on CI?", 60 * 40),
-  session("s7", "chatgpt", "chat-export", "Trip planning", 60 * 50),
+  session("s7", "claude", "chat-export", "Trip planning", 60 * 50),
   ...Array.from({ length: 9 }, (_, i) => session(`cc${i}`, "claude-code", "local-agent", `Claude Code session ${i + 2}`, 60 * 60 + i * 60, { project: "/work/hopilo" })),
 ];
 
@@ -67,13 +67,13 @@ export function installMockIpc() {
           tokenEstimate: 18_400,
         };
       case "copy_sessions":
-        return { ids: ["s1"], title: "DevDock architecture review", target: "chatgpt", tokenEstimate: 18_400, missing: 0, findings: 1, attach: ["diagram.png"] };
+        return { ids: ["s1"], title: "DevDock architecture review", target: "claude", tokenEstimate: 18_400, missing: 0, findings: 1, attach: ["diagram.png"] };
       case "capture_clipboard":
         return { sourceId: "s9", duplicateOf: null, chars: 1240 };
       case "list_handoffs":
-        return [{ id: "h1", packId: "s1", packTitle: "DevDock architecture review", version: 0, target: "chatgpt", method: "clipboard", status: "copied", createdAt: ago(5) }];
+        return [{ id: "h1", packId: "s1", packTitle: "DevDock architecture review", version: 0, target: "claude", method: "clipboard", status: "copied", createdAt: ago(5) }];
       case "list_chat_export":
-        return { provider: "chatgpt", conversations: [{ id: "c1", title: "Postgres index advice", updatedAt: ago(3000), messageCount: 2 }] };
+        return { provider: "claude", conversations: [{ id: "c1", title: "Postgres index advice", updatedAt: ago(3000), messageCount: 2 }] };
       case "browser_status":
         return {
           extensionId: "fgddcclgflboboacjmfdkkpgdbaolleo",
@@ -87,10 +87,10 @@ export function installMockIpc() {
           ],
           lastSeen: ago(3),
           extensionVersion: "0.1.0",
-          adapters: { claude: { adapterVersion: "claude-web@1", ok: true, messageCount: 42, detail: null, testedAt: ago(3) }, chatgpt: { adapterVersion: "chatgpt-web@1", ok: false, messageCount: 0, detail: "No messages were found on this page.", testedAt: ago(60) } },
+          adapters: { claude: { adapterVersion: "claude-web@1", ok: true, messageCount: 42, detail: null, testedAt: ago(3) }, gemini: { adapterVersion: "gemini-web@1", ok: true, messageCount: 12, detail: null, testedAt: ago(15) } },
         };
       case "app_info":
-        return { version: "0.1.0", dataDir: "~/Library/Application Support/io.coreify.hopilo", platform: "macos", adapters: [{ id: "claude-code", displayName: "Claude Code", roots: ["~/.claude/projects"], available: true }, { id: "codex", displayName: "Codex CLI", roots: ["~/.codex/sessions"], available: true }, { id: "gemini-cli", displayName: "Gemini CLI", roots: ["~/.gemini/tmp"], available: true }, { id: "opencode", displayName: "OpenCode", roots: ["~/.local/share/opencode"], available: true }] };
+        return { version: "0.1.0", dataDir: "~/Library/Application Support/io.coreify.hopilo", platform: "macos", adapters: [{ id: "antigravity", displayName: "Antigravity", roots: ["~/.gemini/antigravity/brain"], available: true }, { id: "claude-code", displayName: "Claude Code", roots: ["~/.claude/projects"], available: true }, { id: "codex", displayName: "Codex CLI", roots: ["~/.codex/sessions"], available: true }, { id: "gemini-cli", displayName: "Gemini CLI", roots: ["~/.gemini/tmp"], available: true }, { id: "opencode", displayName: "OpenCode", roots: ["~/.local/share/opencode"], available: true }] };
       case "plugin:event|listen":
         return 1;
       default:

@@ -6,6 +6,7 @@ use hopilo_core::{Message, Source};
 use serde::Serialize;
 
 pub mod aider;
+pub mod antigravity;
 pub mod claude_code;
 pub mod codex;
 pub mod cursor;
@@ -83,6 +84,7 @@ pub trait LocalAgentAdapter: Send + Sync {
 pub fn all_adapters() -> Vec<Box<dyn LocalAgentAdapter>> {
     vec![
         Box::new(claude_code::ClaudeCode),
+        Box::new(antigravity::Antigravity),
         Box::new(codex::Codex),
         Box::new(cursor::Cursor),
         Box::new(gemini_cli::GEMINI_CLI),

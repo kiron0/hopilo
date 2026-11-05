@@ -15,13 +15,13 @@ const CHAT_HINT = "Open a new chat, paste, review, then send.";
 const AGENT_HINT = "Start a new session in the project folder and paste as your first message.";
 
 export const PROVIDERS: Provider[] = [
-  { id: "chatgpt", label: "ChatGPT", kind: "chat", color: "#10a37f", capture: "export", url: "https://chatgpt.com/", hint: CHAT_HINT },
   { id: "claude", label: "Claude", kind: "chat", color: "#d97757", capture: "export", url: "https://claude.ai/new", hint: CHAT_HINT },
   { id: "gemini", label: "Gemini", kind: "chat", color: "#4285f4", capture: "paste", url: "https://gemini.google.com/app", hint: CHAT_HINT },
   { id: "grok", label: "Grok", kind: "chat", color: "#5b6170", capture: "paste", url: "https://grok.com/", hint: CHAT_HINT },
   { id: "deepseek", label: "DeepSeek", kind: "chat", color: "#4d6bfe", capture: "paste", url: "https://chat.deepseek.com/", hint: CHAT_HINT },
   { id: "perplexity", label: "Perplexity", kind: "chat", color: "#20808d", capture: "paste", url: "https://www.perplexity.ai/", hint: "Open a new thread, paste, review, then send." },
 
+  { id: "antigravity", label: "Antigravity", kind: "agent", color: "#4285f4", capture: "auto", hint: "Start a session in Antigravity and paste as your first message." },
   { id: "claude-code", label: "Claude Code", kind: "agent", color: "#c96442", capture: "auto", hint: "Run `claude` in the project folder and paste as your first message." },
   { id: "codex", label: "Codex CLI", kind: "agent", color: "#0f8f6f", capture: "auto", hint: "Run `codex` in the project folder and paste as your first message." },
   { id: "cursor", label: "Cursor", kind: "agent", color: "#27272a", capture: "auto", hint: "Start a chat in Cursor and paste as your first message." },

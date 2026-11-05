@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseHTML } from "linkedom";
-import { chatgpt } from "../src/adapters/chatgpt";
 import { claude } from "../src/adapters/claude";
 import { capture, insertDraft, toMarkdown } from "../src/adapters/common";
 import { gemini } from "../src/adapters/gemini";
@@ -11,111 +10,9 @@ const load = (name: string) => parseHTML(readFileSync(new URL(`./fixtures/${name
 
 describe("web adapters", () => {
   it("picks the adapter by host", () => {
-    expect(adapterFor("chatgpt.com")?.id).toBe("chatgpt");
     expect(adapterFor("claude.ai")?.id).toBe("claude");
     expect(adapterFor("gemini.google.com")?.id).toBe("gemini");
     expect(adapterFor("example.com")).toBeNull();
-  });
-
-  it("ChatGPT: roles, code fences, links, title", async () => {
-    const doc = load("chatgpt");
-    const p = await capture(chatgpt, doc, { includeOlder: false });
-    expect(p.title).toBe("Postgres index advice");
-    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(p.messages[0].text).toBe("Which index for `WHERE user_id = $1`?");
-    const a = p.messages[1].text;
-    expect(a).toContain("Use a **composite** index:");
-    expect(a).toContain("```sql\nCREATE INDEX ON orders (user_id, created_at);\n```");
-    expect(a).not.toContain("Copy code");
-    expect(a).toContain("[docs](https://www.postgresql.org/docs/)");
-    expect(p.status).toBe("complete");
-    expect(p.adapterVersion).toBe("chatgpt-web@1");
-  });
-
-  it("ChatGPT modern: data-message-role, user bubble, assistant markdown", async () => {
-    const doc = load("chatgpt_modern");
-    const p = await capture(chatgpt, doc, { includeOlder: false });
-    expect(p.title).toBe("Quantum computing explained");
-    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(p.messages[0].text).toBe("Explain quantum computing in one sentence.");
-    expect(p.messages[1].text).toContain("Quantum computing uses principles of quantum mechanics");
-    expect(chatgpt.composer(doc)?.tagName).toBe("TEXTAREA");
-  });
-
-  it("ChatGPT modern turns: captures both user and assistant without assistant role attribute", async () => {
-    const html = `<html><head><title>Refactor React hook - ChatGPT</title></head><body><main>
-      <article data-testid="conversation-turn-1">
-        <div data-message-author-role="user">
-          <div class="whitespace-pre-wrap">How do I refactor useEffect?</div>
-        </div>
-      </article>
-      <article data-testid="conversation-turn-2">
-        <h6 class="sr-only">ChatGPT said:</h6>
-        <div class="markdown prose">
-          <p>Extract it into a custom hook:</p>
-          <pre><code class="language-ts">function useCustomHook() {}</code></pre>
-        </div>
-      </article>
-      <form><textarea id="prompt-textarea"></textarea></form>
-    </main></body></html>`;
-    const doc = parseHTML(html).document as unknown as Document;
-    const p = await capture(chatgpt, doc, { includeOlder: false });
-    expect(p.title).toBe("Refactor React hook");
-    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(p.messages[0].text).toBe("How do I refactor useEffect?");
-    expect(p.messages[1].text).toContain("Extract it into a custom hook:");
-    expect(p.messages[1].text).toContain("```ts\nfunction useCustomHook() {}\n```");
-  });
-
-  it("ChatGPT SPA navigation: does not merge hidden previous session messages", async () => {
-    const html = `<html><head><title>Current Topic - ChatGPT</title></head><body>
-      <main aria-hidden="true" style="display: none">
-        <article data-testid="conversation-turn-1">
-          <div data-message-author-role="user"><div class="whitespace-pre-wrap">Previous topic question</div></div>
-        </article>
-        <article data-testid="conversation-turn-2">
-          <div class="markdown prose"><p>Previous topic answer</p></div>
-        </article>
-      </main>
-      <main>
-        <article data-testid="conversation-turn-1">
-          <div data-message-author-role="user"><div class="whitespace-pre-wrap">Current topic question</div></div>
-        </article>
-        <article data-testid="conversation-turn-2">
-          <div class="markdown prose"><p>Current topic answer</p></div>
-        </article>
-        <form><textarea id="prompt-textarea"></textarea></form>
-      </main>
-    </body></html>`;
-    const doc = parseHTML(html).document as unknown as Document;
-    const p = await capture(chatgpt, doc, { includeOlder: false });
-    expect(p.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(p.messages).toHaveLength(2);
-    expect(p.messages[0].text).toBe("Current topic question");
-    expect(p.messages[1].text).toContain("Current topic answer");
-  });
-
-  it("ChatGPT SPA navigation: discards reset turn indices in same container", async () => {
-    const html = `<html><head><title>Turn Reset - ChatGPT</title></head><body><main>
-      <article data-testid="conversation-turn-1">
-        <div data-message-author-role="user"><div class="whitespace-pre-wrap">Old session question</div></div>
-      </article>
-      <article data-testid="conversation-turn-2">
-        <div class="markdown prose"><p>Old session answer</p></div>
-      </article>
-      <article data-testid="conversation-turn-1">
-        <div data-message-author-role="user"><div class="whitespace-pre-wrap">New session question</div></div>
-      </article>
-      <article data-testid="conversation-turn-2">
-        <div class="markdown prose"><p>New session answer</p></div>
-      </article>
-      <form><textarea id="prompt-textarea"></textarea></form>
-    </main></body></html>`;
-    const doc = parseHTML(html).document as unknown as Document;
-    const p = await capture(chatgpt, doc, { includeOlder: false });
-    expect(p.messages).toHaveLength(2);
-    expect(p.messages[0].text).toBe("New session question");
-    expect(p.messages[1].text).toContain("New session answer");
   });
 
   it("Claude: nested reply containers counted once", async () => {
@@ -134,7 +31,6 @@ describe("web adapters", () => {
   });
 
   it("finds each composer", () => {
-    expect(chatgpt.composer(load("chatgpt"))?.id).toBe("prompt-textarea");
     expect(claude.composer(load("claude"))?.className).toContain("ProseMirror");
     expect(gemini.composer(load("gemini"))?.className).toContain("ql-editor");
   });

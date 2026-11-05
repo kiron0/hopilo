@@ -10,7 +10,7 @@ import { useApp } from "../lib/store";
 import { Badge, Button, Card, Checkbox, ErrorNote, PageHeader, ProviderChip, SectionLabel } from "../components/ui";
 import { RouteSkeleton } from "../components/Skeletons";
 
-const WEB = ["chatgpt", "claude", "gemini", "deepseek", "grok", "perplexity"];
+const WEB = ["claude", "gemini", "deepseek", "grok", "perplexity"];
 const EXPERIMENTAL = new Set(["deepseek", "grok", "perplexity"]);
 
 function Step({ n, title, children, done }: { n: number; title: string; children: React.ReactNode; done?: boolean }) {
@@ -59,7 +59,7 @@ export function Browser() {
     <div className="space-y-4 pb-6">
       <PageHeader
         title="Browser"
-        subtitle="The Hopilo extension saves ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It talks only to this app, on this computer."
+        subtitle="The Hopilo extension saves Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It talks only to this app, on this computer."
         actions={<Button icon={<RefreshCw size={14} />} onClick={reload}>Refresh</Button>}
       />
 
@@ -136,7 +136,7 @@ export function Browser() {
 
       <Step n={3} title="Check it works" done={seen}>
         <p className="text-muted">
-          {seen ? `Last heard from the extension ${relativeTime(data.lastSeen)}${data.extensionVersion ? ` (version ${data.extensionVersion})` : ""}.` : "Open a ChatGPT, Claude or Gemini chat and click the Hopilo toolbar icon. It will show “Connected”."}
+          {seen ? `Last heard from the extension ${relativeTime(data.lastSeen)}${data.extensionVersion ? ` (version ${data.extensionVersion})` : ""}.` : "Open a Claude or Gemini chat and click the Hopilo toolbar icon. It will show “Connected”."}
         </p>
       </Step>
 

@@ -42,7 +42,7 @@ fn defaults(state: &State<AppState>) -> Defaults {
     let settings = with_store(state, |s| s.settings().map_err(err)).unwrap_or_default();
     let get = |k: &str| settings.get(k).cloned();
     Defaults {
-        target: get("defaultTarget").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "chatgpt".into()),
+        target: get("defaultTarget").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "claude".into()),
         tool_detail: get("toolDetail").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         level: get("level").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
     }

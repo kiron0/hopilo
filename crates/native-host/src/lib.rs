@@ -21,7 +21,7 @@ pub const MAX_INCOMING: usize = 60 * 1024 * 1024;
 
 const MAX_FILE: usize = 20 * 1024 * 1024;
 const MAX_MESSAGES: usize = 5_000;
-const WEB_PROVIDERS: &[&str] = &["chatgpt", "claude", "gemini", "deepseek", "grok", "perplexity"];
+const WEB_PROVIDERS: &[&str] = &["claude", "gemini", "deepseek", "grok", "perplexity"];
 
 pub fn read_message(r: &mut impl Read) -> std::io::Result<Option<Value>> {
     let mut len = [0u8; 4];
