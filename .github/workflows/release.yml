@@ -2,22 +2,6 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version override (e.g. 0.1.0; empty reads from apps/desktop/src-tauri/tauri.conf.json)"
-        type: string
-        required: false
-        default: ""
-      prerelease:
-        description: "Mark this release as a pre-release"
-        type: boolean
-        required: false
-        default: false
-      draft:
-        description: "Create this release as a draft"
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -33,30 +17,17 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       tag: ${{ steps.resolve.outputs.tag }}
-      prerelease: ${{ steps.resolve.outputs.prerelease }}
-      draft: ${{ steps.resolve.outputs.draft }}
     steps:
       - uses: actions/checkout@v4
 
       - id: resolve
         shell: bash
         run: |
-          input_ver="${{ inputs.version }}"
-          if [ -n "$input_ver" ]; then
-            ver="$input_ver"
-          else
-            ver=$(node -e 'const conf = JSON.parse(require("fs").readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")); console.log(conf.version);')
-          fi
+          ver=$(node -e 'const conf = JSON.parse(require("fs").readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")); console.log(conf.version);')
           ver="${ver#v}"
           tag="v$ver"
-          is_pre="${{ inputs.prerelease }}"
-          if [ "$is_pre" != "true" ] && echo "$ver" | grep -Eq '-(alpha|beta|rc)'; then
-            is_pre="true"
-          fi
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$is_pre" >> "$GITHUB_OUTPUT"
-          echo "draft=${{ inputs.draft }}" >> "$GITHUB_OUTPUT"
 
   build-desktop:
     name: Desktop (${{ matrix.os }})
@@ -228,6 +199,28 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check and create git tag
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          git fetch --tags --force
+          current_tag=$(git tag --points-at HEAD | grep -Fx "$TAG" || true)
+          if [ -n "$current_tag" ]; then
+            echo "Current tag and json version match ($TAG). Skipping create tag."
+          elif git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists. Skipping create tag."
+          else
+            echo "Creating tag $TAG..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
 
       - name: Download all release artifacts
         uses: actions/download-artifact@v4
@@ -241,42 +234,66 @@ jobs:
         working-directory: release-assets
         run: sha256sum * > SHA256SUMS.txt
 
+      - name: Write release notes
+        shell: bash
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          awk -v version="$VERSION" '
+            $0 == "## " version { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-changes.md || true
+
+          cat > release-notes.md <<EOF
+          ## What's Changed
+
+          EOF
+
+          if [ -s release-changes.md ]; then
+            cat release-changes.md >> release-notes.md
+          else
+            echo "See commit history for changes included in this version." >> release-notes.md
+          fi
+
+          cat >> release-notes.md <<EOF
+
+          ## Install
+
+          1. Download the app package for your platform from the Assets below.
+             - **macOS**: \`Hopilo-${{ needs.version.outputs.version }}-macos.tar.gz\` or \`.dmg\`
+             - **Linux**: \`.AppImage\` or \`.deb\`
+             - **Windows**: \`.exe\` or \`.msi\`
+          2. Download the browser extension:
+             - **Chrome / Edge / Brave / Arc**: \`hopilo-extension-chrome-${{ needs.version.outputs.version }}.zip\`
+             - **Firefox**: \`hopilo-extension-firefox-${{ needs.version.outputs.version }}.zip\`
+
+          **Full changelog:** https://github.com/${{ github.repository }}/commits/${{ needs.version.outputs.tag }}
+          EOF
+
       - name: Create or update GitHub release
         shell: bash
         working-directory: release-assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
-          VERSION: ${{ needs.version.outputs.version }}
-          IS_DRAFT: ${{ needs.version.outputs.draft }}
-          IS_PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           title="Hopilo $TAG"
-          args=(
-            "$TAG"
-            --title "$title"
-            --generate-notes
-          )
-          if [ "$IS_DRAFT" = "true" ]; then
-            args+=(--draft)
-          fi
-          if [ "$IS_PRERELEASE" = "true" ]; then
-            args+=(--prerelease)
-          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file ../release-notes.md
             gh release upload "$TAG" --clobber *
           else
-            gh release create "${args[@]}" *
+            gh release create "$TAG" --title "$title" --notes-file ../release-notes.md *
           fi
 
       - name: Release summary
         shell: bash
-        working-directory: release-assets
         run: |
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
           {
-            echo "### Release ${{ needs.version.outputs.tag }} Assets"
+            echo ""
+            echo "### Release Assets"
             echo '```'
-            cat SHA256SUMS.txt
+            cat release-assets/SHA256SUMS.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
