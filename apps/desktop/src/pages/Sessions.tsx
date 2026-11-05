@@ -1,14 +1,40 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Pin, Plus, RefreshCw, RotateCcw, Trash2, X } from "../components/Icons";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bot,
+  Copy,
+  Download,
+  FileImage,
+  FilePlus2,
+  FileText,
+  FolderOpen,
+  Globe,
+  LayoutGrid,
+  List,
+  Loader2,
+  MessagesSquare,
+  Paperclip,
+  Pin,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  SlidersHorizontal,
+  SparkIcon,
+  ToolsIcon,
+  Trash2,
+  X,
+} from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
 import { copySessions, exportSessionsAs, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
-import { prefetch, useLoad } from "../lib/hooks";
+import { prefetch, saveSetting, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
 import { AddSessionModal } from "../components/AddSession";
 import { FileImportModal } from "../components/FileImport";
+import { Select, type SelectOption } from "../components/Select";
 import { SessionListSkeleton, SessionPageSkeleton } from "../components/Skeletons";
 import {
   AlertDialog,
@@ -39,13 +65,13 @@ export const sessionLoader = (id: string) => () => api.getSession(id);
 const SYNC_EVERY_MS = 60_000;
 let lastSync = 0;
 
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "agents", label: "Coding agents" },
-  { value: "web", label: "Web chats" },
-  { value: "added", label: "Added" },
-  { value: "pinned", label: "Pinned" },
-  { value: "hidden", label: "Hidden" },
+const FILTERS: SelectOption[] = [
+  { value: "all", label: "All", icon: <MessagesSquare size={14} className="text-muted" /> },
+  { value: "agents", label: "Coding agents", icon: <Bot size={14} className="text-muted" /> },
+  { value: "web", label: "Web chats", icon: <Globe size={14} className="text-muted" /> },
+  { value: "added", label: "Added", icon: <Plus size={14} className="text-muted" /> },
+  { value: "pinned", label: "Pinned", icon: <Pin size={14} filled className="text-accent fill-accent" /> },
+  { value: "hidden", label: "Hidden", icon: <RotateCcw size={14} className="text-muted" /> },
 ];
 
 export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
@@ -76,6 +102,7 @@ const LEVELS: { value: Level; label: string }[] = [
 function meta(r: SessionRow) {
   return [
     provider(r.provider).label,
+    r.model,
     basename(r.project),
     plural(r.messageCount, "message"),
     r.fileCount ? plural(r.fileCount, "file") : "",
@@ -83,6 +110,30 @@ function meta(r: SessionRow) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+type SessionGroup = "none" | "folder" | "provider" | "model";
+
+export function groupSessions(rows: SessionRow[], by: SessionGroup): { key: string; label: string; rows: SessionRow[] }[] {
+  if (by === "none") return [{ key: "all", label: "", rows }];
+  const groups = new Map<string, { label: string; rows: SessionRow[] }>();
+  for (const row of rows) {
+    const key = by === "folder" ? row.project?.trim() || "__none" : by === "provider" ? row.provider || "__none" : row.model?.trim() || "__none";
+    const label =
+      by === "folder"
+        ? row.project?.trim() ? basename(row.project) : "No folder"
+        : by === "provider"
+        ? row.provider ? provider(row.provider).label : "Unknown tool"
+        : row.model?.trim() || "Unknown model";
+    const group = groups.get(key);
+    if (group) group.rows.push(row);
+    else groups.set(key, { label, rows: [row] });
+  }
+  return [...groups].map(([key, group]) => ({ key, ...group }));
+}
+
+function FilterSelect({ label, value, options, onChange, className = "w-36" }: { label: string; value: string; options: SelectOption[]; onChange: (value: string) => void; className?: string }) {
+  return <div className={`shrink-0 ${className}`}><Select size="sm" label={label} value={value} options={options} onChange={onChange} /></div>;
 }
 
 const FORMAT_KEYS = Object.keys(FORMATS) as Format[];
@@ -214,7 +265,7 @@ function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onC
 }
 
 function SessionList() {
-  const { q, filter, page, selected: picked } = useApp((s) => s.listView);
+  const { q, filter, provider: providerFilter, model: modelFilter, resource: resourceFilter, page, selected: picked } = useApp((s) => s.listView);
   const { data, error, loading, reload } = useLoad(() => (filter === "hidden" ? api.listHiddenSessions() : api.listSessions()), [filter]);
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
@@ -234,7 +285,8 @@ function SessionList() {
   const limitChoice = useApp((s) => s.listView.limit);
   const hideUnanswered = useApp((s) => s.listView.hideUnanswered);
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
-  const pageSize = Math.max(10, limitChoice === "auto" ? autoPageSize : limitChoice);
+  const automaticPageSize = settings.sessionLayout === "thumbnails" ? 12 : settings.sessionGroup === "none" ? autoPageSize : 10;
+  const pageSize = Math.max(10, limitChoice === "auto" ? automaticPageSize : limitChoice);
 
   const onLimitChange = (lim: number | "auto") => setListView({ limit: lim, page: 0 });
 
@@ -268,12 +320,59 @@ function SessionList() {
     return (data ?? []).filter(
       (r) =>
         matches(r, filter) &&
+        (providerFilter === "all" || r.provider === providerFilter) &&
+        (modelFilter === "all" || (r.model?.trim() || "__unknown") === modelFilter) &&
+        (resourceFilter === "all" || (resourceFilter === "with-files" ? r.fileCount > 0 : r.fileCount === 0)) &&
         !(hideUnanswered && isUnanswered(r)) &&
-        (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle) || provider(r.provider).label.toLowerCase().includes(needle) || r.tags.some((t) => t.includes(needle))),
+        (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle) || (r.model ?? "").toLowerCase().includes(needle) || provider(r.provider).label.toLowerCase().includes(needle) || r.tags.some((t) => t.includes(needle))),
     );
-  }, [data, q, filter, hideUnanswered]);
+  }, [data, q, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
+  const providerOptions = useMemo<SelectOption[]>(() => {
+    const ids = new Set((data ?? []).map((r) => r.provider).filter(Boolean));
+    if (providerFilter !== "all") ids.add(providerFilter);
+    return [
+      { value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> },
+      ...[...ids].sort((a, b) => provider(a).label.localeCompare(provider(b).label)).map((id) => ({
+        value: id,
+        label: provider(id).label,
+        icon: <ProviderBadge id={id} size={16} />,
+      })),
+    ];
+  }, [data, providerFilter]);
+  const modelOptions = useMemo<SelectOption[]>(() => {
+    const models = new Set((data ?? []).map((r) => r.model?.trim() || "__unknown"));
+    if (modelFilter !== "all") models.add(modelFilter);
+    return [
+      { value: "all", label: "All models", icon: <SparkIcon size={14} className="text-muted" /> },
+      ...[...models].sort((a, b) => a.localeCompare(b)).map((model) => ({
+        value: model,
+        label: model === "__unknown" ? "Unknown model" : model,
+        icon: <Bot size={14} className="text-muted" />,
+      })),
+    ];
+  }, [data, modelFilter]);
+  const resourceOptions: SelectOption[] = useMemo(
+    () => [
+      { value: "all", label: "All resources", icon: <Paperclip size={14} className="text-muted" /> },
+      { value: "with-files", label: "With files", icon: <FileText size={14} className="text-muted" /> },
+      { value: "without-files", label: "Without files", icon: <X size={14} className="text-muted" /> },
+    ],
+    [],
+  );
+  const groupOptions: SelectOption[] = useMemo(
+    () => [
+      { value: "none", label: "No categories", icon: <SlidersHorizontal size={14} className="text-muted" /> },
+      { value: "folder", label: "By Folder", icon: <FolderOpen size={14} className="text-muted" /> },
+      { value: "provider", label: "By Tool", icon: <ToolsIcon size={14} className="text-muted" /> },
+      { value: "model", label: "By Model", icon: <Bot size={14} className="text-muted" /> },
+    ],
+    [],
+  );
   const unanswered = useMemo(() => (data ?? []).filter(isUnanswered).length, [data]);
   const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
+  const pageRows = rows.slice(pg * pageSize, pg * pageSize + pageSize);
+  const groups = useMemo(() => groupSessions(pageRows, settings.sessionGroup), [pageRows, settings.sessionGroup]);
+  const hasQueryOrFilter = q || filter !== "all" || providerFilter !== "all" || modelFilter !== "all" || resourceFilter !== "all" || hideUnanswered;
   const known = useMemo(() => new Set((data ?? []).map((r) => r.id)), [data]);
   const ids = [...selected].filter((id) => known.has(id));
 
@@ -288,6 +387,83 @@ function SessionList() {
     await copySessions(list);
     setBusy(null);
   };
+  const openSession = (r: SessionRow) => {
+    prefetch(sessionLoader(r.id), [r.id]);
+    navigate({ page: "sessions", id: r.id });
+  };
+  const sessionAction = (r: SessionRow, on: boolean) =>
+    filter === "hidden" ? (
+      <Button size="sm" variant="secondary" icon={<RotateCcw size={13} />} onClick={() => setConfirmRestore({ id: r.id, title: r.title })}>
+        Restore
+      </Button>
+    ) : (
+      <Button size="sm" variant={on ? "secondary" : "primary"} busy={busy === r.id} icon={<Copy size={13} />} onClick={() => copy([r.id])} title={`Copy for ${target(settings.defaultTarget).label}`}>
+        Copy
+      </Button>
+    );
+  const titleLine = (r: SessionRow) => (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate font-medium">{r.title}</span>
+      {r.pinned && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs">
+          <Pin size={10} filled className="shrink-0 fill-current" />
+          <span>Pinned</span>
+        </span>
+      )}
+      {r.missingCount > 0 && <AlertTriangle size={12} className="shrink-0 text-warning" aria-label="Partly captured" />}
+      {r.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}
+    </span>
+  );
+  const listRow = (r: SessionRow) => {
+    const on = selected.has(r.id);
+    return (
+      <div key={r.id} data-fit-row className={cx("group flex items-center gap-3 px-4 py-2.5", on ? "bg-accent-soft/60" : "hover:bg-surface-2/60")}>
+        <Checkbox label={`Select ${r.title}`} checked={on} onChange={() => toggle(r.id)} />
+        <ProviderBadge id={r.provider} size={30} />
+        <button
+          type="button"
+          draggable
+          onDragStart={(e) => e.dataTransfer.setData("text/plain", `hopilo://session/${r.id}`)}
+          onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])}
+          onFocus={() => prefetch(sessionLoader(r.id), [r.id])}
+          onClick={() => openSession(r)}
+          className="min-w-0 flex-1 text-left"
+        >
+          {titleLine(r)}
+          <span className="mt-0.5 block truncate font-mono text-[11px] text-faint" title={r.origin ?? undefined}>{meta(r)}</span>
+        </button>
+        {r.fileCount > 0 && <span className="hidden items-center gap-1 font-mono text-[11px] text-faint sm:flex" title={plural(r.fileCount, "file")}><Paperclip size={12} /> {r.fileCount}</span>}
+        {sessionAction(r, on)}
+      </div>
+    );
+  };
+  const thumbnail = (r: SessionRow) => {
+    const on = selected.has(r.id);
+    return (
+      <article key={r.id} className={cx("flex min-h-44 flex-col rounded-2xl border p-3.5 shadow-item transition-colors", on ? "border-accent bg-accent-soft/60" : "border-line bg-card hover:border-line-strong hover:bg-surface-2/50")}>
+        <div className="flex items-start gap-3">
+          <Checkbox label={`Select ${r.title}`} checked={on} onChange={() => toggle(r.id)} />
+          <ProviderBadge id={r.provider} size={34} />
+          <button type="button" onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])} onFocus={() => prefetch(sessionLoader(r.id), [r.id])} onClick={() => openSession(r)} className="min-w-0 flex-1 text-left">
+            {titleLine(r)}
+            <span className="mt-1 block truncate text-[12px] text-muted" title={r.project ?? undefined}>{basename(r.project) || "No folder"}</span>
+          </button>
+        </div>
+        <button type="button" onClick={() => openSession(r)} className="mt-3 min-w-0 flex-1 text-left">
+          <span className="block truncate font-mono text-[11px] text-faint" title={r.model ?? undefined}>{r.model || "Unknown model"}</span>
+          <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-muted">
+            <span>{plural(r.messageCount, "message")}</span>
+            <span>{plural(r.fileCount, "file")}</span>
+            <span>{relativeTime(r.updatedAt)}</span>
+          </span>
+        </button>
+        <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+          <span className="truncate text-[11.5px] text-faint">{provider(r.provider).label}</span>
+          {sessionAction(r, on)}
+        </div>
+      </article>
+    );
+  };
 
   return (
     <FillPage>
@@ -301,26 +477,73 @@ function SessionList() {
         }
       />
       <PageToolbar>
-        <SearchField label="Filter sessions" placeholder="Search by title, project, tool or tag" value={q} onChange={setQ} className="flex-1" />
-        <Segmented label="Show" value={filter} onChange={setFilter} options={FILTERS} />
-        {(unanswered > 0 || hideUnanswered) && (
-          <button
-            type="button"
-            aria-pressed={hideUnanswered}
-            title="Agent sessions where only your prompt was saved — the run failed or never answered"
-            onClick={() => setListView({ hideUnanswered: !hideUnanswered, page: 0 })}
-            className={cx(
-              "h-9 shrink-0 rounded-full border px-3.5 text-[13px] font-medium shadow-item transition-colors",
-              hideUnanswered ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-card text-muted hover:text-ink",
+        <div className="flex w-full flex-col gap-2.5">
+          <SearchField label="Filter sessions" placeholder="Search title, folder, tool, model or tag" value={q} onChange={setQ} className="w-full" />
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterSelect label="Show sessions" value={filter} options={FILTERS} onChange={(value) => setFilter(value as Filter)} className="w-36" />
+            <FilterSelect label="Filter by tool" value={providerFilter} options={providerOptions} onChange={(provider) => setListView({ provider, page: 0 })} className="w-40" />
+            <FilterSelect label="Filter by model" value={modelFilter} options={modelOptions} onChange={(model) => setListView({ model, page: 0 })} className="w-40" />
+            <FilterSelect
+              label="Filter by resources"
+              value={resourceFilter}
+              onChange={(resource) => setListView({ resource: resource as typeof resourceFilter, page: 0 })}
+              options={resourceOptions}
+              className="w-38"
+            />
+            <FilterSelect
+              label="Categorize sessions"
+              value={settings.sessionGroup}
+              onChange={(v) => saveSetting("sessionGroup", v as typeof settings.sessionGroup)}
+              options={groupOptions}
+              className="w-38"
+            />
+            <div className="flex items-center rounded-xl border border-line bg-card p-0.5 shadow-item" role="group" aria-label="Layout view">
+              <button
+                type="button"
+                aria-label="List view"
+                title="List view"
+                onClick={() => saveSetting("sessionLayout", "list")}
+                className={cx(
+                  "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+                  settings.sessionLayout === "list" ? "bg-surface-3 text-ink shadow-xs" : "text-faint hover:text-ink",
+                )}
+              >
+                <List size={14} />
+              </button>
+              <button
+                type="button"
+                aria-label="Cards view"
+                title="Cards view"
+                onClick={() => saveSetting("sessionLayout", "thumbnails")}
+                className={cx(
+                  "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
+                  settings.sessionLayout === "thumbnails" ? "bg-surface-3 text-ink shadow-xs" : "text-faint hover:text-ink",
+                )}
+              >
+                <LayoutGrid size={14} />
+              </button>
+            </div>
+            {(unanswered > 0 || hideUnanswered) && (
+              <button
+                type="button"
+                aria-pressed={hideUnanswered}
+                title="Agent sessions where only your prompt was saved — the run failed or never answered"
+                onClick={() => setListView({ hideUnanswered: !hideUnanswered, page: 0 })}
+                className={cx(
+                  "h-8 shrink-0 rounded-full border px-3 text-[12px] font-medium shadow-item transition-colors",
+                  hideUnanswered ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-card text-muted hover:text-ink",
+                )}
+              >
+                {hideUnanswered ? "Unanswered hidden" : "Hide unanswered"}
+                <span className="ml-1.5 font-mono text-[10.5px] opacity-70">{unanswered}</span>
+              </button>
             )}
-          >
-            {hideUnanswered ? "Unanswered hidden" : "Hide unanswered"}
-            <span className="ml-1.5 font-mono text-[11px] opacity-70">{unanswered}</span>
-          </button>
-        )}
-        <IconButton label="Check agent folders for new sessions" onClick={() => sync(true)} disabled={syncing} className="h-9 w-9 rounded-full border border-line bg-card shadow-item">
-          <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
-        </IconButton>
+            <div className="flex-1" />
+            <IconButton label="Check agent folders for new sessions" onClick={() => sync(true)} disabled={syncing} className="h-8 w-8 rounded-full border border-line bg-card shadow-item">
+              <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+            </IconButton>
+          </div>
+        </div>
       </PageToolbar>
 
       {error && <ErrorNote text={error} />}
@@ -332,7 +555,7 @@ function SessionList() {
             title={
               filter === "hidden"
                 ? "No hidden sessions"
-                : q || filter !== "all"
+                : hasQueryOrFilter
                 ? "No matching sessions"
                 : syncing
                 ? "Looking for sessions…"
@@ -341,7 +564,7 @@ function SessionList() {
             body={
               filter === "hidden"
                 ? "Sessions you remove from Hopilo appear here so you can restore them anytime."
-                : q || filter !== "all"
+                : hasQueryOrFilter
                 ? "Try a different search or filter."
                 : "Sessions from Claude Code, Codex, Gemini CLI, Antigravity, Cursor, VS Code Copilot, OpenCode and other coding agents appear here on their own. Save web chats with the browser extension, or use Add."
             }
@@ -350,73 +573,20 @@ function SessionList() {
       )}
       {rows.length > 0 && (
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div ref={listRef} className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
-            {rows.slice(pg * pageSize, pg * pageSize + pageSize).map((r) => {
-              const on = selected.has(r.id);
-              return (
-                <div key={r.id} data-fit-row className={cx("group flex items-center gap-3 px-4 py-2.5", on ? "bg-accent-soft/60" : "hover:bg-surface-2/60")}>
-                  <Checkbox label={`Select ${r.title}`} checked={on} onChange={() => toggle(r.id)} />
-                  <ProviderBadge id={r.provider} size={30} />
-                  <button
-                    type="button"
-                    draggable
-
-                    onDragStart={(e) => e.dataTransfer.setData("text/plain", `hopilo://session/${r.id}`)}
-
-                    onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])}
-                    onFocus={() => prefetch(sessionLoader(r.id), [r.id])}
-                    onClick={() => navigate({ page: "sessions", id: r.id })}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="truncate font-medium">{r.title}</span>
-                      {r.pinned && (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs">
-                          <Pin size={10} filled className="shrink-0 fill-current" />
-                          <span>Pinned</span>
-                        </span>
-                      )}
-                      {r.missingCount > 0 && <AlertTriangle size={12} className="shrink-0 text-warning" aria-label="Partly captured" />}
-                      {r.tags.slice(0, 2).map((t) => (
-                        <Badge key={t}>{t}</Badge>
-                      ))}
-                    </span>
-                    <span className="mt-0.5 block truncate font-mono text-[11px] text-faint" title={r.origin ?? undefined}>
-                      {meta(r)}
-                    </span>
-                  </button>
-                  {r.fileCount > 0 && (
-                    <span className="hidden items-center gap-1 font-mono text-[11px] text-faint sm:flex" title={plural(r.fileCount, "file")}>
-                      <Paperclip size={12} /> {r.fileCount}
-                    </span>
-                  )}
-                  {filter === "hidden" ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      icon={<RotateCcw size={13} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmRestore({ id: r.id, title: r.title });
-                      }}
-                    >
-                      Restore
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant={on ? "secondary" : "primary"}
-                      busy={busy === r.id}
-                      icon={<Copy size={13} />}
-                      onClick={() => copy([r.id])}
-                      title={`Copy for ${target(settings.defaultTarget).label}`}
-                    >
-                      Copy
-                    </Button>
-                  )}
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
+            {groups.map((group) => (
+              <section key={group.key} aria-label={group.label || "Sessions"} className={settings.sessionGroup === "none" ? undefined : "border-b border-line last:border-b-0"}>
+                {group.label && (
+                  <div className="flex items-center gap-2 border-b border-line bg-surface-2/70 px-4 py-2">
+                    <h2 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-muted" title={group.key === "__none" ? undefined : group.key}>{group.label}</h2>
+                    <span className="font-mono text-[10.5px] text-faint">{group.rows.length}</span>
+                  </div>
+                )}
+                <div className={settings.sessionLayout === "thumbnails" ? "grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" : "divide-y divide-line"}>
+                  {group.rows.map(settings.sessionLayout === "thumbnails" ? thumbnail : listRow)}
                 </div>
-              );
-            })}
+              </section>
+            ))}
           </div>
           <div className="shrink-0 border-t border-line bg-surface-2/50 px-4 py-2.5">
             {ids.length > 0 ? (

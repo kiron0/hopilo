@@ -409,6 +409,9 @@ const TAG = "M3.5 12.2V5.5a2 2 0 0 1 2-2h6.7a2 2 0 0 1 1.4.6l7.3 7.3a2 2 0 0 1 0
 export const Tag = make([TAG, "M8 8h.01"], TAG);
 export const PanelBottom = make([rr(3.5, 4.5, 17, 15, 2.5), "M3.5 14.5h17"], "M3.5 14.5h17V17a2.5 2.5 0 0 1-2.5 2.5H6A2.5 2.5 0 0 1 3.5 17z");
 export const LayoutDashboard = make([rr(4, 4, 7, 9, 1.8), rr(13, 4, 7, 5, 1.8), rr(13, 11, 7, 9, 1.8), rr(4, 15, 7, 5, 1.8)], rr(4, 4, 7, 9, 1.8));
+export const List = make(["M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"]);
+export const LayoutGrid = make([rr(4, 4, 6.5, 6.5, 1.5), rr(13.5, 4, 6.5, 6.5, 1.5), rr(4, 13.5, 6.5, 6.5, 1.5), rr(13.5, 13.5, 6.5, 6.5, 1.5)]);
+export const SlidersHorizontal = make(["M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"]);
 export const GripVertical = (p: IconProps) => (
   <Icon {...p} stroke="none" fill="currentColor">
     {[6, 12, 18].map((y) => (

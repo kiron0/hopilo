@@ -21,6 +21,9 @@ export function routeFrom(name: string): Route {
 export interface ListView {
   q: string;
   filter: SessionFilter;
+  provider: string;
+  model: string;
+  resource: "all" | "with-files" | "without-files";
   page: number;
   selected: string[];
   limit: number | "auto";
@@ -28,7 +31,17 @@ export interface ListView {
 }
 
 const LIST_VIEW_KEY = "hopilo.listView";
-const DEFAULT_LIST_VIEW: ListView = { q: "", filter: "all", page: 0, selected: [], limit: "auto", hideUnanswered: false };
+const DEFAULT_LIST_VIEW: ListView = {
+  q: "",
+  filter: "all",
+  provider: "all",
+  model: "all",
+  resource: "all",
+  page: 0,
+  selected: [],
+  limit: "auto",
+  hideUnanswered: false,
+};
 
 function loadListView(): ListView {
   try {
@@ -61,6 +74,8 @@ export interface Settings {
   closeButton: "hide" | "quit";
   trayClick: "panel" | "dashboard";
   toolDetail: "full" | "truncated" | "omit";
+  sessionLayout: "list" | "thumbnails";
+  sessionGroup: "none" | "folder" | "provider" | "model";
 
   level: "full" | "balanced" | "minimal";
   defaultTarget: string;
@@ -76,6 +91,8 @@ export const DEFAULT_SETTINGS: Settings = {
   closeButton: "hide",
   trayClick: "panel",
   toolDetail: "truncated",
+  sessionLayout: "list",
+  sessionGroup: "none",
   level: "full",
   defaultTarget: "claude",
   onboarded: false,
