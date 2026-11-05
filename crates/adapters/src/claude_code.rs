@@ -24,8 +24,6 @@ struct LineHead {
     summary: Option<String>,
     is_meta: bool,
     is_sidechain: bool,
-    // Kept raw: most lines only need counting, and fully parsing every
-    // message (tool output can be megabytes) dominated discovery time.
     message: Option<Box<serde_json::value::RawValue>>,
 }
 
@@ -40,7 +38,6 @@ impl LocalAgentAdapter for ClaudeCode {
 
     fn default_roots(&self) -> Vec<PathBuf> {
         if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
-            // Accepts a comma-separated list, like Claude Code itself.
             return dir
                 .to_string_lossy()
                 .split(',')
@@ -52,7 +49,6 @@ impl LocalAgentAdapter for ClaudeCode {
         let mut roots = Vec::new();
         if let Some(h) = home() {
             roots.push(h.join(".claude").join("projects"));
-            // Newer releases follow XDG and write here instead.
             roots.push(h.join(".config").join("claude").join("projects"));
         }
         if let Some(x) = std::env::var_os("XDG_CONFIG_HOME") {
@@ -135,8 +131,6 @@ fn tag<'a>(text: &'a str, name: &str) -> Option<&'a str> {
     Some(text[start..end].trim())
 }
 
-/// Claude Code records a slash command as `<command-message>`,
-/// `<command-name>` and `<command-args>` tags. Show it the way it was typed.
 fn slash_command(text: &str) -> std::borrow::Cow<'_, str> {
     if !text.contains("<command-name>") {
         return text.into();

@@ -84,7 +84,6 @@ impl LocalAgentAdapter for Cursor {
                 title: composer_title(&json),
                 project: None,
                 model: composer_model(&json),
-                // Must be stable between scans or every sync re-imports it.
                 modified_at: composer_time(&json, "lastUpdatedAt").or_else(|| composer_time(&json, "createdAt")).unwrap_or_else(|| file_mtime.clone()),
                 size_bytes: size,
                 message_count,
@@ -198,7 +197,6 @@ fn millis_rfc3339(ms: i64) -> Option<String> {
 }
 
 fn kv_table(conn: &Connection) -> Option<&'static str> {
-    // Chats live in cursorDiskKV; very old builds used ItemTable.
     for t in ["cursorDiskKV", "ItemTable"] {
         let exists = conn
             .query_row("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?1", [t], |_| Ok(()))
@@ -210,7 +208,6 @@ fn kv_table(conn: &Connection) -> Option<&'static str> {
     None
 }
 
-/// Values are TEXT in some builds and BLOB in others.
 fn json_cell(v: Option<rusqlite::types::ValueRef<'_>>) -> Option<Value> {
     let bytes = match v? {
         rusqlite::types::ValueRef::Text(b) | rusqlite::types::ValueRef::Blob(b) => b,

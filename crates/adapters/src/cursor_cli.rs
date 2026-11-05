@@ -1,8 +1,3 @@
-//! Cursor's terminal agent (`cursor-agent`). Each chat is a small SQLite store
-//! at `~/.cursor/chats/<workspace-hash>/<chat-id>/store.db` with a `meta`
-//! table (hex-encoded JSON: name, createdAt, model) and a content-addressed
-//! `blobs` table. Message blobs are plain JSON `{role, content}`; the rest are
-//! binary tree nodes we skip. Insertion order (rowid) is conversation order.
 
 use std::path::{Path, PathBuf};
 
@@ -77,7 +72,6 @@ fn sql(db: &Path) -> impl Fn(rusqlite::Error) -> AdapterError + '_ {
     move |e| AdapterError::Io { path: db.display().to_string(), source: std::io::Error::other(e) }
 }
 
-/// TEXT or BLOB cell as bytes.
 fn bytes(r: &rusqlite::Row, i: usize) -> rusqlite::Result<Vec<u8>> {
     Ok(match r.get_ref(i)? {
         rusqlite::types::ValueRef::Text(b) | rusqlite::types::ValueRef::Blob(b) => b.to_vec(),
@@ -86,7 +80,6 @@ fn bytes(r: &rusqlite::Row, i: usize) -> rusqlite::Result<Vec<u8>> {
 }
 
 fn decode_meta(raw: &[u8]) -> Option<Value> {
-    // Stored as hex text of the JSON; tolerate plain JSON too.
     if let Ok(v) = serde_json::from_slice(raw) {
         return Some(v);
     }
@@ -172,7 +165,6 @@ fn read_store(db: &Path) -> Result<Capture> {
     let mut first_prompt = None;
     let mut seen = std::collections::HashSet::new();
     for data in rows.flatten() {
-        // Only JSON message blobs start with '{'; tree nodes are protobuf.
         if data.first() != Some(&b'{') {
             continue;
         }
@@ -191,7 +183,6 @@ fn read_store(db: &Path) -> Result<Capture> {
         if blocks.is_empty() {
             continue;
         }
-        // Blobs are content-addressed but a resumed chat can repeat a message.
         if let Some(id) = v.get("id").and_then(Value::as_str) {
             if !seen.insert(id.to_string()) {
                 continue;

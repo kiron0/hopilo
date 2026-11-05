@@ -32,8 +32,6 @@ impl LocalAgentAdapter for Antigravity {
             roots.push(PathBuf::from(dir).join("brain"));
         }
         if let Some(h) = home() {
-            // The desktop app, the standalone IDE build and the `agy` CLI each
-            // keep their own brain folder next to each other.
             for flavor in ["antigravity", "antigravity-ide", "antigravity-cli"] {
                 roots.push(h.join(".gemini").join(flavor).join("brain"));
             }
@@ -78,14 +76,12 @@ impl LocalAgentAdapter for Antigravity {
             let candidate2 = path.join("transcript.jsonl");
             let candidate3 = path.join(".system_generated").join("logs").join("transcript_full.jsonl");
 
-            // Older builds only kept a step overview, in the same JSONL shape.
             let candidate4 = path.join(".system_generated").join("logs").join("overview.txt");
             let transcript = [candidate1, candidate2, candidate3, candidate4].into_iter().find(|c| c.is_file());
 
             transcripts.extend(transcript);
         }
 
-        // The session folder is the brain entry the transcript sits under.
         let mut out = crate::par_scan(&transcripts, |t| {
             let dir = t.ancestors().find(|a| a.parent() == Some(target.as_path()))?;
             quick_scan(t, dir)

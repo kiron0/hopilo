@@ -95,9 +95,7 @@ impl LocalAgentAdapter for OpenCode {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Store {
-    /// `session` + `message` + `part` (OpenCode 1.x).
     V1,
-    /// `session_v2` + `session_message` (newer builds; sessions migrate over).
     V2,
 }
 
@@ -115,9 +113,6 @@ fn has_table(conn: &Connection, name: &str) -> bool {
     conn.query_row("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |_| Ok(())).is_ok()
 }
 
-/// Top-level, unarchived sessions from both stores. While OpenCode migrates,
-/// a session can be in either or both; the most recently updated copy wins
-/// (the old store on a tie, since it keeps per-part detail).
 fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashMap<String, SessionRow>> {
     let mut map: std::collections::HashMap<String, SessionRow> = std::collections::HashMap::new();
     let queries = [
@@ -157,7 +152,6 @@ fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashM
     Ok(map)
 }
 
-/// OpenCode names a session "New session - <timestamp>" until it titles it.
 fn real_title(t: Option<String>) -> Option<String> {
     t.filter(|t| !t.trim().is_empty() && !t.starts_with("New session - ") && !t.starts_with("Child session - "))
 }

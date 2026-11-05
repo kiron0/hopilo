@@ -128,8 +128,6 @@ fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_cor
                 } else if p.get("inlineData").is_some() || p.get("fileData").is_some() {
                     only_responses = false;
                     if quick {
-                        // Discovery only needs the message count, so don't
-                        // decode base64 payloads or read referenced files.
                         *tally += 1;
                         blocks.push(Block::Missing { description: "file shared in the conversation".into() });
                         continue;

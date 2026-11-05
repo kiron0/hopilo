@@ -28,7 +28,6 @@ pub fn title_from(text: &str) -> String {
     let mut chars = clean.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            // Only `<tag`, `</tag` or `<!...` open a tag, so "a < b" survives.
             '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/' || *n == '!') => in_tag = true,
             '>' if in_tag => {
                 in_tag = false;

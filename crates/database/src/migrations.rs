@@ -130,7 +130,6 @@ const MIGRATIONS: &[&str] = &[
     UPDATE sources SET updated_at = captured_at;
     "#,
 
-    // A title the user typed must survive the agent's file being re-read.
     r#"
     ALTER TABLE sources ADD COLUMN title_edited INTEGER NOT NULL DEFAULT 0;
     "#,

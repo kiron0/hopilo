@@ -1,8 +1,3 @@
-//! VS Code's built-in chat (GitHub Copilot agent/ask/edit modes), also used by
-//! Insiders and VSCodium. Each workspace keeps sessions in
-//! `User/workspaceStorage/<hash>/chatSessions/<id>.json` (older) or `.jsonl`
-//! (newer: a log of edits to one JSON document), and chats opened without a
-//! folder live in `User/globalStorage/emptyWindowChatSessions`.
 
 use std::path::{Path, PathBuf};
 
@@ -66,8 +61,6 @@ impl LocalAgentAdapter for VsCodeChat {
         }
         collect(root.join("globalStorage").join("emptyWindowChatSessions"));
 
-        // A session can exist as both .json and .jsonl while VS Code migrates;
-        // keep the newer file.
         files.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
         let mut seen = std::collections::HashSet::new();
         files.retain(|p| seen.insert(session_stem(p)));
@@ -100,8 +93,6 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
     })
 }
 
-/// Walks `k` (a list of keys/indexes) and returns the slot it names, creating
-/// objects along the way.
 fn slot<'a>(mut cur: &'a mut Value, path: &[Value]) -> Option<&'a mut Value> {
     for k in path {
         cur = match k {
@@ -125,9 +116,6 @@ fn slot<'a>(mut cur: &'a mut Value, path: &[Value]) -> Option<&'a mut Value> {
     Some(cur)
 }
 
-/// Replays the `.jsonl` edit log into the final session document.
-/// kind 0 = initial state, 1 = set value at path, 2 = append items to the array
-/// at path (optionally truncating to index `i` first), 3 = delete at path.
 fn replay(path: &Path) -> Result<Value> {
     let mut state = Value::Null;
     for line in open_lines(path)? {
@@ -195,7 +183,6 @@ fn millis(v: Option<&Value>) -> Option<String> {
     chrono::DateTime::from_timestamp_millis(v?.as_i64()?).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
-/// The folder the workspace was opened on, from `workspace.json`.
 fn workspace_folder(session: &Path) -> Option<String> {
     let ws = session.parent()?.parent()?.join("workspace.json");
     let v: Value = serde_json::from_str(&std::fs::read_to_string(ws).ok()?).ok()?;

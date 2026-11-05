@@ -71,8 +71,6 @@ pub trait LocalAgentAdapter: Send + Sync {
 
     fn default_roots(&self) -> Vec<PathBuf>;
 
-    /// How many directory levels below a root can hold session data. Used to
-    /// fingerprint a root cheaply so unchanged folders are not rescanned.
     fn scan_depth(&self) -> usize {
         4
     }
@@ -127,7 +125,6 @@ fn home() -> Option<PathBuf> {
 pub(crate) fn open_lines(path: &Path) -> Result<Box<dyn Iterator<Item = std::io::Result<String>>>> {
     let io = |source| AdapterError::Io { path: path.display().to_string(), source };
     let f = File::open(path).map_err(io)?;
-    // Archived Codex rollouts (and some other agents) are zstd-compressed.
     if path.extension().is_some_and(|e| e == "zst") {
         let dec = zstd::stream::read::Decoder::new(f).map_err(io)?;
         return Ok(Box::new(BufReader::new(dec).lines()));
@@ -135,13 +132,11 @@ pub(crate) fn open_lines(path: &Path) -> Result<Box<dyn Iterator<Item = std::io:
     Ok(Box::new(BufReader::new(f).lines()))
 }
 
-/// `true` for `*.jsonl` and zstd-compressed `*.jsonl.zst` files.
 pub(crate) fn is_jsonl(p: &Path) -> bool {
     let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
     name.ends_with(".jsonl") || name.ends_with(".jsonl.zst")
 }
 
-/// File name without `.jsonl` / `.json` / `.jsonl.zst`.
 pub(crate) fn session_stem(p: &Path) -> String {
     let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     for ext in [".jsonl.zst", ".jsonl", ".json"] {

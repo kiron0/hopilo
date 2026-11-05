@@ -105,8 +105,6 @@ impl Store {
         let updated = updated_at.map(str::to_string).unwrap_or_else(|| source.captured_at.clone());
         if let Some((id, old_hash, hidden, _)) = &existing {
             if *old_hash == hash && !hidden {
-                // Content is the same, but the reader may now find a better
-                // title (e.g. the agent named the session since last sync).
                 let tx = self.conn.transaction()?;
                 tx.execute("UPDATE sources SET updated_at = MAX(COALESCE(updated_at, ''), ?2) WHERE id = ?1", params![id, updated])?;
                 let retitled = tx.execute(
@@ -214,8 +212,6 @@ impl Store {
             return Vec::new();
         }
 
-        // One query per chunk instead of one query per file. Chunking keeps us
-        // under SQLite's bound-parameter limit for sessions with many files.
         let mut found: HashMap<String, Attachment> = HashMap::new();
         for chunk in shas.chunks(500) {
             let placeholders = vec!["?"; chunk.len()].join(",");

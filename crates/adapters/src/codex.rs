@@ -27,8 +27,6 @@ impl LocalAgentAdapter for Codex {
         let base = std::env::var_os("CODEX_HOME")
             .map(PathBuf::from)
             .or_else(|| home().map(|h| h.join(".codex")));
-        // `codex resume` archives finished sessions, compressed, under
-        // archived_sessions; they are still the user's history.
         base.map(|b| vec![b.join("sessions"), b.join("archived_sessions")]).unwrap_or_default()
     }
 
@@ -50,7 +48,6 @@ impl LocalAgentAdapter for Codex {
 
     fn read(&self, path: &Path) -> Result<Capture> {
         let mut cap = read_rollout(path, false)?;
-        // sessions/YYYY/MM/DD/<file> or archived_sessions/<file>
         let base = path.ancestors().find(|a| a.join("session_index.jsonl").is_file());
         if let Some(name) = base.map(thread_names).and_then(|n| n.get(thread_id(&session_stem(path))).cloned()) {
             cap.source.title = name;
@@ -59,7 +56,6 @@ impl LocalAgentAdapter for Codex {
     }
 }
 
-/// The thread UUID at the end of `rollout-<timestamp>-<uuid>`.
 fn thread_id(stem: &str) -> &str {
     let n = stem.len();
     if n >= 36 && stem.is_char_boundary(n - 36) {
@@ -69,7 +65,6 @@ fn thread_id(stem: &str) -> &str {
     }
 }
 
-/// Names the user gave threads (or Codex generated) in `session_index.jsonl`.
 fn thread_names(base: &Path) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let Ok(lines) = open_lines(&base.join("session_index.jsonl")) else { return out };
@@ -227,8 +222,6 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
                         }
                         Some("input_image") => {
                             if quick {
-                                // Discovery only needs the message count, so
-                                // don't decode embedded images or read files.
                                 t.images += 1;
                                 blocks.push(Block::Missing { description: "image shared in the conversation".into() });
                                 continue;

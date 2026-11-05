@@ -1,7 +1,3 @@
-//! One tolerant reader for the many agents that store a conversation as a
-//! JSONL log (or a JSON array) of chat messages. The shapes differ only in
-//! where the role/content live and what tool parts are called, so each agent is
-//! a small [`ChatLogAgent`] description over the same parser.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,14 +13,12 @@ pub struct ChatLogAgent {
     pub name: &'static str,
     roots: fn() -> Vec<PathBuf>,
     depth: usize,
-    /// Which files under a root are session logs.
     accept: fn(&Path) -> bool,
 }
 
 impl ChatLogAgent {
     fn session_id(&self, path: &Path) -> String {
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        // Session-per-folder layouts: the folder name is the id.
         if matches!(name.as_str(), "events.jsonl" | "context.jsonl" | "api_conversation_history.json") {
             if let Some(dir) = path.parent().and_then(Path::file_name) {
                 return dir.to_string_lossy().to_string();
@@ -98,7 +92,6 @@ impl LocalAgentAdapter for ChatLogAgent {
     }
 }
 
-// ---------------------------------------------------------------- agents ---
 
 fn named(p: &Path, n: &str) -> bool {
     p.file_name().is_some_and(|f| f == n)
@@ -114,7 +107,6 @@ fn env_or_home(var: &str, rel: &[&str]) -> Option<PathBuf> {
     })
 }
 
-/// Factory's Droid CLI: `~/.factory/sessions/<project>/<id>.jsonl`.
 pub const DROID: ChatLogAgent = ChatLogAgent {
     id: "droid",
     name: "Factory Droid",
@@ -123,7 +115,6 @@ pub const DROID: ChatLogAgent = ChatLogAgent {
     accept: is_jsonl,
 };
 
-/// Pi coding agent: `~/.pi/agent/sessions/<project>/<stamp>_<id>.jsonl`.
 pub const PI: ChatLogAgent = ChatLogAgent {
     id: "pi",
     name: "Pi",
@@ -132,7 +123,6 @@ pub const PI: ChatLogAgent = ChatLogAgent {
     accept: is_jsonl,
 };
 
-/// Kimi CLI: `~/.kimi/sessions/<workdir-hash>/<id>/context.jsonl` (or `<id>.jsonl`).
 pub const KIMI: ChatLogAgent = ChatLogAgent {
     id: "kimi-cli",
     name: "Kimi CLI",
@@ -141,7 +131,6 @@ pub const KIMI: ChatLogAgent = ChatLogAgent {
     accept: |p| is_jsonl(p) && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("wire")),
 };
 
-/// Block's Goose: `~/.local/share/goose/sessions/<id>.jsonl`.
 pub const GOOSE: ChatLogAgent = ChatLogAgent {
     id: "goose",
     name: "Goose",
@@ -165,8 +154,6 @@ pub const GOOSE: ChatLogAgent = ChatLogAgent {
     accept: is_jsonl,
 };
 
-/// GitHub Copilot CLI: `~/.copilot/session-state/<id>.jsonl` or
-/// `<id>/events.jsonl`, and the older `history-session-state/*.json`.
 pub const COPILOT_CLI: ChatLogAgent = ChatLogAgent {
     id: "copilot-cli",
     name: "Copilot CLI",
@@ -181,7 +168,6 @@ pub const COPILOT_CLI: ChatLogAgent = ChatLogAgent {
     accept: |p| is_jsonl(p) || p.extension().is_some_and(|e| e == "json"),
 };
 
-/// VS Code-family editors that extensions like Cline store data under.
 pub(crate) fn editor_user_dirs() -> Vec<PathBuf> {
     const EDITORS: [&str; 7] = ["Code", "Code - Insiders", "VSCodium", "Cursor", "Windsurf", "Trae", "Kiro"];
     let mut bases = Vec::new();
@@ -201,8 +187,6 @@ pub(crate) fn editor_user_dirs() -> Vec<PathBuf> {
     out
 }
 
-/// Task folders for a Cline-family extension, across every editor it may be
-/// installed in. Only folders that exist are returned, so Settings stays short.
 fn extension_tasks(ext_id: &str, extra: Option<PathBuf>) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = editor_user_dirs()
         .into_iter()
@@ -213,7 +197,6 @@ fn extension_tasks(ext_id: &str, extra: Option<PathBuf>) -> Vec<PathBuf> {
         out.push(e);
     }
     if out.is_empty() {
-        // Show where it would be on this platform even when not installed.
         if let Some(first) = editor_user_dirs().into_iter().find(|u| u.parent().is_some_and(Path::is_dir)).or_else(|| editor_user_dirs().into_iter().next()) {
             out.push(first.join("globalStorage").join(ext_id).join("tasks"));
         }
@@ -225,7 +208,6 @@ fn cline_task(p: &Path) -> bool {
     named(p, "api_conversation_history.json")
 }
 
-/// Cline (VS Code extension and `cline` CLI).
 pub const CLINE: ChatLogAgent = ChatLogAgent {
     id: "cline",
     name: "Cline",
@@ -250,7 +232,6 @@ pub const KILO_CODE: ChatLogAgent = ChatLogAgent {
     accept: cline_task,
 };
 
-// ---------------------------------------------------------------- parser ---
 
 #[derive(Default)]
 struct Tally {
@@ -261,9 +242,7 @@ struct Tally {
     system: usize,
 }
 
-/// Context agents inject into the user's turn.
 const CONTEXT_TAGS: [&str; 7] = ["environment_details", "user_info", "additional_data", "env", "project_layout", "rules", "attached_files"];
-/// Wrappers around the user's actual words.
 const QUERY_TAGS: [&str; 3] = ["task", "user_query", "feedback"];
 
 fn strip_tag_blocks(text: &str, tag: &str, removed: &mut usize) -> String {
@@ -293,7 +272,6 @@ fn inner_tag<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
     Some(text[start..end].trim())
 }
 
-/// Removes injected context from user text and unwraps `<task>`-style tags.
 fn clean_user_text(raw: &str, t: &mut Tally) -> String {
     let mut s = raw.to_string();
     for tag in CONTEXT_TAGS {
@@ -309,7 +287,6 @@ fn clean_user_text(raw: &str, t: &mut Tally) -> String {
     s
 }
 
-/// Best-effort plain text out of a tool output in any of the common shapes.
 fn value_text(v: &Value) -> String {
     match v {
         Value::Null => String::new(),
@@ -437,7 +414,6 @@ fn note_meta(v: &Value, m: &mut Meta) {
     }
 }
 
-/// Cline puts the folder in its injected environment block.
 fn cline_cwd(text: &str) -> Option<String> {
     let marker = "# Current Working Directory (";
     let start = text.find(marker)? + marker.len();
@@ -456,19 +432,16 @@ struct Entry {
 
 fn timestamp(v: &Value) -> Option<String> {
     first_str(v, &["/timestamp", "/created_at", "/createdAt", "/message/timestamp"]).map(str::to_string).or_else(|| {
-        // Goose and others use epoch seconds or millis.
         let n = v.get("created").or_else(|| v.get("timestamp")).and_then(Value::as_i64)?;
         let dt = if n > 10_000_000_000 { chrono::DateTime::from_timestamp_millis(n) } else { chrono::DateTime::from_timestamp(n, 0) };
         dt.map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
     })
 }
 
-/// Turns one log entry into a chat message, if it is one.
 fn as_message(v: &Value) -> Option<Entry> {
     let ts = timestamp(v);
     let entry = |role, content, calls| Entry { role, ts: ts.clone(), content, calls, model: None, tool_id: None };
 
-    // Copilot CLI events.
     if let (Some(kind), Some(data)) = (v.get("type").and_then(Value::as_str), v.get("data")) {
         match kind {
             "user.message" => return Some(entry(Role::User, data.get("content").cloned().unwrap_or(Value::Null), None)),
@@ -516,7 +489,6 @@ fn read_entries(path: &Path, t: &mut Tally) -> Result<Vec<Value>> {
         return match v {
             Value::Array(items) => Ok(items),
             Value::Object(mut o) => {
-                // Copilot CLI's older single-file format, or {messages: [...]}.
                 let list = ["chatMessages", "messages"].iter().find_map(|k| match o.remove(*k) {
                     Some(Value::Array(a)) => Some(a),
                     _ => None,
@@ -572,7 +544,6 @@ fn read_log(agent: &ChatLogAgent, path: &Path) -> Result<Capture> {
             meta.project = cline_cwd(&value_text(&content));
         }
         let mut blocks = if role == Role::Tool && content.is_string() {
-            // OpenAI-style tool message: plain string answering a call id.
             vec![Block::ToolResult {
                 name: tool_id.as_deref().and_then(|i| names.get(i).cloned()),
                 output: content.as_str().unwrap_or("").to_string(),
