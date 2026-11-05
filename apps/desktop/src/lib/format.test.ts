@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, bytes, plural, relativeTime, tokens } from "./format";
+import { basename, bytes, formatDate, humanizeDateTime, plural, relativeTime, tokens } from "./format";
 
 describe("format", () => {
   const now = new Date("2026-11-03T12:00:00Z");
@@ -8,6 +8,12 @@ describe("format", () => {
     expect(relativeTime("2026-11-03T11:58:00Z", now)).toBe("2m ago");
     expect(relativeTime("2026-11-02T11:00:00Z", now)).toBe("yesterday");
     expect(relativeTime(null, now)).toBe("never");
+  });
+  it("humanize date time", () => {
+    expect(humanizeDateTime("2026-11-03T08:30:00Z", now)).toContain("Today at");
+    expect(humanizeDateTime("2026-11-02T15:45:00Z", now)).toContain("Yesterday at");
+    expect(humanizeDateTime(null, now)).toBe("");
+    expect(formatDate("2026-11-04T18:29:59Z")).toContain("2026");
   });
   it("sizes", () => {
     expect(bytes(512)).toBe("512 B");

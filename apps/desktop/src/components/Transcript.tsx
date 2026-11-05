@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, ChevronRight, Wrench, FileImage, FileText } from "./Icons";
 import type { Block, Message } from "../lib/api";
-import { bytes } from "../lib/format";
+import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
 import { Button, Checkbox, cx } from "./ui";
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
@@ -91,7 +91,11 @@ export function Transcript({
             <div className="min-w-0 flex-1 space-y-2">
               <div className="flex items-center gap-2 text-[11.5px]">
                 <span className={cx("font-semibold", m.role === "user" ? "text-accent" : "text-muted")}>{ROLE_LABEL[m.role]}</span>
-                {m.createdAt && <span className="text-faint">{new Date(m.createdAt).toLocaleString()}</span>}
+                {m.createdAt && (
+                  <span className="text-faint" title={formatFullDateTime(m.createdAt)}>
+                    {humanizeDateTime(m.createdAt)}
+                  </span>
+                )}
               </div>
               {m.blocks.map((b, i) => (
                 <BlockView key={i} b={b} />

@@ -1,6 +1,7 @@
 import { ExternalLink, SparkIcon } from "./Icons";
 import { Button, Modal } from "./ui";
 import { openExternal, type UpdateInfo } from "../lib/updates";
+import { formatDate } from "../lib/format";
 
 export function UpdateModal({
   update,
@@ -48,7 +49,7 @@ export function UpdateModal({
             <p className="mt-0.5 text-[12px] text-muted">
               Current version: <span className="font-mono text-faint">v{currentVersion}</span>
               {update.publishedAt && (
-                <span> · Released {new Date(update.publishedAt).toLocaleDateString()}</span>
+                <span> · Released {formatDate(update.publishedAt)}</span>
               )}
             </p>
           </div>

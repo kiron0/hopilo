@@ -65,7 +65,10 @@ function ago(iso: string) {
   if (!Number.isFinite(min) || min < 1) return "just now";
   if (min < 60) return `${min} min ago`;
   if (min < 60 * 24) return `${Math.round(min / 60)} h ago`;
-  return `${Math.round(min / 60 / 24)} d ago`;
+  const days = Math.round(min / 60 / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function tokens(n: number) {
