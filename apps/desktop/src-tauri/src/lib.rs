@@ -189,11 +189,6 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
-            ("main", WindowEvent::Moved(_) | WindowEvent::ScaleFactorChanged { .. }) => {
-                if let Some(w) = window.app_handle().get_webview_window("main") {
-                    fit_main_to_display(&w);
-                }
-            }
             ("main" | "quick", WindowEvent::Focused(true)) => {
                 let app = window.app_handle().clone();
                 tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&app, commands::SyncMode::Background));
