@@ -2,7 +2,7 @@ import type { ReactNode, SVGProps } from "react";
 
 export type IconProps = SVGProps<SVGSVGElement> & { size?: number; active?: boolean };
 
-function Icon({ size = 18, active, children, duo, ...rest }: IconProps & { duo?: ReactNode }) {
+function Icon({ size = 18, active, children, duo, style, className, ...rest }: IconProps & { duo?: ReactNode }) {
   const labelled = rest["aria-label"] != null;
   return (
     <svg
@@ -14,6 +14,8 @@ function Icon({ size = 18, active, children, duo, ...rest }: IconProps & { duo?:
       strokeWidth={1.7}
       strokeLinecap="round"
       strokeLinejoin="round"
+      className={className ? `ic ${className}` : "ic"}
+      style={{ width: size, height: size, ...style }}
       aria-hidden={labelled ? undefined : true}
       role={labelled ? "img" : undefined}
       {...rest}
@@ -211,7 +213,15 @@ export const ChevronDownIcon = make("m7 10 5 5 5-5");
 export const ChevronRight = make("m10 6.5 5.5 5.5-5.5 5.5");
 export const ArrowLeft = make("M19 12H5m6-6-6 6 6 6");
 export const ArrowRight = make("M5 12h14m-6-6 6 6-6 6");
-export const ExternalLink = make(["M18 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4.5", "M14 4h6v6m0-6-9 9"], "M10.5 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4.5z");
+export const ExternalLink = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d="M10.5 4.5H6.5A2.5 2.5 0 0 0 4 7v10.5A2.5 2.5 0 0 0 6.5 20h10.5a2.5 2.5 0 0 0 2.5-2.5V13.5z" />
+    <path className="s" d="M10.5 4.5H6.5A2.5 2.5 0 0 0 4 7v10.5A2.5 2.5 0 0 0 6.5 20h10.5a2.5 2.5 0 0 0 2.5-2.5V13.5" />
+    <path className="s" d="M4 8.5h8" opacity={0.45} />
+    <path className="s" d="M14 4.5h5.5v5.5M19.5 4.5 11 13" />
+    <circle className="a" cx="19.5" cy="4.5" r="1.3" />
+  </Icon>
+);
 
 export const CheckIcon = (p: IconProps) => (
   <Icon strokeWidth={2.4} {...p}>
@@ -219,14 +229,37 @@ export const CheckIcon = (p: IconProps) => (
   </Icon>
 );
 export const CheckCheck = make("m2.5 12.5 4 4 8-8.5m-4 7.5 1 1 9-9.5");
-export const CheckCircle2 = make([c(12, 12, 8.5), "m8.5 12.3 2.5 2.5 4.8-5"], c(12, 12, 8.5));
-export const XCircle = make([c(12, 12, 8.5), "m9.2 9.2 5.6 5.6m0-5.6-5.6 5.6"], c(12, 12, 8.5));
+export const CheckCircle2 = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <circle className="f" cx="12" cy="12" r="8.5" />
+    <circle className="s" cx="12" cy="12" r="8.5" />
+    <path className="s" d="m8.5 12.3 2.5 2.5 4.8-5" strokeWidth={1.8} />
+  </Icon>
+);
+export const XCircle = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <circle className="f" cx="12" cy="12" r="8.5" />
+    <circle className="s" cx="12" cy="12" r="8.5" />
+    <path className="s" d="m9.2 9.2 5.6 5.6m0-5.6-5.6 5.6" strokeWidth={1.8} />
+  </Icon>
+);
 export const X = make("m6.5 6.5 11 11m0-11-11 11");
 export const Plus = make("M12 5v14M5 12h14");
-export const Info = make([c(12, 12, 8.5), "M12 11v5M12 8h.01"], c(12, 12, 8.5));
-export const AlertTriangle = make(
-  ["M10.3 4.6a2 2 0 0 1 3.4 0l7 12.2a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z", "M12 9.5v4M12 16.6h.01"],
-  "M10.3 4.6a2 2 0 0 1 3.4 0l7 12.2a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z",
+export const Info = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <circle className="f" cx="12" cy="12" r="8.5" />
+    <circle className="s" cx="12" cy="12" r="8.5" />
+    <path className="s" d="M12 11v5" />
+    <circle className="d" cx="12" cy="8" r="1.1" />
+  </Icon>
+);
+export const AlertTriangle = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d="M10.3 4.6a2 2 0 0 1 3.4 0l7 12.2a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z" />
+    <path className="s" d="M10.3 4.6a2 2 0 0 1 3.4 0l7 12.2a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z" />
+    <path className="s" d="M12 9.5v4" />
+    <circle className="d" cx="12" cy="16.6" r="1.1" />
+  </Icon>
 );
 export const CircleDashed = (p: IconProps) => (
   <Icon {...p}>
@@ -239,7 +272,13 @@ export const Loader2 = (p: IconProps) => (
     <path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5" />
   </Icon>
 );
-export const RefreshCw = make(["M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3", "M18 3v3.7h-3.7M6 21v-3.7h3.7"]);
+export const RefreshCw = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="s" d="M20 12a8 8 0 0 1-13.8 5.6M4 12a8 8 0 0 1 13.8-5.6" />
+    <path className="s" d="M18.5 3.5v3.8h-3.8M5.5 20.5v-3.8h3.8" />
+    <circle className="a" cx="12" cy="12" r="1.4" />
+  </Icon>
+);
 export const RotateCcw = make(["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"]);
 export const History = make(["M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9", "M4.5 4.5V9H9", "M12 8v4l3 2"], c(12, 12, 7.5));
 export const Power = make(["M12 3.5v8", "M7 6.5a7 7 0 1 0 10 0"]);
@@ -248,7 +287,15 @@ export const FileText = make([DOC, FOLD, "M9 12.5h6M9 16h4"], DOC);
 const FilePlain = make([DOC, FOLD], DOC);
 export { FilePlain as File };
 export const FilePlus2 = make([DOC, FOLD, "M12 11v6M9 14h6"], DOC);
-export const FileDown = make([DOC, FOLD, "M12 10.5v6m-2.5-2.5 2.5 2.5 2.5-2.5"], DOC);
+export const FileDown = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d={DOC} />
+    <path className="s" d={DOC} />
+    <path className="s" d={FOLD} />
+    <path className="s" d="M12 10.5v6m-2.5-2.5 2.5 2.5 2.5-2.5" />
+    <circle className="a" cx="12" cy="10.5" r="1.2" />
+  </Icon>
+);
 export const FileUp = make([DOC, FOLD, "M12 17v-6m-2.5 2.5L12 11l2.5 2.5"], DOC);
 export const FileImage = make([DOC, FOLD, c(10, 11.5, 1.4), "m5.8 18 3.4-3.2 2.6 2.4 2-1.7 2.9 2.5"], DOC);
 export const FileArchive = make([DOC, FOLD, "M10 4.5v1.2M10 7.5v1.2M10 10.5v1.2", rr(8.6, 13.5, 2.8, 3.5, 0.9)], DOC);
@@ -257,18 +304,71 @@ export const FolderPlus = make(
   "M3.5 7a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z",
 );
 const OPEN_FRONT = "M3.5 18 5.8 11.8a2 2 0 0 1 1.9-1.3H20a1 1 0 0 1 .95 1.3l-1.9 6.3a2 2 0 0 1-1.9 1.4H5A1.5 1.5 0 0 1 3.5 18z";
-export const FolderOpen = make(["M3.5 18V6.5a2 2 0 0 1 2-2h3.6l2 2H17a2 2 0 0 1 2 2V10", OPEN_FRONT], OPEN_FRONT);
+export const FolderOpen = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d="M3.5 18V6.5a2 2 0 0 1 2-2h3.6l2 2H17a2 2 0 0 1 2 2V10z" />
+    <path className="s" d="M3.5 18V6.5a2 2 0 0 1 2-2h3.6l2 2H17a2 2 0 0 1 2 2V10" />
+    <path className="f" d={OPEN_FRONT} />
+    <path className="s" d={OPEN_FRONT} />
+    <circle className="a" cx="8" cy="5.5" r="1" />
+  </Icon>
+);
 export const Paperclip = make("M19.5 11.5 12.3 18.7a4.8 4.8 0 0 1-6.8-6.8l7.6-7.6a3.2 3.2 0 0 1 4.5 4.5l-7.6 7.6a1.6 1.6 0 0 1-2.2-2.2l7-7");
 const BOARD = "M7 5h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z";
 const CLIP = rr(8.5, 3.5, 7, 3, 1);
-export const ClipboardCheck = make(["M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5", CLIP, "m9 13.5 2 2 4-4"], BOARD);
-export const ClipboardPaste = make(["M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5", CLIP, "M12 10v6.5m-2.5-2.5 2.5 2.5 2.5-2.5"], BOARD);
+export const ClipboardCheck = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d={BOARD} />
+    <path className="s" d="M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5" />
+    <path className="s" d={CLIP} />
+    <path className="s" d="m9 13.5 2 2 4-4" />
+    <circle className="a" cx="12" cy="5" r="1" />
+  </Icon>
+);
+export const ClipboardPaste = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d={BOARD} />
+    <path className="s" d="M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5" />
+    <path className="s" d={CLIP} />
+    <path className="s" d="M12 10.5v6m-2.5-2.5 2.5 2.5 2.5-2.5" />
+    <circle className="a" cx="12" cy="10.5" r="1.1" />
+  </Icon>
+);
 
-const COPY_FRONT = rr(8.5, 8.5, 11.5, 11.5, 2.2);
-export const Copy = make([COPY_FRONT, "M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"], COPY_FRONT);
-export const CopyPlus = make([COPY_FRONT, "M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5", "M14.25 11.5v5.5m-2.75-2.75h5.5"], COPY_FRONT);
-export const Download = make(["M12 4v10.5m-4.5-4.5 4.5 4.5 4.5-4.5", "M4.5 15.5V18a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2.5"], "M4.5 15.5h15V18a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z");
-export const Trash2 = make(["M4 6.5h16M9.5 6.5v-2h5v2", "M6 6.5l.9 12.1a2 2 0 0 0 2 1.9h6.2a2 2 0 0 0 2-1.9L18 6.5", "M10 10.5v6M14 10.5v6"], "M6 6.5h12l-.9 12.1a2 2 0 0 1-2 1.9H8.9a2 2 0 0 1-2-1.9z");
+export const Copy = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="s" d="M15.5 8V5.5A2.5 2.5 0 0 0 13 3H5.5A2.5 2.5 0 0 0 3 5.5v7.5A2.5 2.5 0 0 0 5.5 15.5H8" opacity={0.45} />
+    <rect className="f" x="7.5" y="7.5" width="13" height="13" rx="2.8" />
+    <rect className="s" x="7.5" y="7.5" width="13" height="13" rx="2.8" />
+    <path className="s" d="M11 11.5h6M11 14.5h3.8" strokeWidth={1.5} />
+    <circle className="a" cx="16.8" cy="14.5" r="1.1" />
+  </Icon>
+);
+export const CopyPlus = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="s" d="M15.5 8V5.5A2.5 2.5 0 0 0 13 3H5.5A2.5 2.5 0 0 0 3 5.5v7.5A2.5 2.5 0 0 0 5.5 15.5H8" opacity={0.45} />
+    <rect className="f" x="7.5" y="7.5" width="13" height="13" rx="2.8" />
+    <rect className="s" x="7.5" y="7.5" width="13" height="13" rx="2.8" />
+    <path className="s" d="M14 11.5v5M11.5 14h5" />
+    <circle className="a" cx="14" cy="14" r="1.1" />
+  </Icon>
+);
+export const Download = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d="M4.5 14v2.2A3.3 3.3 0 0 0 7.8 19.5h8.4a3.3 3.3 0 0 0 3.3-3.3V14z" />
+    <path className="s" d="M4.5 13.5v2.7A3.3 3.3 0 0 0 7.8 19.5h8.4a3.3 3.3 0 0 0 3.3-3.3V13.5" />
+    <path className="s" d="M12 4v10m-3.8-3.8 3.8 3.8 3.8-3.8" />
+    <circle className="a" cx="12" cy="4" r="1.3" />
+  </Icon>
+);
+export const Trash2 = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <path className="f" d="M6 6.5h12l-.9 12.1a2 2 0 0 1-2 1.9H8.9a2 2 0 0 1-2-1.9z" />
+    <path className="s" d="M4 6.5h16M9.5 6.5v-2h5v2" />
+    <path className="s" d="M6 6.5l.9 12.1a2 2 0 0 0 2 1.9h6.2a2 2 0 0 0 2-1.9L18 6.5" />
+    <path className="s" d="M10 10.5v5.5M14 10.5v5.5" strokeWidth={1.5} />
+  </Icon>
+);
 export const Pencil = make(["M15.5 4.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z", "m13.5 6.5 3 3"], "M15.5 4.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z");
 export const Scissors = make([c(6.5, 6.5, 2.5), c(6.5, 17.5, 2.5), "M8.6 8 19.5 17M8.6 16 19.5 7"]);
 export const Hammer = make(["M10 7.5 13.5 4h3l4 4-2.5 2.5-2-2L13.5 11z", "m13.5 11-8.4 8.4a1.4 1.4 0 0 1-2-2L11.5 9"], "M10 7.5 13.5 4h3l4 4-2.5 2.5-2-2L13.5 11z");
