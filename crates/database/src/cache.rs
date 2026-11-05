@@ -1,10 +1,3 @@
-//! Read-through cache for the hottest reads (the session list and opened transcripts).
-//!
-//! Entries are stamped with this connection's `total_changes()` plus SQLite's
-//! `PRAGMA data_version`, so any write — from this connection or from another
-//! process such as the native host — invalidates them without each write path
-//! having to remember to clear anything.
-
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -14,7 +7,6 @@ use rusqlite::Connection;
 
 use crate::sessions::SessionRow;
 
-/// How many decoded transcripts to keep. Large sessions decode to tens of MB, so stay small.
 const SOURCE_SLOTS: usize = 8;
 
 pub(crate) type Stamp = (u64, i64);

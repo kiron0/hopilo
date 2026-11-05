@@ -134,9 +134,6 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sources ADD COLUMN title_edited INTEGER NOT NULL DEFAULT 0;
     "#,
 
-    // Speed: indexes matching every list query's filter + sort, so lists come straight
-    // off an index with no table scan or temp B-tree. `reply_count` lets the session
-    // list offer a filter for agent runs that never produced an answer.
     r#"
     ALTER TABLE sources ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0;
     UPDATE sources SET reply_count = (

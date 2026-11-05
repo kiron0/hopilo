@@ -1,6 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="100 100 824 824">
-  <!-- Hopilo mark (the app icon without its drop-shadow margin), for UI use. The "h" shoulder is a hop: it lifts off the stem and
-       lands on the right as an arrow, the conversation moving on. -->
   <defs>
     <linearGradient id="bg" x1="0.18" y1="0" x2="0.82" y2="1">
       <stop offset="0" stop-color="#7A82FF"/>
@@ -36,7 +34,6 @@
   <g clip-path="url(#plateClip)">
     <rect width="1024" height="1024" fill="url(#deep)"/>
     <rect width="1024" height="1024" fill="url(#glow)"/>
-    <!-- trajectory rings -->
     <g fill="none" stroke="#fff" stroke-opacity="0.07" stroke-width="2">
       <circle cx="476" cy="560" r="260"/>
       <circle cx="476" cy="560" r="360"/>

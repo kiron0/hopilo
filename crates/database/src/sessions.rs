@@ -78,8 +78,6 @@ fn file_count(messages: &[Message]) -> i64 {
     messages.iter().flat_map(|m| m.blocks.iter()).filter(|b| matches!(b, Block::File { .. })).count() as i64
 }
 
-/// Messages that are not the user's own prompts. A local-agent session with none of these
-/// never got an answer (the run failed or is still starting); the list can filter these out.
 fn reply_count(messages: &[Message]) -> i64 {
     messages.iter().filter(|m| m.role != Role::User).count() as i64
 }
@@ -190,7 +188,6 @@ impl Store {
         if let Some(hit) = crate::cache::Cache::sessions(&self.cache, now) {
             return Ok((*hit).clone());
         }
-        // Served by the `sources_list` index: no table scan, no temp sort.
         let mut stmt = self.conn.prepare_cached(&format!(
             "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 0
              ORDER BY pinned DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC"

@@ -29,7 +29,6 @@ export interface ListView {
 const LIST_VIEW_KEY = "hopilo.listView";
 const DEFAULT_LIST_VIEW: ListView = { q: "", filter: "all", page: 0, selected: [], limit: "auto", hideUnanswered: false };
 
-// The list's search, tab, page and page size survive opening a session, app reloads and restarts.
 function loadListView(): ListView {
   try {
     const saved = JSON.parse(localStorage.getItem(LIST_VIEW_KEY) ?? "{}");
@@ -43,9 +42,7 @@ function saveListView(v: ListView) {
   try {
     const { selected: _, ...rest } = v;
     localStorage.setItem(LIST_VIEW_KEY, JSON.stringify(rest));
-  } catch {
-    /* storage unavailable: state still lives for this session */
-  }
+  } catch {}
 }
 
 export interface Toast {

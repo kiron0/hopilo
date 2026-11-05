@@ -55,7 +55,6 @@ export async function exportSessions(ids: string[], format: Format, opts: CopyOp
   }
 }
 
-/** One format saves that file alone; several are bundled into a single .zip. */
 export async function exportSessionsAs(ids: string[], formats: Format[], opts: CopyOptions = {}) {
   if (formats.length === 1) return exportSessions(ids, formats[0], opts);
   try {

@@ -9,8 +9,6 @@ description = "Hopilo — Universal AI Session Handoff"
 name = "hopilo_desktop_lib"
 crate-type = ["rlib"]
 
-# The binary name is what macOS shows in the menu bar and Dock while running
-# unbundled (tauri dev), so it carries the product name.
 [[bin]]
 name = "Hopilo"
 path = "src/main.rs"
@@ -27,8 +25,6 @@ hopilo-native-host = { path = "../../../crates/native-host" }
 serde.workspace = true
 serde_json.workspace = true
 zip.workspace = true
-# macos-private-api: transparent borderless windows (rounded Quick Panel).
-# No vibrancy is used.
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"

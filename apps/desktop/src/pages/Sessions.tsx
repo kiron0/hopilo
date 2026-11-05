@@ -48,7 +48,6 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "hidden", label: "Hidden" },
 ];
 
-/** An agent session where only the user's prompt was saved: the run failed or never answered. */
 export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
 
 function matches(r: SessionRow, f: Filter) {
@@ -102,12 +101,9 @@ function loadPicked(): Format[] {
 function savePicked(f: Format[]) {
   try {
     localStorage.setItem(EXPORT_PICK_KEY, JSON.stringify(f));
-  } catch {
-    /* storage unavailable: selection just isn't remembered */
-  }
+  } catch {}
 }
 
-/** Miniature page hinting at what each format looks like inside. */
 function FormatThumb({ format }: { format: Format }) {
   const line = "h-[3px] rounded-full bg-current opacity-25";
   return (

@@ -123,7 +123,6 @@ pub async fn export_sessions(app: AppHandle, ids: Vec<String>, format: String, p
     blocking(app, move |app, state| export_blocking(app, &state, &ids, &format, &path, opts)).await
 }
 
-/// Sessions exported as several formats at once land in one `.zip`, one file per format.
 #[tauri::command]
 pub async fn export_sessions_zip(app: AppHandle, ids: Vec<String>, formats: Vec<String>, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
     blocking(app, move |app, state| export_zip_blocking(app, &state, &ids, &formats, &path, opts)).await

@@ -32,9 +32,6 @@ pub struct Store {
     cache: std::cell::RefCell<cache::Cache>,
 }
 
-/// Connection tuning applied to every handle. WAL + `synchronous=NORMAL` is durable
-/// across app crashes (only an OS crash can lose the last commits); the rest keeps
-/// hot pages and temp sorts in memory and lets reads go through mmap.
 fn tune(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "PRAGMA synchronous = NORMAL;
@@ -304,7 +301,6 @@ impl Store {
         if current > 0 && (current as usize) < migrations::latest() {
             prune_backups(root, current + 1);
         }
-        // Refresh planner statistics only where they are stale; cheap when nothing changed.
         let _ = store.conn.execute_batch("PRAGMA optimize = 0x10002;");
         Ok(store)
     }

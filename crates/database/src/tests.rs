@@ -56,7 +56,6 @@ fn session_list_and_transcripts_are_cached_until_the_next_write() {
     assert_eq!(db.list_sessions().unwrap()[0].title, "Renamed");
     assert_eq!(db.get_source(&id).unwrap().0.title, "Renamed");
 
-    // A write from another connection (e.g. the native host) also invalidates.
     let mut other = Store::open(dir.path()).unwrap();
     other.update_session(&id, &SessionPatch { title: Some("From host".into()), ..Default::default() }).unwrap();
     assert_eq!(db.list_sessions().unwrap()[0].title, "From host");
