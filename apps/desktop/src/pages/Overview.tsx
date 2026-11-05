@@ -282,7 +282,7 @@ function RecentRow({ row }: { row: SessionRow }) {
   );
 }
 
-const BANNER_TTL_MS = 24 * 60 * 60 * 1000;
+const BANNER_SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 export function Overview() {
   const navigate = useApp((s) => s.navigate);
@@ -296,32 +296,27 @@ export function Overview() {
   const loading = sessions.loading && !sessions.data;
   const all = useMemo(() => sessions.data ?? [], [sessions.data]);
 
-  const bannerFirstSeen = settings.bannerFirstSeen ?? (typeof window !== "undefined" ? Number(localStorage.getItem("hopilo_banner_first_seen") || 0) : 0);
-  const bannerExpired = bannerFirstSeen > 0 && now - bannerFirstSeen > BANNER_TTL_MS;
-  const showBanner = !settings.onboarded && !bannerExpired;
+  const bannerDismissedAt = settings.bannerDismissedAt ?? (typeof window !== "undefined" ? Number(localStorage.getItem("hopilo_banner_dismissed_at") || 0) : 0);
+  const isDismissed = bannerDismissedAt > 0 && now >= bannerDismissedAt && now - bannerDismissedAt < BANNER_SNOOZE_MS;
+  const showBanner = !isDismissed;
 
   useEffect(() => {
-    if (settings.onboarded) return;
-    if (bannerExpired) {
-      saveSetting("onboarded", true);
-      return;
-    }
-    if (!bannerFirstSeen) {
-      const ts = Date.now();
-      if (typeof window !== "undefined") {
-        localStorage.setItem("hopilo_banner_first_seen", String(ts));
-      }
-      saveSetting("bannerFirstSeen", ts);
-    }
-  }, [settings.onboarded, bannerExpired, bannerFirstSeen]);
-
-  useEffect(() => {
-    if (!showBanner || !bannerFirstSeen) return;
-    const remaining = Math.max(0, BANNER_TTL_MS - (now - bannerFirstSeen));
+    if (!isDismissed || !bannerDismissedAt) return;
+    const remaining = Math.max(0, BANNER_SNOOZE_MS - (now - bannerDismissedAt));
     if (remaining === 0) return;
     const t = setTimeout(() => setNow(Date.now()), remaining);
     return () => clearTimeout(t);
-  }, [showBanner, bannerFirstSeen, now]);
+  }, [isDismissed, bannerDismissedAt, now]);
+
+  const dismissBanner = () => {
+    const ts = Date.now();
+    if (typeof window !== "undefined") {
+      localStorage.setItem("hopilo_banner_dismissed_at", String(ts));
+    }
+    saveSetting("bannerDismissedAt", ts);
+    saveSetting("onboarded", true);
+    setNow(ts);
+  };
 
   const recent = useMemo(() => [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [all]);
   const latest = recent[0];
@@ -348,9 +343,9 @@ export function Overview() {
           <button
             type="button"
             aria-label="Dismiss welcome"
-            title="Dismiss"
+            title="Dismiss for 24h"
             className="text-muted hover:text-ink cursor-pointer"
-            onClick={() => saveSetting("onboarded", true)}
+            onClick={dismissBanner}
           >
             <X size={16} />
           </button>
