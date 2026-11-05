@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Pin, Plus, RefreshCw, Trash2, X } from "../components/Icons";
+import { AlertTriangle, ArrowLeft, Copy, Download, FileImage, FilePlus2, FileText, FolderOpen, Loader2, MessagesSquare, Paperclip, Pin, Plus, RefreshCw, RotateCcw, Trash2, X } from "../components/Icons";
 import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
 import { copySessions, exportSessions, FORMATS, type Format, pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
@@ -46,6 +46,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "web", label: "Web chats" },
   { value: "added", label: "Added" },
   { value: "pinned", label: "Pinned" },
+  { value: "hidden", label: "Hidden" },
 ];
 
 function matches(r: SessionRow, f: Filter) {
@@ -60,6 +61,8 @@ function matches(r: SessionRow, f: Filter) {
       return r.kind !== "local-agent" && r.kind !== "browser-chat";
     case "pinned":
       return r.pinned;
+    case "hidden":
+      return true;
   }
 }
 
@@ -111,12 +114,11 @@ function ExportModal({ ids, level, onClose }: { ids: string[]; level: Level; onC
 }
 
 function SessionList() {
-  const { data, error, loading, reload } = useLoad(() => api.listSessions());
+  const { q, filter, page, selected: picked } = useApp((s) => s.listView);
+  const { data, error, loading, reload } = useLoad(() => (filter === "hidden" ? api.listHiddenSessions() : api.listSessions()), [filter]);
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
   const settings = useApp((s) => s.settings);
-
-  const { q, filter, page, selected: picked } = useApp((s) => s.listView);
   const setListView = useApp((s) => s.setListView);
   const setQ = (v: string) => setListView({ q: v, page: 0 });
   const setFilter = (v: Filter) => setListView({ filter: v, page: 0 });
@@ -210,9 +212,19 @@ function SessionList() {
         <Card className="flex min-h-0 flex-1 flex-col items-center justify-center p-8">
           <EmptyState
             icon={<MessagesSquare size={20} />}
-            title={q || filter !== "all" ? "No matching sessions" : syncing ? "Looking for sessions…" : "No sessions yet"}
+            title={
+              filter === "hidden"
+                ? "No hidden sessions"
+                : q || filter !== "all"
+                ? "No matching sessions"
+                : syncing
+                ? "Looking for sessions…"
+                : "No sessions yet"
+            }
             body={
-              q || filter !== "all"
+              filter === "hidden"
+                ? "Sessions you remove from Hopilo appear here so you can restore them anytime."
+                : q || filter !== "all"
                 ? "Try a different search or filter."
                 : "Sessions from Claude Code, Codex, Gemini CLI, Antigravity, Cursor, VS Code Copilot, OpenCode and other coding agents appear here on their own. Save web chats with the browser extension, or use Add."
             }
@@ -261,16 +273,36 @@ function SessionList() {
                       <Paperclip size={12} /> {r.fileCount}
                     </span>
                   )}
-                  <Button
-                    size="sm"
-                    variant={on ? "secondary" : "primary"}
-                    busy={busy === r.id}
-                    icon={<Copy size={13} />}
-                    onClick={() => copy([r.id])}
-                    title={`Copy for ${target(settings.defaultTarget).label}`}
-                  >
-                    Copy
-                  </Button>
+                  {filter === "hidden" ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<RotateCcw size={13} />}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        try {
+                          await api.restoreSession(r.id);
+                          reload();
+                          toast({ kind: "success", text: `Restored “${r.title}” to Sessions` });
+                        } catch (err) {
+                          toast({ kind: "error", text: errorText(err) });
+                        }
+                      }}
+                    >
+                      Restore
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant={on ? "secondary" : "primary"}
+                      busy={busy === r.id}
+                      icon={<Copy size={13} />}
+                      onClick={() => copy([r.id])}
+                      title={`Copy for ${target(settings.defaultTarget).label}`}
+                    >
+                      Copy
+                    </Button>
+                  )}
                 </div>
               );
             })}
@@ -355,8 +387,8 @@ function FilesTab({ files }: { files: Attachment[] }) {
 function SessionPage({ id }: { id: string }) {
   const { data, error, loading } = useLoad(sessionLoader(id), [id]);
   const navigate = useApp((s) => s.navigate);
-  const settings = useApp((s) => s.settings);
   const toast = useApp((s) => s.toast);
+  const settings = useApp((s) => s.settings);
   const [tab, setTab] = useState<"conversation" | "markdown" | "files">("conversation");
   const [to, setTo] = useState(settings.defaultTarget);
   const [level, setLevel] = useState<Level>(settings.level);
@@ -370,7 +402,7 @@ function SessionPage({ id }: { id: string }) {
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
   const { row, source, messages, files, tokenEstimate } = data;
-  const canDelete = row.kind === "browser-chat";
+  const agent = row.kind === "local-agent";
 
   const copy = async (markdown = false) => {
     setBusy(true);
@@ -381,6 +413,15 @@ function SessionPage({ id }: { id: string }) {
     try {
       await api.removeSession(id);
       setConfirmDelete(false);
+      back();
+    } catch (e) {
+      toast({ kind: "error", text: errorText(e) });
+    }
+  };
+  const restore = async () => {
+    try {
+      await api.restoreSession(id);
+      toast({ kind: "success", text: `Restored “${row.title}” to Sessions` });
       back();
     } catch (e) {
       toast({ kind: "error", text: errorText(e) });
@@ -422,8 +463,12 @@ function SessionPage({ id }: { id: string }) {
               <Pin size={13} filled={row.pinned} className={row.pinned ? "fill-current" : "-rotate-45 text-muted"} />
               <span>{row.pinned ? "Pinned" : "Pin"}</span>
             </button>
-            {canDelete && (
-              <IconButton label="Delete" onClick={() => setConfirmDelete(true)}>
+            {row.hidden ? (
+              <Button size="sm" icon={<RotateCcw size={13} />} onClick={restore}>
+                Restore
+              </Button>
+            ) : (
+              <IconButton label={agent ? "Remove from Hopilo" : "Delete"} onClick={() => setConfirmDelete(true)}>
                 <Trash2 size={15} />
               </IconButton>
             )}
@@ -467,6 +512,14 @@ function SessionPage({ id }: { id: string }) {
       )}
 
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {row.hidden && (
+          <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2 text-[12.5px] text-muted">
+            <span>This session is hidden from Hopilo. The files on your computer are untouched.</span>
+            <Button size="sm" variant="secondary" icon={<RotateCcw size={13} />} onClick={restore}>
+              Restore to Sessions
+            </Button>
+          </div>
+        )}
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2.5">
           <Segmented
             label="View"
@@ -490,11 +543,15 @@ function SessionPage({ id }: { id: string }) {
       </Card>
       {exporting && <ExportModal ids={[id]} level={level} onClose={() => setExporting(false)} />}
       {paths && <FileImportModal paths={paths} session={id} onClose={() => setPaths(null)} />}
-      {confirmDelete && canDelete && (
+      {confirmDelete && (
         <AlertDialog
-          title="Delete session"
-          description={`Delete “${row.title}” from Hopilo? This cannot be undone.`}
-          confirmLabel="Delete"
+          title={agent ? "Remove session" : "Delete session"}
+          description={
+            agent
+              ? `Remove “${row.title}” from Hopilo? The session file stays on your computer, and you can restore it anytime from Hidden sessions.`
+              : `Delete “${row.title}” from Hopilo? This cannot be undone.`
+          }
+          confirmLabel={agent ? "Remove" : "Delete"}
           destructive
           onClose={() => setConfirmDelete(false)}
           onConfirm={remove}

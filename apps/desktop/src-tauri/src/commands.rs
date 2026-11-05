@@ -248,6 +248,21 @@ pub async fn list_sessions(app: AppHandle) -> CmdResult<Vec<SessionRow>> {
     blocking(app, |_, state| with_store(&state, |s| s.list_sessions().map_err(err))).await
 }
 
+#[tauri::command]
+pub async fn list_hidden_sessions(app: AppHandle) -> CmdResult<Vec<SessionRow>> {
+    blocking(app, |_, state| with_store(&state, |s| s.list_hidden_sessions().map_err(err))).await
+}
+
+#[tauri::command]
+pub async fn restore_session(app: AppHandle, id: String) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        with_store(&state, |s| s.restore_session(&id).map_err(err))?;
+        notify(app);
+        Ok(())
+    })
+    .await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDetail {

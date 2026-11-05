@@ -273,6 +273,21 @@ fn removed_agent_sessions_stay_hidden_until_captured_again() {
 }
 
 #[test]
+fn restore_session_unhides_and_reindexes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (s, m) = capture("/h.jsonl", "hide me");
+    let id = db.insert_capture(&s, &m).unwrap().source_id;
+    db.remove_session(&id).unwrap();
+    assert!(db.list_sessions().unwrap().is_empty());
+    assert_eq!(db.list_hidden_sessions().unwrap().len(), 1);
+    db.restore_session(&id).unwrap();
+    assert_eq!(db.list_sessions().unwrap().len(), 1);
+    assert!(db.list_hidden_sessions().unwrap().is_empty());
+    assert_eq!(db.search("hide", 5).unwrap().len(), 1);
+}
+
+#[test]
 fn compose_combines_sessions_with_their_files_and_logs_copies() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = Store::open(dir.path()).unwrap();

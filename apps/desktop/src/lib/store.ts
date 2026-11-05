@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned";
+export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned" | "hidden";
 
 export type Route =
   | { page: "overview" }

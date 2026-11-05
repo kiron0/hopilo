@@ -240,6 +240,7 @@ export const Loader2 = (p: IconProps) => (
   </Icon>
 );
 export const RefreshCw = make(["M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3", "M18 3v3.7h-3.7M6 21v-3.7h3.7"]);
+export const RotateCcw = make(["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5"]);
 export const History = make(["M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9", "M4.5 4.5V9H9", "M12 8v4l3 2"], c(12, 12, 7.5));
 export const Power = make(["M12 3.5v8", "M7 6.5a7 7 0 1 0 10 0"]);
 

@@ -30,6 +30,7 @@ pub struct SessionRow {
     pub pinned: bool,
     pub tags: Vec<String>,
     pub last_copied_at: Option<String>,
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -47,7 +48,7 @@ pub struct OriginState {
 }
 
 const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
-    capture_status, message_count, token_estimate, missing_count, file_count, pinned, tags, last_copied_at";
+    capture_status, message_count, token_estimate, missing_count, file_count, pinned, tags, last_copied_at, hidden";
 
 fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
     Ok(SessionRow {
@@ -67,6 +68,7 @@ fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
         pinned: r.get(13)?,
         tags: serde_json::from_str(&r.get::<_, String>(14)?).unwrap_or_default(),
         last_copied_at: r.get(15)?,
+        hidden: r.get(16)?,
     })
 }
 
@@ -181,6 +183,45 @@ impl Store {
         ))?;
         let rows = stmt.query_map([], row_from)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn list_hidden_sessions(&self) -> Result<Vec<SessionRow>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {ROW_COLUMNS} FROM sources WHERE hidden = 1
+             ORDER BY COALESCE(updated_at, captured_at) DESC, rowid DESC"
+        ))?;
+        let rows = stmt.query_map([], row_from)?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    pub fn restore_session(&mut self, id: &str) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        let title: String = tx
+            .query_row("SELECT title FROM sources WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?
+            .ok_or_else(|| DbError::NotFound(format!("session {id}")))?;
+        tx.execute("UPDATE sources SET hidden = 0 WHERE id = ?1", [id])?;
+        let mut text = String::new();
+        {
+            let mut stmt = tx.prepare("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
+            let rows = stmt.query_map([id], |r| r.get::<_, String>(0))?;
+            for r in rows {
+                let blocks_json = r?;
+                if let Ok(blocks) = serde_json::from_str::<Vec<Block>>(&blocks_json) {
+                    for b in blocks {
+                        if let Block::Text { text: t } = b {
+                            text.push_str(&t);
+                            text.push(' ');
+                        }
+                    }
+                }
+            }
+        }
+        tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [id])?;
+        index(&tx, "source", id, &title, &text)?;
+        event(&tx, "restore", Some(id), "Restored session")?;
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn session_row(&self, id: &str) -> Result<SessionRow> {

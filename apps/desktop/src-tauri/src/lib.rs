@@ -213,6 +213,8 @@ pub fn run() {
             commands::quit_app,
             commands::sync_sessions,
             commands::list_sessions,
+            commands::list_hidden_sessions,
+            commands::restore_session,
             commands::get_session,
             commands::update_session,
             commands::remove_session,

@@ -82,6 +82,7 @@ export interface SessionRow {
   pinned: boolean;
   tags: string[];
   lastCopiedAt: string | null;
+  hidden?: boolean;
 }
 
 export interface SessionDetail {
@@ -217,6 +218,8 @@ export const api = {
 
   syncSessions: () => invoke<SyncResult>("sync_sessions"),
   listSessions: () => invoke<SessionRow[]>("list_sessions"),
+  listHiddenSessions: () => invoke<SessionRow[]>("list_hidden_sessions"),
+  restoreSession: (id: string) => invoke<void>("restore_session", { id }),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   updateSession: (id: string, patch: { title?: string; pinned?: boolean; tags?: string[] }) => invoke<void>("update_session", { id, patch }),
 
