@@ -5,7 +5,7 @@ members = ["crates/core", "crates/adapters", "crates/pack-format", "crates/datab
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "UNLICENSED"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 hopilo-core = { path = "crates/core" }
@@ -27,10 +27,8 @@ zstd = "0.13"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
 
-# Keep local builds small: no debug info for dependencies or the app.
 [profile.dev]
 debug = 0
-# The repo is developed on a tight disk; incremental caches grow large.
 incremental = false
 
 [profile.dev.package."*"]

@@ -64,4 +64,6 @@ Support development: [Buy me a coffee](https://buymeacoffee.com/_thk).
 
 ## License
 
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
 © [Toufiq Hasan Kiron](https://github.com/kiron0). All rights reserved.
