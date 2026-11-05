@@ -1,13 +1,16 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -23,9 +26,14 @@ jobs:
       - id: resolve
         shell: bash
         run: |
-          ver=$(node -e 'const conf = JSON.parse(require("fs").readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")); console.log(conf.version);')
-          ver="${ver#v}"
-          tag="v$ver"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ver=$(node -e 'const conf = JSON.parse(require("fs").readFileSync("apps/desktop/src-tauri/tauri.conf.json", "utf8")); console.log(conf.version);')
+            ver="${ver#v}"
+            tag="v$ver"
+          else
+            tag="${GITHUB_REF_NAME:-v0.1.0}"
+            ver="${tag#v}"
+          fi
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
@@ -277,12 +285,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
-          title="Hopilo $TAG"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "$title" --notes-file ../release-notes.md
+            gh release edit "$TAG" --title "$TAG" --notes-file ../release-notes.md
             gh release upload "$TAG" --clobber *
           else
-            gh release create "$TAG" --title "$title" --notes-file ../release-notes.md *
+            gh release create "$TAG" --title "$TAG" --notes-file ../release-notes.md *
           fi
 
       - name: Release summary
