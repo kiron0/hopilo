@@ -70,15 +70,6 @@ export function UpdateModal({
           </div>
         </div>
 
-        {update.releaseNotes && (
-          <div>
-            <div className="mb-1.5 text-[12px] font-medium text-muted">Release Notes</div>
-            <div className="max-h-56 overflow-y-auto rounded-xl border border-line bg-card p-3.5 font-sans text-[12.5px] leading-relaxed text-ink shadow-item whitespace-pre-wrap">
-              {update.releaseNotes}
-            </div>
-          </div>
-        )}
-
         {progress && (
           <div className="rounded-xl border border-line bg-card p-3.5" aria-live="polite">
             <div className="flex items-center justify-between gap-3 text-[12px] font-medium">

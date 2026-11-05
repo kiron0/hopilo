@@ -6,15 +6,12 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Added
 
-- 
-
-### Fixed
-
-- 
+- **In-App Updater**: Integrated Tauri updater plugin for automated background update checks, download progress tracking, and signed in-app installations.
+- **Automated Release Workflows**: Added updater manifest generation (`latest.json`), signing pipeline, and release staging scripts.
 
 ### Changed
 
-- 
+- **Streamlined Update Dialog**: Removed release notes and changelog display from the update modal to keep update alerts clean, lightweight, and focused on download and install status.
 
 ## 0.1.1
 
