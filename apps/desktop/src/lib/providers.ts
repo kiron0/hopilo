@@ -23,7 +23,7 @@ export const PROVIDERS: Provider[] = [
 
   { id: "antigravity", label: "Antigravity", kind: "agent", color: "#16171d", capture: "auto", hint: "Start a session in Antigravity and paste as your first message." },
   { id: "claude-code", label: "Claude Code", kind: "agent", color: "#c96442", capture: "auto", hint: "Run `claude` in the project folder and paste as your first message." },
-  { id: "codex", label: "Codex CLI", kind: "agent", color: "#0f8f6f", capture: "auto", hint: "Run `codex` in the project folder and paste as your first message." },
+  { id: "codex", label: "Codex CLI", kind: "agent", color: "#111111", capture: "auto", hint: "Run `codex` in the project folder and paste as your first message." },
   { id: "cursor", label: "Cursor", kind: "agent", color: "#27272a", capture: "auto", hint: "Start a chat in Cursor and paste as your first message." },
   { id: "gemini-cli", label: "Gemini CLI", kind: "agent", color: "#3b78e7", capture: "auto", hint: "Run `gemini` in the project folder and paste as your first message." },
   { id: "opencode", label: "OpenCode", kind: "agent", color: "#1e1e24", capture: "auto", hint: "Run `opencode` in the project folder and paste as your first message." },

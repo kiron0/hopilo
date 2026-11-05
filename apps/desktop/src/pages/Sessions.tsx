@@ -336,7 +336,7 @@ function SessionList() {
         value: t.id,
         label: t.label,
         group: t.kind === "chat" ? "Chat apps" : "Coding agents & editors",
-        icon: <ProviderLogo id={t.id} size={14} className="text-muted" />,
+        icon: <ProviderLogo id={t.id} size={14} className="text-muted" monochrome />,
       }));
     list.push(...targets);
     const known = new Set(TARGETS.map((t) => t.id));
@@ -348,7 +348,7 @@ function SessionList() {
           value: id,
           label: provider(id).label,
           group: "Other tools",
-          icon: <ProviderLogo id={id} size={14} className="text-muted" />,
+          icon: <ProviderLogo id={id} size={14} className="text-muted" monochrome />,
         });
       }
     }
