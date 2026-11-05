@@ -348,7 +348,7 @@ function SessionPage({ id }: { id: string }) {
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
   const { row, source, messages, files, tokenEstimate } = data;
-  const agent = row.kind === "local-agent";
+  const canDelete = row.kind === "browser-chat";
 
   const copy = async (markdown = false) => {
     setBusy(true);
@@ -389,9 +389,11 @@ function SessionPage({ id }: { id: string }) {
             <IconButton label={row.pinned ? "Unpin" : "Pin to the top"} onClick={() => api.updateSession(id, { pinned: !row.pinned })}>
               <Star size={15} className={row.pinned ? "text-accent" : ""} />
             </IconButton>
-            <IconButton label={row.kind === "local-agent" ? "Remove from Hopilo" : "Delete"} onClick={() => setConfirmDelete(true)}>
-              <Trash2 size={15} />
-            </IconButton>
+            {canDelete && (
+              <IconButton label="Delete" onClick={() => setConfirmDelete(true)}>
+                <Trash2 size={15} />
+              </IconButton>
+            )}
           </>
         }
       />
@@ -405,7 +407,7 @@ function SessionPage({ id }: { id: string }) {
           Copy
         </Button>
         <div className="flex-1" />
-        <Button size="sm" variant="ghost" onClick={() => copy(true)}>
+        <Button size="sm" icon={<Copy size={13} />} onClick={() => copy(true)}>
           Copy Markdown
         </Button>
         <Button size="sm" icon={<Download size={13} />} onClick={() => setExporting(true)}>
@@ -455,15 +457,11 @@ function SessionPage({ id }: { id: string }) {
       </Card>
       {exporting && <ExportModal ids={[id]} level={level} onClose={() => setExporting(false)} />}
       {paths && <FileImportModal paths={paths} session={id} onClose={() => setPaths(null)} />}
-      {confirmDelete && (
+      {confirmDelete && canDelete && (
         <AlertDialog
-          title={agent ? "Remove session" : "Delete session"}
-          description={
-            agent
-              ? `Remove “${row.title}” from Hopilo? The session file stays where it is, and the session won't come back here.`
-              : `Delete “${row.title}” from Hopilo? This cannot be undone.`
-          }
-          confirmLabel={agent ? "Remove" : "Delete"}
+          title="Delete session"
+          description={`Delete “${row.title}” from Hopilo? This cannot be undone.`}
+          confirmLabel="Delete"
           destructive
           onClose={() => setConfirmDelete(false)}
           onConfirm={remove}
