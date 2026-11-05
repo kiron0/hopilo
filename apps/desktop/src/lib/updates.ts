@@ -78,7 +78,6 @@ const INSTALLER_SUFFIXES: Record<Platform, string[]> = {
   linux: [".appimage", ".deb", ".rpm"],
 };
 
-/** Installer for this OS only; never another platform's build or the browser-extension zip. */
 export function pickDownloadAsset(assets: GitHubAsset[] | undefined, os: Platform = currentPlatform): GitHubAsset | undefined {
   const list = (assets ?? []).filter((a) => !a.name.toLowerCase().includes("extension"));
   for (const suffix of INSTALLER_SUFFIXES[os]) {

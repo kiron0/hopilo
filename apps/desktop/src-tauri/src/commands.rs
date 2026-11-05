@@ -17,9 +17,6 @@ pub struct AppState {
     pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
 
     pub sync_lock: Mutex<()>,
-
-    /// In-memory mirror of app-written settings so hot paths (window close, tray
-    /// click, copy defaults) never contend with, or re-enter, the store lock.
     pub settings: RwLock<HashMap<String, serde_json::Value>>,
 }
 

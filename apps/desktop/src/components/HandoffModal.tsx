@@ -190,7 +190,6 @@ export function HandoffModal({
       )}
     >
       <div className="space-y-4">
-        {/* Destination Target (for copy) */}
         {action === "copy" && (
           <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5">
             <div>
@@ -203,7 +202,6 @@ export function HandoffModal({
           </div>
         )}
 
-        {/* Formats Selection (for export) */}
         {action === "export" && (
           <div>
             <div className="mb-2 text-[12.5px] font-semibold text-muted">Choose export formats</div>
@@ -233,7 +231,6 @@ export function HandoffModal({
           </div>
         )}
 
-        {/* Context Level & Conciseness */}
         <div>
           <div className="mb-2 flex items-center justify-between text-[12.5px]">
             <span className="font-semibold text-muted">How much to include (Conciseness)</span>
@@ -319,7 +316,6 @@ export function HandoffModal({
           </div>
         </div>
 
-        {/* Secrets Scanner & Include/Exclude options */}
         <div className="rounded-xl border border-line bg-surface-2/40 p-3.5">
           {loading && !data ? (
             <div className="flex items-center gap-3">

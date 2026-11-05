@@ -135,8 +135,6 @@ pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<Ha
         }
         let state = app.state::<AppState>();
         let d = defaults(&state);
-        // Compose under the store lock, render outside it: rendering three levels of a
-        // long transcript is slow and must not block the library for other commands.
         let pack = with_store(&state, |s| s.compose(&ids).map_err(err))?;
         let findings = hopilo_core::scan::scan_pack(&pack, None);
         let total_messages = pack.messages.len();

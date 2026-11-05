@@ -20,7 +20,6 @@ async function fetchFile(url: string, maxBytes: number) {
   } catch {
     return { ok: false };
   }
-  // Credentialed fetches go only to the chat sites the extension already has access to.
   if (u.protocol !== "https:" || !hostAllowed(u)) return { ok: false };
   const limit = Math.min(Math.max(0, Number(maxBytes) || 0), MAX_FETCH_BYTES);
   const res = await fetch(u.href, { credentials: "include" });

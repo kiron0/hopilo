@@ -192,7 +192,6 @@ pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
         return Err(format!("{pf_name}: larger than the size limit"));
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{pf_name}: {e}"))?;
-    // The file may have changed between stat and read: trust what was actually read.
     let size = bytes.len() as u64;
     if size > MAX_FILE_BYTES {
         return Err(format!("{pf_name}: larger than the size limit"));

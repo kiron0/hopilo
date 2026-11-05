@@ -84,7 +84,6 @@ const PERSIST_DELAY_MS = 400;
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
 const pendingEchoes: string[] = [];
 
-// The backend's JSON map sorts keys, so compare echoes by a key-order-independent form.
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
@@ -94,7 +93,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-/** True when a settings-changed event is just the echo of our own list-view write. */
 export function isOwnListViewEcho(value: unknown): boolean {
   const i = pendingEchoes.indexOf(canonical(value));
   if (i < 0) return false;
@@ -108,8 +106,6 @@ function saveListView(v: ListView) {
   try {
     if (typeof localStorage !== "undefined") localStorage.setItem(LIST_VIEW_KEY, json);
   } catch {}
-  // Typing in the search box changes the view on every keystroke: write to the library
-  // once the user pauses, and ignore the echo so it cannot revert newer keystrokes.
   clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     pendingEchoes.push(canonical(rest));

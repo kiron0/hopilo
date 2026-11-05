@@ -413,8 +413,6 @@ impl Store {
     }
 
     pub fn insert_attachment(&mut self, att: &Attachment, bytes: &[u8]) -> Result<(Attachment, bool)> {
-        // The sha doubles as the blob's file name, so it must be the real digest of
-        // `bytes`: never trust a caller-supplied value as a path component.
         {
             use sha2::{Digest, Sha256};
             if att.sha256.len() != 64

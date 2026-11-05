@@ -483,7 +483,6 @@ impl Store {
                 let hidden: bool =
                     self.conn.query_row("SELECT hidden FROM sources WHERE id = ?1", [&s.source_id], |r| r.get(0))?;
                 if hidden {
-                    // Re-index too: hiding dropped the session from search.
                     self.restore_session(&s.source_id)?;
                 }
                 ids.push(s.source_id.clone());
