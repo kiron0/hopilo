@@ -129,13 +129,28 @@ export function ProviderDot({ id, size = 8 }: { id: string; size?: number }) {
 export function ProviderBadge({ id, size = 30 }: { id: string; size?: number }) {
   const p = provider(id);
   const logoSize = Math.max(12, Math.round(size * 0.58));
+  const isAgy = id === "antigravity";
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[9px] font-display text-[11px] font-semibold text-white shadow-card overflow-hidden"
-      style={{ width: size, height: size, background: `linear-gradient(140deg, ${p.color}, color-mix(in oklab, ${p.color} 70%, black))` }}
+      className={cx(
+        "flex shrink-0 items-center justify-center rounded-[9px] font-display text-[11px] font-semibold text-white shadow-card overflow-hidden",
+        isAgy && "relative border border-white/10"
+      )}
+      style={{
+        width: size,
+        height: size,
+        background: isAgy
+          ? "radial-gradient(circle at 50% 25%, #23252d 0%, #111216 100%)"
+          : `linear-gradient(140deg, ${p.color}, color-mix(in oklab, ${p.color} 70%, black))`
+      }}
       title={p.label}
     >
+      {isAgy && (
+        <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox="0 0 30 30" fill="none">
+          <path d="M0 6h30M0 12h30M0 18h30M0 24h30M6 0v30M12 0v30M18 0v30M24 0v30" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+        </svg>
+      )}
       <ProviderLogo id={id} size={logoSize} fallback={p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)} />
     </span>
   );
@@ -584,13 +599,28 @@ export { ProviderLogo } from "./ProviderLogos";
 export function ProviderChip({ id, size = 20 }: { id: string; size?: number }) {
   const p = provider(id);
   const logoSize = Math.max(10, Math.round(size * 0.62));
+  const isAgy = id === "antigravity";
   return (
     <span
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-[6px] font-display text-[9.5px] font-semibold text-white overflow-hidden"
-      style={{ width: size, height: size, background: `linear-gradient(160deg, ${p.color}, color-mix(in oklab, ${p.color} 68%, black))` }}
+      className={cx(
+        "flex shrink-0 items-center justify-center rounded-[6px] font-display text-[9.5px] font-semibold text-white overflow-hidden",
+        isAgy && "relative border border-white/10"
+      )}
+      style={{
+        width: size,
+        height: size,
+        background: isAgy
+          ? "radial-gradient(circle at 50% 25%, #23252d 0%, #111216 100%)"
+          : `linear-gradient(160deg, ${p.color}, color-mix(in oklab, ${p.color} 68%, black))`
+      }}
       title={p.label}
     >
+      {isAgy && (
+        <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox="0 0 20 20" fill="none">
+          <path d="M0 5h20M0 10h20M0 15h20M5 0v20M10 0v20M15 0v20" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+        </svg>
+      )}
       <ProviderLogo id={id} size={logoSize} fallback={p.label.replace(/[^A-Za-z]/g, "").slice(0, 1)} />
     </span>
   );

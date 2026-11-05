@@ -21,7 +21,7 @@ export const PROVIDERS: Provider[] = [
   { id: "deepseek", label: "DeepSeek", kind: "chat", color: "#4d6bfe", capture: "paste", url: "https://chat.deepseek.com/", hint: CHAT_HINT },
   { id: "perplexity", label: "Perplexity", kind: "chat", color: "#20808d", capture: "paste", url: "https://www.perplexity.ai/", hint: "Open a new thread, paste, review, then send." },
 
-  { id: "antigravity", label: "Antigravity", kind: "agent", color: "#4285f4", capture: "auto", hint: "Start a session in Antigravity and paste as your first message." },
+  { id: "antigravity", label: "Antigravity", kind: "agent", color: "#16171d", capture: "auto", hint: "Start a session in Antigravity and paste as your first message." },
   { id: "claude-code", label: "Claude Code", kind: "agent", color: "#c96442", capture: "auto", hint: "Run `claude` in the project folder and paste as your first message." },
   { id: "codex", label: "Codex CLI", kind: "agent", color: "#0f8f6f", capture: "auto", hint: "Run `codex` in the project folder and paste as your first message." },
   { id: "cursor", label: "Cursor", kind: "agent", color: "#27272a", capture: "auto", hint: "Start a chat in Cursor and paste as your first message." },

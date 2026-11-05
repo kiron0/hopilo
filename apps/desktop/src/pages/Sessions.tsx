@@ -197,7 +197,7 @@ function SessionList() {
             body={
               q || filter !== "all"
                 ? "Try a different search or filter."
-                : "Sessions from Claude Code, Codex, Gemini CLI, OpenCode and Qwen Code appear here on their own. Save web chats with the browser extension, or use Add."
+                : "Sessions from Antigravity, Claude Code, Codex, Gemini CLI, OpenCode and Qwen Code appear here on their own. Save web chats with the browser extension, or use Add."
             }
           />
         </Card>
