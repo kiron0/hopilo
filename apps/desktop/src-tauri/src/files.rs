@@ -222,10 +222,10 @@ mod tests {
         std::fs::write(root.join("node_modules/x.js"), "x").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink("/etc/hosts", root.join("link")).unwrap();
-        let (files, notes) = expand(&[root.display().to_string()]);
+        let (files, _notes) = expand(&[root.display().to_string()]);
         assert_eq!(files, vec![root.join("a.md")]);
         #[cfg(unix)]
-        assert!(notes.iter().any(|n| n.contains("Skipped symlink")));
+        assert!(_notes.iter().any(|n| n.contains("Skipped symlink")));
     }
 
     #[test]
