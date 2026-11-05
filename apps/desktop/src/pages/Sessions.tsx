@@ -30,10 +30,11 @@ import { copySessions, exportSessionsAs, FORMATS, type Format, pickFiles, saveFi
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
 import { prefetch, saveSetting, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
-import { target } from "../lib/targets";
+import { target, TARGETS } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
 import { AddSessionModal } from "../components/AddSession";
 import { FileImportModal } from "../components/FileImport";
+import { ProviderLogo } from "../components/ProviderLogos";
 import { Select, type SelectOption } from "../components/Select";
 import { SessionListSkeleton, SessionPageSkeleton } from "../components/Skeletons";
 import {
@@ -328,16 +329,30 @@ function SessionList() {
     );
   }, [data, q, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
   const providerOptions = useMemo<SelectOption[]>(() => {
-    const ids = new Set((data ?? []).map((r) => r.provider).filter(Boolean));
-    if (providerFilter !== "all") ids.add(providerFilter);
-    return [
-      { value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> },
-      ...[...ids].sort((a, b) => provider(a).label.localeCompare(provider(b).label)).map((id) => ({
-        value: id,
-        label: provider(id).label,
-        icon: <ProviderBadge id={id} size={16} />,
-      })),
-    ];
+    const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
+    const targets = TARGETS.filter((t) => t.id !== "other")
+      .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "chat" ? -1 : 1))
+      .map((t) => ({
+        value: t.id,
+        label: t.label,
+        group: t.kind === "chat" ? "Chat apps" : "Coding agents & editors",
+        icon: <ProviderLogo id={t.id} size={14} className="text-muted" />,
+      }));
+    list.push(...targets);
+    const known = new Set(TARGETS.map((t) => t.id));
+    const extra = new Set((data ?? []).map((r) => r.provider).filter((id) => id && !known.has(id)));
+    if (providerFilter !== "all" && !known.has(providerFilter)) extra.add(providerFilter);
+    if (extra.size > 0) {
+      for (const id of [...extra].sort()) {
+        list.push({
+          value: id,
+          label: provider(id).label,
+          group: "Other tools",
+          icon: <ProviderLogo id={id} size={14} className="text-muted" />,
+        });
+      }
+    }
+    return list;
   }, [data, providerFilter]);
   const modelOptions = useMemo<SelectOption[]>(() => {
     const models = new Set((data ?? []).map((r) => r.model?.trim() || "__unknown"));
@@ -478,10 +493,41 @@ function SessionList() {
       />
       <PageToolbar>
         <div className="flex w-full flex-col gap-2.5">
-          <SearchField label="Filter sessions" placeholder="Search title, folder, tool, model or tag" value={q} onChange={setQ} className="w-full" />
+          <div className="flex w-full items-center gap-2">
+            <SearchField label="Filter sessions" placeholder="Search title, folder, tool, model or tag" value={q} onChange={setQ} className="min-w-0 flex-1" />
+            <div className="flex h-9 items-center rounded-xl border border-line bg-card p-0.5 shadow-item shrink-0" role="group" aria-label="Layout view">
+              <button
+                type="button"
+                aria-label="List view"
+                title="List view"
+                onClick={() => saveSetting("sessionLayout", "list")}
+                className={cx(
+                  "flex h-7.5 w-7.5 items-center justify-center rounded-lg transition-colors",
+                  settings.sessionLayout === "list" ? "bg-surface-3 text-ink shadow-xs" : "text-faint hover:text-ink",
+                )}
+              >
+                <List size={14} />
+              </button>
+              <button
+                type="button"
+                aria-label="Cards view"
+                title="Cards view"
+                onClick={() => saveSetting("sessionLayout", "thumbnails")}
+                className={cx(
+                  "flex h-7.5 w-7.5 items-center justify-center rounded-lg transition-colors",
+                  settings.sessionLayout === "thumbnails" ? "bg-surface-3 text-ink shadow-xs" : "text-faint hover:text-ink",
+                )}
+              >
+                <LayoutGrid size={14} />
+              </button>
+            </div>
+            <IconButton label="Check agent folders for new sessions" onClick={() => sync(true)} disabled={syncing} className="h-9 w-9 shrink-0 rounded-full border border-line bg-card shadow-item">
+              <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
+            </IconButton>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <FilterSelect label="Show sessions" value={filter} options={FILTERS} onChange={(value) => setFilter(value as Filter)} className="w-36" />
-            <FilterSelect label="Filter by tool" value={providerFilter} options={providerOptions} onChange={(provider) => setListView({ provider, page: 0 })} className="w-40" />
+            <FilterSelect label="Filter by tool" value={providerFilter} options={providerOptions} onChange={(provider) => setListView({ provider, page: 0 })} className="w-44" />
             <FilterSelect label="Filter by model" value={modelFilter} options={modelOptions} onChange={(model) => setListView({ model, page: 0 })} className="w-40" />
             <FilterSelect
               label="Filter by resources"
@@ -497,32 +543,6 @@ function SessionList() {
               options={groupOptions}
               className="w-38"
             />
-            <div className="flex items-center rounded-xl border border-line bg-card p-0.5 shadow-item" role="group" aria-label="Layout view">
-              <button
-                type="button"
-                aria-label="List view"
-                title="List view"
-                onClick={() => saveSetting("sessionLayout", "list")}
-                className={cx(
-                  "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
-                  settings.sessionLayout === "list" ? "bg-surface-3 text-ink shadow-xs" : "text-faint hover:text-ink",
-                )}
-              >
-                <List size={14} />
-              </button>
-              <button
-                type="button"
-                aria-label="Cards view"
-                title="Cards view"
-                onClick={() => saveSetting("sessionLayout", "thumbnails")}
-                className={cx(
-                  "flex h-7 w-7 items-center justify-center rounded-lg transition-colors",
-                  settings.sessionLayout === "thumbnails" ? "bg-surface-3 text-ink shadow-xs" : "text-faint hover:text-ink",
-                )}
-              >
-                <LayoutGrid size={14} />
-              </button>
-            </div>
             {(unanswered > 0 || hideUnanswered) && (
               <button
                 type="button"
@@ -538,10 +558,6 @@ function SessionList() {
                 <span className="ml-1.5 font-mono text-[10.5px] opacity-70">{unanswered}</span>
               </button>
             )}
-            <div className="flex-1" />
-            <IconButton label="Check agent folders for new sessions" onClick={() => sync(true)} disabled={syncing} className="h-8 w-8 rounded-full border border-line bg-card shadow-item">
-              <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
-            </IconButton>
           </div>
         </div>
       </PageToolbar>

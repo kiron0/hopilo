@@ -148,7 +148,7 @@ export function Select({
         onKeyDown={onKey}
         className={`flex w-full items-center gap-2 rounded-xl border border-line bg-card pr-2.5 pl-3 text-left shadow-item transition-colors hover:border-line-strong ${size === "sm" ? "h-8 text-[12.5px]" : "h-9.5 text-[13.5px]"} ${open ? "border-accent" : ""} ${className}`}
       >
-        {selected?.icon}
+        {selected?.icon && <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted">{selected.icon}</span>}
         <span className={`min-w-0 flex-1 truncate ${selected ? "text-ink" : "text-faint"}`}>{selected?.label ?? emptyLabel}</span>
         <ChevronDownIcon size={15} className={`shrink-0 text-faint transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -181,7 +181,7 @@ export function Select({
                   onClick={() => choose(r.i)}
                   className={`flex h-9 items-center gap-2.5 rounded-xl px-2.5 text-[13px] ${r.i === active ? "bg-accent-soft text-ink" : "text-muted"}`}
                 >
-                  {r.o.icon}
+                  {r.o.icon && <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted">{r.o.icon}</span>}
                   <span className="min-w-0 flex-1 truncate">{r.o.label}</span>
                   {r.o.value === value && <CheckIcon size={14} className="text-accent" />}
                 </div>
