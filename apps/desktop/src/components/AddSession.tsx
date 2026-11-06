@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { ClipboardPaste, FileArchive, FilePlus2, FileUp, History } from "./Icons";
 import { api, errorText } from "../lib/api";
 import { captureClipboard, importHandoffFile, pickFiles } from "../lib/actions";
-import { PASTE_SOURCES, provider } from "../lib/providers";
+import { provider, TARGETS } from "../lib/providers";
 import { useApp } from "../lib/store";
 import { modKey } from "../lib/platform";
 import { FileImportModal } from "./FileImport";
@@ -66,7 +66,7 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
   if (paths) return <FileImportModal paths={paths} session={null} onClose={onClose} />;
   if (exportPath) return <ExportImportModal path={exportPath} onClose={onClose} />;
 
-  const more = PASTE_SOURCES.filter((p) => !QUICK_PICKS.includes(p.id));
+  const more = TARGETS.filter((p) => !QUICK_PICKS.includes(p.id));
   return (
     <Modal
       title="Add a session"
@@ -100,14 +100,19 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
               {provider(id).label}
             </button>
           ))}
-          <div className="w-44">
+          <div className="w-52">
             <Select
               size="sm"
               label="Other AI"
               emptyLabel="Other AI…"
               value={more.some((m) => m.id === from) ? from : ""}
               onChange={setFrom}
-              options={more.map((p) => ({ value: p.id, label: p.label, group: p.kind === "chat" ? "Chat apps" : "Coding agents & editors", icon: <ProviderChip id={p.id} size={18} /> }))}
+              options={more.map((p) => ({
+                value: p.id,
+                label: p.label,
+                group: p.id === "other" ? "Other" : p.kind === "chat" ? "Chat apps" : "Coding agents & editors",
+                icon: <ProviderChip id={p.id} size={18} />,
+              }))}
             />
           </div>
         </div>

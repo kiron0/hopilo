@@ -55,7 +55,7 @@ export function provider(id: string): Provider {
 
 export const TARGETS = PROVIDERS.filter((p) => p.kind !== "local");
 
-export const PASTE_SOURCES = PROVIDERS.filter((p) => p.kind !== "local" && p.capture !== "auto");
+export const PASTE_SOURCES = TARGETS;
 
 export const CAPTURE_LABEL: Record<CaptureMethod, string> = {
   auto: "Reads sessions automatically",
