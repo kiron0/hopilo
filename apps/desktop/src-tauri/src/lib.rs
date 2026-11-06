@@ -130,6 +130,20 @@ fn setting_str(app: &AppHandle, key: &str) -> Option<String> {
 fn set_dock_presence(app: &AppHandle, visible: bool) {
     let policy = if visible { tauri::ActivationPolicy::Regular } else { tauri::ActivationPolicy::Accessory };
     let _ = app.set_activation_policy(policy);
+    if visible {
+        use objc2::AnyThread;
+        use objc2_app_kit::{NSApplication, NSImage};
+        use objc2_foundation::{MainThreadMarker, NSData};
+        if let Some(mtm) = MainThreadMarker::new() {
+            let ns_app = NSApplication::sharedApplication(mtm);
+            let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+            if let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) {
+                unsafe {
+                    ns_app.setApplicationIconImage(Some(&image));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

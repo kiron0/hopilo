@@ -364,26 +364,28 @@ function SessionList() {
       <PageToolbar>
         <div className="flex w-full flex-col gap-2.5">
           <div className="flex w-full items-center gap-2">
-            <SearchField label="Filter sessions" placeholder="Search title, folder, tool, model or tag" value={q} onChange={setQ} className="min-w-0 flex-1" />
-            <div
-              className={cx(
-                "flex items-center shrink-0 overflow-hidden transition-all duration-300 ease-out",
-                hasQueryOrFilter
-                  ? "max-w-[140px] opacity-100 scale-100"
-                  : "max-w-0 opacity-0 scale-95 pointer-events-none -mr-2",
-              )}
-            >
-              <button
-                type="button"
-                onClick={clearFilters}
-                tabIndex={hasQueryOrFilter ? 0 : -1}
-                aria-hidden={!hasQueryOrFilter}
-                title="Clear search and filters"
-                className="flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-card px-3 text-[12.5px] font-medium text-muted shadow-item transition-all duration-200 hover:border-line-strong hover:bg-surface-2/60 hover:text-ink active:scale-[0.98]"
+            <div className="flex min-w-0 flex-1 items-center">
+              <SearchField label="Filter sessions" placeholder="Search title, folder, tool, model or tag" value={q} onChange={setQ} className="min-w-0 flex-1" />
+              <div
+                className={cx(
+                  "flex items-center shrink-0 overflow-hidden transition-[max-width,opacity,padding] duration-200 ease-out",
+                  hasQueryOrFilter
+                    ? "max-w-40 opacity-100 pl-2"
+                    : "max-w-0 opacity-0 pl-0 pointer-events-none",
+                )}
               >
-                <X size={13} className="shrink-0" />
-                <span>Clear filters</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  tabIndex={hasQueryOrFilter ? 0 : -1}
+                  aria-hidden={!hasQueryOrFilter}
+                  title="Clear search and filters"
+                  className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-card px-3 text-[12.5px] font-medium text-muted shadow-item transition-colors duration-150 hover:border-line-strong hover:bg-surface-2/60 hover:text-ink active:scale-[0.98]"
+                >
+                  <X size={13} className="shrink-0" />
+                  <span>Clear filters</span>
+                </button>
+              </div>
             </div>
             <div className="flex h-9 items-center rounded-xl border border-line bg-card p-0.5 shadow-item shrink-0" role="group" aria-label="Layout view">
               <button
