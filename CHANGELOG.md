@@ -8,15 +8,23 @@ All notable changes to Hopilo will be documented in this file.
 
 - **Animated splash screen and startup sequence**: Introduced a dedicated startup sequence and splash screen with animated brand mark, floating halo, glowing ambient pulse, and smooth fade-in reveal into the dashboard.
 - **Dark mode animated header background**: Added a rich dark palette (`DARK_PLUME`) with deep indigo, purple, and midnight tones to the `Flow` component, enabling the animated background plume on the Overview header card in dark mode.
+- **Automated signing build runner**: Added cross-platform build script `scripts/build.mjs` that automatically detects local updater signing keys, manages signing environment variables, and enables seamless local and CI builds.
+- **Windows installer & high-DPI Linux icons**: Configured `installerIcon` for Windows NSIS so downloaded setup `.exe` files display the Hopilo icon in Windows Explorer, and added standard `64x64` and `512x512` icon assets to Linux AppImage and Debian packages.
 
 ### Fixed
 
 - **Overview header plume overflow**: Bounded the animated background strictly within the header card using inherited border-radius, strict inset containment, `contain: paint`, and WebKit mask clipping, eliminating corner bleeding or blur spill into adjacent elements.
+- **Secure file and bundle opening**: Library files matching executable extensions are revealed in the operating system's file manager rather than directly executed. Project directory bundles (`.app`, `.pkg`, `.workflow`) are revealed rather than launched when opened from the dashboard.
+- **Export path privacy**: Strips machine-specific local paths from exported Context Packs so user file structures and usernames are never shared with external AI targets.
+- **Extension message isolation**: Content scripts running in web pages are restricted to fetching requested drafts and recording completion status, preventing web pages from invoking library management commands.
+- **Attachment collision & digest normalization**: Normalizes uppercase SHA-256 digests in attachments and writes temporary blob parts with process IDs to prevent write collisions between the desktop app and native browser host.
+- **Unicode session title slicing**: Replaced byte slicing with unicode character iteration when deriving default session names in Antigravity and Claude Code adapters, preventing slice panics on multibyte characters.
 
 ### Changed
 
 - **Solid dark theme overhaul**: Replaced glassy and translucent surfaces throughout the app with solid, high-contrast dark surfaces. Updates sidebar navigation items, bottom stats disk, quick panel, welcome window, settings swatches, bubble discs, buttons, and skeleton loaders.
 - **Settings appearance thumbnails**: Hardcoded dark and system appearance preview swatches with authentic dark background styling regardless of the active app mode.
+- **Codebase comment cleanup**: Cleaned up internal commentary comments across Rust, TypeScript, and shell scripts.
 
 ## 0.1.3
 
