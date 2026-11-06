@@ -374,14 +374,15 @@ export function Overview() {
             <button
               type="button"
               disabled={!latest}
+              onMouseEnter={() => latest && prefetch(sessionLoader(latest.id), [latest.id])}
               onClick={() => {
                 if (!latest) return;
-                setHandoff({ ids: [latest.id], action: "copy" });
+                navigate({ page: "sessions", id: latest.id });
               }}
               className="group flex h-12 items-center gap-2.5 rounded-full border border-line bg-surface py-1.5 pr-4 pl-1.5 shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:shadow-card active:scale-[0.98] disabled:opacity-50 disabled:hover:translate-y-0"
             >
               <span className="bg-brand flex h-9 w-9 items-center justify-center rounded-full text-white shadow-brand transition-transform group-hover:scale-105">
-                <Copy size={15} />
+                <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
               </span>
               <span className="text-left leading-tight">
                 <span className="block text-[13px] font-semibold">Continue latest</span>
