@@ -2,6 +2,22 @@
 
 All notable changes to Hopilo will be documented in this file.
 
+## 0.1.4
+
+### Added
+
+- **Animated splash screen and startup sequence**: Introduced a dedicated startup sequence and splash screen with animated brand mark, floating halo, glowing ambient pulse, and smooth fade-in reveal into the dashboard.
+- **Dark mode animated header background**: Added a rich dark palette (`DARK_PLUME`) with deep indigo, purple, and midnight tones to the `Flow` component, enabling the animated background plume on the Overview header card in dark mode.
+
+### Fixed
+
+- **Overview header plume overflow**: Bounded the animated background strictly within the header card using inherited border-radius, strict inset containment, `contain: paint`, and WebKit mask clipping, eliminating corner bleeding or blur spill into adjacent elements.
+
+### Changed
+
+- **Solid dark theme overhaul**: Replaced glassy and translucent surfaces throughout the app with solid, high-contrast dark surfaces. Updates sidebar navigation items, bottom stats disk, quick panel, welcome window, settings swatches, bubble discs, buttons, and skeleton loaders.
+- **Settings appearance thumbnails**: Hardcoded dark and system appearance preview swatches with authentic dark background styling regardless of the active app mode.
+
 ## 0.1.3
 
 ### Added
