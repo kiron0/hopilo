@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowLeft,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Download,
   FileImage,
@@ -20,13 +22,14 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   SlidersHorizontal,
   SparkIcon,
   ToolsIcon,
   Trash2,
   X,
 } from "../components/Icons";
-import { api, errorText, type Attachment, type Level, type SessionRow } from "../lib/api";
+import { api, errorText, type Attachment, type SessionRow } from "../lib/api";
 import { pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
 import { prefetch, saveSetting, useLoad } from "../lib/hooks";
@@ -56,7 +59,6 @@ import {
   SearchField,
   Segmented,
   StatusBadge,
-  TargetSelect,
   useFitRows,
 } from "../components/ui";
 import { FillPage, PageFooter, PageToolbar } from "../components/PageSlots";
@@ -95,12 +97,6 @@ function matches(r: SessionRow, f: Filter) {
       return true;
   }
 }
-
-const LEVELS: { value: Level; label: string }[] = [
-  { value: "full", label: "Full" },
-  { value: "balanced", label: "Balanced" },
-  { value: "minimal", label: "Minimal" },
-];
 
 function meta(r: SessionRow) {
   return [
@@ -844,24 +840,145 @@ function ImageTile({
   );
 }
 
+function findOccurrences(text: string, query: string): number {
+  if (!text || !query.trim()) return 0;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escaped, "gi");
+  const matches = text.match(regex);
+  return matches ? matches.length : 0;
+}
+
 function SessionPage({ id }: { id: string }) {
   const { data, error, loading } = useLoad(sessionLoader(id), [id]);
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
-  const settings = useApp((s) => s.settings);
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
-  const [to, setTo] = useState(settings.defaultTarget);
-  const [level, setLevel] = useState<Level>(settings.level);
+  const [search, setSearch] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const [activeMatchId, setActiveMatchId] = useState<string | undefined>();
+  const [activeMessageId, setActiveMessageId] = useState<string | undefined>();
+  const [forceShown, setForceShown] = useState<number | undefined>();
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [paths, setPaths] = useState<string[] | null>(null);
   const back = () => navigate({ page: "sessions" });
 
+  const messages = data?.messages;
+  const matches = useMemo(() => {
+    if (!messages || !search.trim()) return [];
+    const q = search.trim();
+    const found: { matchId: string; messageId: string; messageIndex: number }[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      for (let bIdx = 0; bIdx < m.blocks.length; bIdx++) {
+        const b = m.blocks[bIdx];
+        let text = "";
+        let prefix = `${m.id}-${bIdx}`;
+        switch (b.type) {
+          case "text":
+            text = b.text;
+            break;
+          case "toolCall":
+            text = b.input;
+            prefix = `${m.id}-${bIdx}-body`;
+            break;
+          case "toolResult":
+            text = b.output;
+            prefix = `${m.id}-${bIdx}-body`;
+            break;
+          case "missing":
+            text = b.description;
+            break;
+          case "file":
+            text = b.name;
+            break;
+        }
+        if (!text) continue;
+        const count = findOccurrences(text, q);
+        for (let occ = 0; occ < count; occ++) {
+          found.push({
+            matchId: `${prefix}-${occ}`,
+            messageId: m.id,
+            messageIndex: i,
+          });
+        }
+      }
+    }
+    return found;
+  }, [messages, search]);
+
+  const jumpTo = (targetIdx: number) => {
+    if (matches.length === 0) return;
+    const clamped = (targetIdx + matches.length) % matches.length;
+    setMatchIndex(clamped);
+    const target = matches[clamped];
+    setForceShown((curr) => Math.max(curr ?? 40, target.messageIndex + 20));
+    setActiveMatchId(target.matchId);
+    setActiveMessageId(target.messageId);
+
+    const scrollToTarget = () => {
+      const matchEl = document.getElementById(`match-${target.matchId}`);
+      if (matchEl) {
+        matchEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        const msgEl = document.getElementById(`msg-${target.messageId}`);
+        msgEl?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+
+    requestAnimationFrame(() => {
+      scrollToTarget();
+      setTimeout(scrollToTarget, 60);
+    });
+  };
+
+  const prevMatch = () => jumpTo(matchIndex - 1);
+  const nextMatch = () => jumpTo(matchIndex + 1);
+
+  useEffect(() => {
+    setMatchIndex(0);
+    if (matches.length > 0) {
+      const first = matches[0];
+      setForceShown((curr) => Math.max(curr ?? 40, first.messageIndex + 20));
+      setActiveMatchId(first.matchId);
+      setActiveMessageId(first.messageId);
+      const scrollToTarget = () => {
+        const matchEl = document.getElementById(`match-${first.matchId}`);
+        if (matchEl) {
+          matchEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          document.getElementById(`msg-${first.messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      };
+      requestAnimationFrame(() => {
+        scrollToTarget();
+        setTimeout(scrollToTarget, 60);
+      });
+    } else {
+      setActiveMatchId(undefined);
+      setActiveMessageId(undefined);
+    }
+  }, [search]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setTab("conversation");
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   if (error) return <ErrorNote text={error} />;
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
-  const { row, source, messages, files, tokenEstimate } = data;
+  const { row, source, files, tokenEstimate } = data;
   const agent = row.kind === "local-agent";
 
   const remove = async () => {
@@ -895,7 +1012,7 @@ function SessionPage({ id }: { id: string }) {
             <span>· {provider(row.provider).label}</span>
             {row.project && <span title={row.project}>· {basename(row.project)}</span>}
             {row.model && <span>· {row.model}</span>}
-            <span>· {plural(messages.length, "message")}</span>
+            <span>· {plural(data.messages.length, "message")}</span>
             <span>· ~{tokens(tokenEstimate)} tokens</span>
             <span>· {relativeTime(row.updatedAt)}</span>
             {row.lastCopiedAt && <span>· copied {relativeTime(row.lastCopiedAt)}</span>}
@@ -930,26 +1047,6 @@ function SessionPage({ id }: { id: string }) {
           </>
         }
       />
-      <PageToolbar>
-        <span className="text-[12.5px] font-medium text-muted">Continue in</span>
-        <div className="w-52 shrink-0">
-          <TargetSelect value={to} onChange={setTo} />
-        </div>
-        <Segmented label="How much to include" value={level} onChange={setLevel} options={LEVELS} />
-        <Button variant="primary" icon={<Copy size={14} />} onClick={() => setHandoff({ ids: [id], action: "copy" })}>
-          Copy
-        </Button>
-        <div className="flex-1" />
-        <Button size="sm" icon={<Copy size={13} />} onClick={() => setHandoff({ ids: [id], action: "copy-markdown" })}>
-          Copy Markdown
-        </Button>
-        <Button size="sm" icon={<Download size={13} />} onClick={() => setHandoff({ ids: [id], action: "export" })}>
-          Export
-        </Button>
-        <Button size="sm" icon={<FilePlus2 size={13} />} onClick={async () => { const p = await pickFiles(); if (p.length) setPaths(p); }}>
-          Add files
-        </Button>
-      </PageToolbar>
 
       {(source.missingItems.length > 0 || source.omitted.length > 0) && (
         <Card className="mb-3 space-y-1.5 p-3 text-[12.5px]">
@@ -975,7 +1072,7 @@ function SessionPage({ id }: { id: string }) {
             </Button>
           </div>
         )}
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line px-4 py-2.5">
           <Segmented
             label="View"
             value={tab}
@@ -985,16 +1082,107 @@ function SessionPage({ id }: { id: string }) {
               { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
             ]}
           />
+
+          {tab === "conversation" ? (
+            <div className="flex min-w-[220px] max-w-sm flex-1 items-center gap-1.5 rounded-xl border border-line bg-card px-2.5 py-1 shadow-item focus-within:border-accent">
+              <Search size={13} className="shrink-0 text-faint" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (e.shiftKey) prevMatch();
+                    else nextMatch();
+                  } else if (e.key === "Escape") {
+                    setSearch("");
+                    setActiveMatchId(undefined);
+                    searchInputRef.current?.blur();
+                  }
+                }}
+                placeholder="Search conversation (⌘F)"
+                className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
+              />
+              {search && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="font-mono text-[11px] text-faint select-none">
+                    {matches.length ? `${matchIndex + 1}/${matches.length}` : "0/0"}
+                  </span>
+                  <div className="flex items-center border-l border-line pl-1 text-faint">
+                    <button
+                      type="button"
+                      disabled={matches.length <= 1}
+                      title="Previous match (Shift+Enter)"
+                      aria-label="Previous match"
+                      onClick={prevMatch}
+                      className="flex h-5 w-5 items-center justify-center rounded hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                    >
+                      <ChevronLeft size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={matches.length <= 1}
+                      title="Next match (Enter)"
+                      aria-label="Next match"
+                      onClick={nextMatch}
+                      className="flex h-5 w-5 items-center justify-center rounded hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:pointer-events-none cursor-pointer"
+                    >
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    title="Clear search (Esc)"
+                    aria-label="Clear search"
+                    onClick={() => {
+                      setSearch("");
+                      setActiveMatchId(undefined);
+                      setActiveMessageId(undefined);
+                    }}
+                    className="flex h-4 w-4 items-center justify-center rounded-full text-faint hover:bg-surface-2 hover:text-ink cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
+
+          <div className="flex items-center gap-2">
+            <Button size="sm" icon={<FilePlus2 size={13} />} onClick={async () => { const p = await pickFiles(); if (p.length) setPaths(p); }}>
+              Add files
+            </Button>
+            <Button size="sm" icon={<Copy size={13} />} onClick={() => setHandoff({ ids: [id], action: "copy-markdown" })}>
+              Copy Markdown
+            </Button>
+            <Button size="sm" icon={<Download size={13} />} onClick={() => setHandoff({ ids: [id], action: "export" })}>
+              Export
+            </Button>
+            <Button variant="primary" size="sm" icon={<Copy size={13} />} onClick={() => setHandoff({ ids: [id], action: "copy" })}>
+              Copy
+            </Button>
+          </div>
         </div>
         {tab === "conversation" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-auto p-5">
-            <Transcript key={id} messages={messages} />
+            <Transcript
+              key={id}
+              messages={data.messages}
+              activeMatchId={activeMatchId}
+              activeMessageId={activeMessageId}
+              searchQuery={search}
+              forceShown={forceShown}
+            />
           </div>
         ) : (
           <FilesTab files={files} />
         )}
       </Card>
-      {handoff && <HandoffModal ids={handoff.ids} action={handoff.action} initialLevel={level} onClose={() => setHandoff(null)} />}
+      {handoff && <HandoffModal ids={handoff.ids} action={handoff.action} onClose={() => setHandoff(null)} />}
       {paths && <FileImportModal paths={paths} session={id} onClose={() => setPaths(null)} />}
       {confirmDelete && (
         <AlertDialog

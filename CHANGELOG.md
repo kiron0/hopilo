@@ -21,6 +21,7 @@ All notable changes to Hopilo will be documented in this file.
 ### Changed
 
 - **Quick panel footer redesign**: Redesigned "Open Hopilo" and "Quit" into a cohesive toolbar docked at the bottom of the card with solid surfaces and balanced spacing, eliminating transparent backgrounds and awkward layout gaps.
+- **Copy controls**: Session details now keep target and conciseness controls inside the Copy modal, which opens with the defaults saved in Settings while remaining editable for that copy.
 
 ## 0.1.2
 

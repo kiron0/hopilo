@@ -210,6 +210,7 @@ export const SparkIcon = ({ size = 18, ...rest }: IconProps) => (
 );
 
 export const ChevronDownIcon = make("m7 10 5 5 5-5");
+export const ChevronLeft = make("m14 6.5-5.5 5.5 5.5 5.5");
 export const ChevronRight = make("m10 6.5 5.5 5.5-5.5 5.5");
 export const ArrowLeft = make("M19 12H5m6-6-6 6 6 6");
 export const ArrowRight = make("M5 12h14m-6-6 6 6-6 6");

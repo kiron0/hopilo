@@ -72,7 +72,6 @@ export type HandoffAction = "copy" | "copy-markdown" | "export";
 export interface HandoffModalProps {
   ids: string[];
   action: HandoffAction;
-  initialLevel?: Level;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -80,12 +79,11 @@ export interface HandoffModalProps {
 export function HandoffModal({
   ids,
   action,
-  initialLevel,
   onClose,
   onSuccess,
 }: HandoffModalProps) {
   const settings = useApp((s) => s.settings);
-  const [level, setLevel] = useState<Level>(initialLevel || settings.level);
+  const [level, setLevel] = useState<Level>(settings.level);
   const [targetId, setTargetId] = useState(settings.defaultTarget);
   const [excludeSecrets, setExcludeSecrets] = useState(true);
   const [showSecretDetails, setShowSecretDetails] = useState(false);
