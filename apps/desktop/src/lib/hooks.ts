@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type
 
 const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
+const inflight = new Map<string, Promise<unknown>>();
 
 function remember(key: string, value: unknown) {
   queryCache.delete(key);
@@ -17,16 +18,24 @@ function remember(key: string, value: unknown) {
   }
 }
 
+function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const current = inflight.get(key) as Promise<T> | undefined;
+  if (current) return current;
+  const pending = loader()
+    .then((data) => {
+      remember(key, data);
+      return data;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, pending);
+  return pending;
+}
+
 export function prefetch<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const key = loader.toString() + JSON.stringify(deps);
   if (queryCache.has(key) || inflight.has(key)) return;
-  inflight.add(key);
-  loader()
-    .then((d) => remember(key, d))
-    .catch(() => undefined)
-    .finally(() => inflight.delete(key));
+  request(key, loader).catch(() => undefined);
 }
-const inflight = new Set<string>();
 
 export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts: { refreshOnChange?: boolean } = {}) {
   const libraryTick = useApp((s) => s.tick);
@@ -46,9 +55,8 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
     shownKey.current = key;
     setError(null);
     setLoading(cached === undefined);
-    loader()
+    request(key, loader)
       .then((d) => {
-        remember(key, d);
         if (n === seq.current) {
           setData(d);
           setError(null);
@@ -58,7 +66,12 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
       .finally(() => n === seq.current && setLoading(false));
 
   }, [key]);
-  useEffect(reload, [reload, tick]);
+  useEffect(() => {
+    reload();
+    return () => {
+      seq.current += 1;
+    };
+  }, [reload, tick]);
   return { data, error, loading, reload };
 }
 
@@ -126,7 +139,7 @@ export function useBootstrap() {
     const onChange = () => applyAppearance(useApp.getState().settings);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, [settings]);
+  }, [settings.theme, settings.background, settings.motion]);
 
   return ready;
 }

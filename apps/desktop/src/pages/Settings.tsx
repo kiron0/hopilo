@@ -78,7 +78,7 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 export function Settings() {
   const s = useApp((st) => st.settings);
   const toast = useApp((st) => st.toast);
-  const info = useLoad(() => api.appInfo());
+  const info = useLoad(() => api.appInfo(), [], { refreshOnChange: false });
   const stats = useLoad(() => api.stats());
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [confirmErase, setConfirmErase] = useState(false);
@@ -134,7 +134,7 @@ export function Settings() {
   return (
     <div className="space-y-4 pb-6">
       <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === tab)?.label ?? "Settings"} subtitle={subtitles[tab]} />
-      <div key={tab} className="sy-stagger">
+      <div>
         {tab === "general" && (
         <Group id="general">
           <Row

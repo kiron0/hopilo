@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use hopilo_adapters::{adapter_by_id, all_adapters, AdapterInfo, DiscoveredSession};
 use hopilo_core::render::estimate_tokens;
@@ -17,6 +18,7 @@ pub struct AppState {
     pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
 
     pub sync_lock: Mutex<()>,
+    pub last_background_sync: Mutex<Option<Instant>>,
     pub settings: RwLock<HashMap<String, serde_json::Value>>,
 }
 
@@ -207,6 +209,13 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
             Err(TryLockError::WouldBlock) => return SyncResult { busy: true, ..Default::default() },
         },
     };
+    if mode == SyncMode::Background {
+        let mut last = state.last_background_sync.lock().unwrap_or_else(|p| p.into_inner());
+        if last.is_some_and(|at| at.elapsed() < Duration::from_secs(30)) {
+            return SyncResult::default();
+        }
+        *last = Some(Instant::now());
+    }
     let mut result = SyncResult::default();
     const ANTIGRAVITY_MEDIA_MIGRATION: &str = "migration.antigravityMediaV1";
     let backfill_antigravity = with_store(&state, |s| {

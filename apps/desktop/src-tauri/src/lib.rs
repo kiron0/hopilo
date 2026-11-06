@@ -152,6 +152,7 @@ pub fn run() {
                 store: Mutex::new(store),
                 discovery: Mutex::new(Default::default()),
                 sync_lock: Mutex::new(()),
+                last_background_sync: Mutex::new(None),
                 settings: std::sync::RwLock::new(settings.clone()),
             });
 

@@ -22,6 +22,8 @@ All notable changes to Hopilo will be documented in this file.
 
 - **Quick panel footer redesign**: Redesigned "Open Hopilo" and "Quit" into a cohesive toolbar docked at the bottom of the card with solid surfaces and balanced spacing, eliminating transparent backgrounds and awkward layout gaps.
 - **Copy controls**: Session details now keep target and conciseness controls inside the Copy modal, which opens with the defaults saved in Settings while remaining editable for that copy.
+- **Smoother interface and lower background usage**: Duplicate data loads are coalesced, focus syncs are throttled, file previews load near the viewport, transcript search work is delayed until typing pauses, and animated backgrounds pause while hidden and render at a lower frame rate.
+- **Stable navigation and loading**: Removed staggered page reveals and route-shell remounts, moved fitted-row measurement before paint, and kept browser/app metadata from reloading after unrelated library changes.
 
 ## 0.1.2
 

@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { type ButtonHTMLAttributes, createContext, type ReactNode, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CaptureStatus } from "../lib/api";
 import { provider } from "../lib/format";
@@ -667,7 +667,7 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
 export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 10) {
   const [el, ref] = useState<T | null>(null);
   const [rows, setRows] = useState(min);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!el) return;
     const measure = () => {
       const first = el.querySelector<HTMLElement>("[data-fit-row]");

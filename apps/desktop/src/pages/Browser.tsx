@@ -68,8 +68,8 @@ function ReleaseSteps({ version, extensionId }: { version: string | undefined; e
 }
 
 export function Browser() {
-  const { data, error, loading, reload } = useLoad(() => api.browserStatus());
-  const version = useLoad(() => api.appInfo()).data?.version;
+  const { data, error, loading, reload } = useLoad(() => api.browserStatus(), [], { refreshOnChange: false });
+  const version = useLoad(() => api.appInfo(), [], { refreshOnChange: false }).data?.version;
   const toast = useApp((s) => s.toast);
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,7 +81,7 @@ export function Browser() {
     window.addEventListener("focus", onFocus);
     const timer = setInterval(() => {
       if (!document.hidden) reload();
-    }, 10000);
+    }, 30000);
     return () => {
       window.removeEventListener("focus", onFocus);
       clearInterval(timer);

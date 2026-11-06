@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../lib/store";
 
 const FRAG = `
@@ -66,6 +66,19 @@ const MOODS = [
 
 const DARK_THIN = 0.62;
 
+function useSystemDark() {
+  const [dark, setDark] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setDark(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return dark;
+}
+
 export interface FlowProps {
   mode: "plume" | "mist";
   calm?: boolean;
@@ -76,11 +89,9 @@ export interface FlowProps {
 export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const theme = useApp((s) => s.settings.theme);
-  const dark =
-    theme === "dark" ||
-    (theme === "system" &&
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const motion = useApp((s) => s.settings.motion);
+  const systemDark = useSystemDark();
+  const dark = theme === "dark" || (theme === "system" && systemDark);
   const live = useRef({ calm, boost: 0, dark });
   live.current.calm = calm;
   live.current.dark = dark;
@@ -144,14 +155,29 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduce = motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const colors = (mode === "mist" ? MOODS[0] : PLUME).map((c) => [...c] as RGB);
     let clock = mode === "mist" ? 50 : 20;
     let thin = live.current.dark ? 1 : 0;
     let last = performance.now();
     let raf = 0;
+    let running = true;
+    let lastDraw = 0;
+
+    const schedule = () => {
+      if (running && !reduce && !document.hidden && raf === 0) {
+        raf = requestAnimationFrame(frame);
+      }
+    };
 
     const frame = (now: number) => {
+      raf = 0;
+      if (!running || document.hidden) return;
+      if (!reduce && now - lastDraw < 1000 / 30) {
+        schedule();
+        return;
+      }
+      lastDraw = now;
       const dt = Math.min(0.25, (now - last) / 1000);
       last = now;
       const st = live.current;
@@ -182,18 +208,30 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      raf = requestAnimationFrame(frame);
+      schedule();
     };
     raf = requestAnimationFrame(frame);
+    const onVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      } else {
+        last = performance.now();
+        schedule();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
+      running = false;
       cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisibility);
       ro.disconnect();
       setTimeout(() => {
         if (!canvas.isConnected) gl.getExtension("WEBGL_lose_context")?.loseContext();
       }, 0);
     };
-  }, [mode]);
+  }, [mode, motion]);
 
   return (
     <canvas
@@ -220,11 +258,8 @@ export function BacklightGlow() {
 export function BackgroundLayer() {
   const settings = useApp((s) => s.settings);
   const theme = settings.theme;
-  const dark =
-    theme === "dark" ||
-    (theme === "system" &&
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const systemDark = useSystemDark();
+  const dark = theme === "dark" || (theme === "system" && systemDark);
   const bg = settings.background ?? "mist";
 
   if (bg === "mist") {

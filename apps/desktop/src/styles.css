@@ -1074,20 +1074,6 @@
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
 
-  .sy-stagger > * {
-    animation: rise 0.6s var(--ease) both;
-  }
-  .sy-stagger > *:nth-child(2) { animation-delay: 0.06s; }
-  .sy-stagger > *:nth-child(3) { animation-delay: 0.12s; }
-  .sy-stagger > *:nth-child(4) { animation-delay: 0.18s; }
-  .sy-stagger > *:nth-child(n + 5) { animation-delay: 0.24s; }
-
-  .rise { animation: rise 0.7s var(--ease) both; }
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(12px); filter: blur(6px); }
-    to { opacity: 1; transform: none; filter: blur(0); }
-  }
-
   .app-aura {
     position: fixed;
     inset: 0;

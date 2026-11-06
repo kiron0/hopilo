@@ -129,7 +129,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <span className="flex-1 text-[14px] font-medium">Back to app</span>
               </button>
               <div className="mx-3 mt-4 mb-2 font-display text-[15px] font-semibold">Settings</div>
-              <ul className="sy-stagger space-y-1">
+              <ul className="space-y-1">
                 {SETTINGS_GROUPS.map((g) => {
                   const on = settingsGroupFor(route.section) === g.id;
                   return (
@@ -159,7 +159,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </aside>
 
-        <main key={route.page} className="cleanly-main">
+        <main className="cleanly-main">
           <div ref={setHeaderSlot} className="page-header-slot" />
           <div className="screen flex-1 min-h-0 flex flex-col gap-4">
             <PageSlotsContext.Provider value={slots}>{children}</PageSlotsContext.Provider>

@@ -780,9 +780,29 @@ function ImageTile({
   onOpen: (url: string) => void;
   onInfo: () => void;
 }) {
+  const tileRef = useRef<HTMLLIElement>(null);
+  const [near, setNear] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
+    const tile = tileRef.current;
+    if (!tile || typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setNear(true);
+        observer.disconnect();
+      },
+      { rootMargin: "300px" },
+    );
+    observer.observe(tile);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!near) return;
     let active = true;
     api
       .previewFile(file.sha256)
@@ -791,10 +811,10 @@ function ImageTile({
     return () => {
       active = false;
     };
-  }, [file.sha256]);
+  }, [file.sha256, near]);
 
   return (
-    <li className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-item transition hover:border-accent/40 hover:shadow-pop">
+    <li ref={tileRef} className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-item transition hover:border-accent/40 hover:shadow-pop">
       <button
         type="button"
         disabled={!url}
@@ -810,7 +830,7 @@ function ImageTile({
             className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
           />
         ) : (
-          <FileImage size={24} className={failed ? "text-danger" : "animate-pulse text-faint"} />
+          <FileImage size={24} className={failed ? "text-danger" : near ? "animate-pulse text-faint" : "text-faint"} />
         )}
       </button>
       <div className="flex items-center justify-between gap-1.5 px-3 py-2">
@@ -854,6 +874,7 @@ function SessionPage({ id }: { id: string }) {
   const toast = useApp((s) => s.toast);
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
   const [activeMatchId, setActiveMatchId] = useState<string | undefined>();
   const [activeMessageId, setActiveMessageId] = useState<string | undefined>();
@@ -867,8 +888,8 @@ function SessionPage({ id }: { id: string }) {
 
   const messages = data?.messages;
   const matches = useMemo(() => {
-    if (!messages || !search.trim()) return [];
-    const q = search.trim();
+    if (!messages || !searchQuery.trim()) return [];
+    const q = searchQuery.trim();
     const found: { matchId: string; messageId: string; messageIndex: number }[] = [];
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
@@ -907,7 +928,12 @@ function SessionPage({ id }: { id: string }) {
       }
     }
     return found;
-  }, [messages, search]);
+  }, [messages, searchQuery]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(search), 140);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const jumpTo = (targetIdx: number) => {
     if (matches.length === 0) return;
@@ -960,7 +986,7 @@ function SessionPage({ id }: { id: string }) {
       setActiveMatchId(undefined);
       setActiveMessageId(undefined);
     }
-  }, [search]);
+  }, [matches, searchQuery]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1174,7 +1200,7 @@ function SessionPage({ id }: { id: string }) {
               messages={data.messages}
               activeMatchId={activeMatchId}
               activeMessageId={activeMessageId}
-              searchQuery={search}
+              searchQuery={searchQuery}
               forceShown={forceShown}
             />
           </div>
