@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use hopilo_core::{
     new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind,
 };
+use rusqlite::OpenFlags;
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -48,7 +49,17 @@ impl LocalAgentAdapter for Codex {
 
     fn read(&self, path: &Path) -> Result<Capture> {
         let mut cap = read_rollout(path, false)?;
-        let base = path.ancestors().find(|a| a.join("session_index.jsonl").is_file());
+        let base = path.ancestors().find(|a| {
+            a.join("session_index.jsonl").is_file()
+                || a.read_dir().ok().is_some_and(|mut rd| {
+                    rd.any(|e| {
+                        e.ok().is_some_and(|ent| {
+                            let s = ent.file_name().to_string_lossy().to_string();
+                            s.starts_with("state_") && s.ends_with(".sqlite")
+                        })
+                    })
+                })
+        });
         if let Some(name) = base.map(thread_names).and_then(|n| n.get(thread_id(&session_stem(path))).cloned()) {
             cap.source.title = name;
         }
@@ -67,16 +78,49 @@ fn thread_id(stem: &str) -> &str {
 
 fn thread_names(base: &Path) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    let Ok(lines) = open_lines(&base.join("session_index.jsonl")) else { return out };
-    for line in lines.map_while(|l| l.ok()) {
-        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-        if let (Some(id), Some(name)) = (v.get("id").and_then(Value::as_str), v.get("thread_name").and_then(Value::as_str)) {
-            let name = name.trim();
-            if !name.is_empty() {
-                out.insert(id.to_string(), title_from(name));
+
+    if let Ok(lines) = open_lines(&base.join("session_index.jsonl")) {
+        for line in lines.map_while(|l| l.ok()) {
+            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            if let (Some(id), Some(name)) = (v.get("id").and_then(Value::as_str), v.get("thread_name").and_then(Value::as_str)) {
+                let name = name.trim();
+                if !name.is_empty() {
+                    out.insert(id.to_string(), title_from(name));
+                }
             }
         }
     }
+
+    if let Ok(entries) = std::fs::read_dir(base) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let is_state_db = p.file_name().is_some_and(|n| {
+                let s = n.to_string_lossy();
+                s.starts_with("state_") && s.ends_with(".sqlite")
+            });
+            if is_state_db {
+                if let Ok(conn) = rusqlite::Connection::open_with_flags(
+                    &p,
+                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                ) {
+                    if let Ok(mut stmt) = conn.prepare(
+                        "SELECT id, COALESCE(NULLIF(trim(name), ''), NULLIF(trim(title), ''))
+                         FROM threads
+                         WHERE trim(name) != '' OR trim(title) != ''",
+                    ) {
+                        if let Ok(rows) = stmt.query_map([], |r| {
+                            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                        }) {
+                            for (id, name) in rows.flatten() {
+                                out.entry(id).or_insert_with(|| title_from(&name));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     out
 }
 

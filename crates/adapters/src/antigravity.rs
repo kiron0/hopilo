@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
+use rusqlite::OpenFlags;
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -53,7 +55,12 @@ impl LocalAgentAdapter for Antigravity {
         };
 
         if target.is_file() {
-            if let Some(s) = quick_scan(&target, target.parent().unwrap_or(&target)) {
+            if let Some(mut s) = quick_scan(&target, target.parent().unwrap_or(&target)) {
+                if let Some(db) = find_summary_db(&target) {
+                    if let Some(name) = lookup_antigravity_title(&db, &s.session_id) {
+                        s.title = name;
+                    }
+                }
                 return Ok(vec![s]);
             }
             return Ok(vec![]);
@@ -91,11 +98,19 @@ impl LocalAgentAdapter for Antigravity {
             transcripts.extend(transcript);
         }
 
+        let db_titles = find_summary_db(&target)
+            .map(|db| load_antigravity_titles(&db))
+            .unwrap_or_default();
+
         let mut out = crate::par_scan(&transcripts, |t| {
             let dir = t
                 .ancestors()
                 .find(|a| a.parent() == Some(target.as_path()))?;
-            quick_scan(t, dir)
+            let mut s = quick_scan(t, dir)?;
+            if let Some(name) = db_titles.get(&s.session_id) {
+                s.title = name.clone();
+            }
+            Some(s)
         });
         out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
         Ok(out)
@@ -492,7 +507,9 @@ fn read_session(path: &Path) -> Result<Capture> {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(new_id);
-    let title = first_prompt
+    let db_title = find_summary_db(&transcript).and_then(|db| lookup_antigravity_title(&db, &session_id));
+    let title = db_title
+        .or(first_prompt)
         .unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())]));
 
     let missing_items = if missing_files == 0 {
@@ -505,7 +522,7 @@ fn read_session(path: &Path) -> Result<Capture> {
         kind: SourceKind::LocalAgent,
         provider: "antigravity".into(),
         title,
-        origin: None,
+        origin: Some(transcript.display().to_string()),
         project,
         model: model.or_else(|| Some("Gemini".into())),
         captured_at: now_rfc3339(),
@@ -519,6 +536,118 @@ fn read_session(path: &Path) -> Result<Capture> {
         messages,
         files,
     })
+}
+
+fn find_summary_db(start: &Path) -> Option<PathBuf> {
+    for ancestor in start.ancestors() {
+        let candidate = ancestor.join("conversation_summaries.db");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    if let Some(dir) = std::env::var_os("ANTIGRAVITY_DATA_DIR") {
+        let candidate = PathBuf::from(dir).join("conversation_summaries.db");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    if let Some(h) = home() {
+        for flavor in ["antigravity", "antigravity-ide", "antigravity-cli"] {
+            let candidate = h.join(".gemini").join(flavor).join("conversation_summaries.db");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        let candidate = h.join(".antigravity").join("conversation_summaries.db");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn load_antigravity_titles(db_path: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) else {
+        return map;
+    };
+
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT conversation_id,
+                COALESCE(
+                  NULLIF(trim(title), ''),
+                  NULLIF(trim(preview), '')
+                )
+         FROM conversation_summaries
+         WHERE trim(title) != '' OR trim(preview) != ''",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        }) {
+            for (id, title) in rows.flatten() {
+                let clean = title_from(&title);
+                if !clean.is_empty() {
+                    map.insert(id, clean);
+                }
+            }
+        }
+    }
+
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT conversation_id, title FROM conversations_fts WHERE trim(title) != ''",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        }) {
+            for (id, title) in rows.flatten() {
+                let clean = title_from(&title);
+                if !clean.is_empty() {
+                    map.entry(id).or_insert(clean);
+                }
+            }
+        }
+    }
+
+    map
+}
+
+fn lookup_antigravity_title(db_path: &Path, session_id: &str) -> Option<String> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ).ok()?;
+
+    if let Ok(title) = conn.query_row(
+        "SELECT COALESCE(NULLIF(trim(title), ''), NULLIF(trim(preview), ''))
+         FROM conversation_summaries WHERE conversation_id = ?1",
+        [session_id],
+        |r| r.get::<_, Option<String>>(0),
+    ) {
+        if let Some(t) = title.filter(|s| !s.trim().is_empty()) {
+            let clean = title_from(&t);
+            if !clean.is_empty() {
+                return Some(clean);
+            }
+        }
+    }
+
+    if let Ok(title) = conn.query_row(
+        "SELECT title FROM conversations_fts WHERE conversation_id = ?1 AND trim(title) != '' LIMIT 1",
+        [session_id],
+        |r| r.get::<_, Option<String>>(0),
+    ) {
+        if let Some(t) = title.filter(|s| !s.trim().is_empty()) {
+            let clean = title_from(&t);
+            if !clean.is_empty() {
+                return Some(clean);
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -621,5 +750,32 @@ Other open documents:
         assert_eq!(capture.files.len(), 1);
         assert_eq!(capture.files[0].media_type, "image/png");
         assert!(matches!(capture.messages[0].blocks[1], Block::File { .. }));
+    }
+
+    #[test]
+    fn discovers_antigravity_title_from_conversation_summaries_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("conversation_summaries.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT '', preview TEXT NOT NULL DEFAULT '');
+             INSERT INTO conversation_summaries VALUES ('sess-xyz', 'Hopilo Specification Implementation', 'preview text');"
+        ).unwrap();
+        drop(conn);
+
+        let brain = dir.path().join("brain");
+        let session_dir = brain.join("sess-xyz");
+        let logs_dir = session_dir.join(".system_generated").join("logs");
+        std::fs::create_dir_all(&logs_dir).unwrap();
+        let transcript_content = r#"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-11-04T10:00:00Z","content":"<USER_REQUEST>@[spec.md] implement now</USER_REQUEST>"}"#;
+        std::fs::write(logs_dir.join("transcript.jsonl"), transcript_content).unwrap();
+
+        let sessions = Antigravity.discover(&brain).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id, "sess-xyz");
+        assert_eq!(sessions[0].title, "Hopilo Specification Implementation");
+
+        let cap = Antigravity.read(Path::new(&sessions[0].path)).unwrap();
+        assert_eq!(cap.source.title, "Hopilo Specification Implementation");
     }
 }

@@ -47,6 +47,7 @@ pub struct OriginState {
     pub updated_at: String,
     pub hidden: bool,
     pub project: Option<String>,
+    pub title: String,
 }
 
 const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
@@ -262,7 +263,7 @@ impl Store {
 
     pub fn session_origins(&self) -> Result<std::collections::HashMap<String, OriginState>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT origin, id, COALESCE(updated_at, captured_at), hidden, project FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
+            "SELECT origin, id, COALESCE(updated_at, captured_at), hidden, project, title FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -272,6 +273,7 @@ impl Store {
                     updated_at: r.get(2)?,
                     hidden: r.get(3)?,
                     project: r.get(4)?,
+                    title: r.get(5)?,
                 },
             ))
         })?;

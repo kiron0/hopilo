@@ -231,11 +231,30 @@ fn legacy_conversation(json: &Value) -> &[Value] {
 }
 
 fn composer_title(json: &Value) -> String {
-    json.get("name")
+    if let Some(name) = json
+        .get("name")
         .and_then(Value::as_str)
         .filter(|n| !n.trim().is_empty())
-        .map(title_from)
-        .unwrap_or_else(|| "Cursor chat".into())
+    {
+        return title_from(name);
+    }
+    if let Some(sub) = json
+        .get("subtitle")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+    {
+        return title_from(sub);
+    }
+    if let Some(conv) = json.get("conversation").and_then(Value::as_array) {
+        for msg in conv {
+            if msg.get("type").and_then(Value::as_str) == Some("user") {
+                if let Some(text) = msg.get("text").and_then(Value::as_str).filter(|t| !t.trim().is_empty()) {
+                    return title_from(text);
+                }
+            }
+        }
+    }
+    "Cursor chat".into()
 }
 
 fn composer_model(json: &Value) -> Option<String> {

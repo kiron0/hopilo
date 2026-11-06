@@ -46,6 +46,16 @@ fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
         }
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    if let Some(parent) = root.parent() {
+        for name in ["conversation_summaries.db", "session_index.jsonl", "state_5.sqlite", "threads.db", "opencode.db"] {
+            let f = parent.join(name);
+            if let Ok(md) = f.metadata() {
+                name.hash(&mut h);
+                md.len().hash(&mut h);
+                md.modified().ok().hash(&mut h);
+            }
+        }
+    }
     walk(root, depth, &mut h);
     h.finish()
 }
@@ -235,7 +245,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     for d in found {
         let prior = known.get(&d.path);
         let force_backfill = backfill_antigravity && d.adapter == "antigravity";
-        if prior.is_some_and(|p| p.hidden || (!force_backfill && p.updated_at >= d.modified_at && p.project == d.project)) {
+        if prior.is_some_and(|p| p.hidden || (!force_backfill && p.updated_at >= d.modified_at && p.project == d.project && p.title == d.title)) {
             continue;
         }
         let saved = read_session(&d.adapter, &d.path).and_then(|(source, messages, files)| {
