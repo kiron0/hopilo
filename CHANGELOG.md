@@ -2,6 +2,22 @@
 
 All notable changes to Hopilo will be documented in this file.
 
+## 0.1.3
+
+### Added
+
+- 
+
+### Fixed
+
+- **Launch and close behavior**: Hopilo now always opens the dashboard on launch. Closing the main window fully quits the app, removing the Dock running-indicator dot while leaving any user-pinned Dock icon in place.
+- **Clean and ship scripts**: Cleanup now accepts native and cross-target bundle paths, while shipping regenerates the required sidecar before Rust validation. Root package version now stays synchronized during version bumps.
+- **Passwordless local installs**: Local shipping installs macOS builds under the user Applications folder and Windows NSIS builds per-user, avoiding administrator-password and UAC prompts.
+
+### Changed
+
+- 
+
 ## 0.1.2
 
 ### Added

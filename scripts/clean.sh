@@ -15,7 +15,7 @@ rm -rf -- \
 if [ -d "$ROOT_DIR/target" ]; then
   while IFS= read -r bundle_dir; do
     case "$bundle_dir" in
-      "$ROOT_DIR/target/"*/release/bundle)
+      "$ROOT_DIR/target/release/bundle"|"$ROOT_DIR/target/"*/release/bundle)
         rm -rf -- "$bundle_dir"
         ;;
       *)

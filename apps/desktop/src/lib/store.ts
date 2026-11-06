@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { api } from "./api";
-import { isLinux } from "./platform";
 
 export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned" | "hidden";
 
@@ -125,8 +124,6 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   background?: "mist" | "grid" | "dots" | "grain";
   motion: "system" | "reduced";
-  startupSurface: "tray" | "overview" | "home";
-  closeButton: "hide" | "quit";
   trayClick: "panel" | "dashboard";
   toolDetail: "full" | "truncated" | "omit";
   sessionLayout: "list" | "thumbnails";
@@ -142,8 +139,6 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   background: "mist",
   motion: "system",
-  startupSurface: isLinux ? "overview" : "tray",
-  closeButton: "hide",
   trayClick: "panel",
   toolDetail: "truncated",
   sessionLayout: "list",

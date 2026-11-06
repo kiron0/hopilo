@@ -164,36 +164,12 @@ export function Settings() {
             />
           </Row>
           <Row
-            label="On launch, show"
-            hint={isMac ? "The menu-bar icon is always available." : isLinux ? "Overview is safer when a Linux desktop hides tray icons." : "The system tray icon is always available."}
-          >
-            <Segmented
-              label="On launch"
-              value={s.startupSurface === "home" ? "overview" : s.startupSurface}
-              onChange={(v) => saveSetting("startupSurface", v)}
-              options={[
-                { value: "tray", label: isMac ? "Menu bar only" : "System tray only" },
-                { value: "overview", label: "Overview" },
-              ]}
-            />
-          </Row>
-          <Row
             label="Closing the window"
-            hint={isMac ? "Red close button hides Hopilo. Use ⌘Q or Quit Hopilo to fully stop it." : "Hide keeps Hopilo running in the system tray."}
+            hint="The close button fully quits Hopilo, including its menu-bar or system-tray process."
           >
-            {isMac ? (
-              <span className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] font-medium text-muted">Hide to menu bar</span>
-            ) : (
-              <Segmented
-                label="Close button"
-                value={s.closeButton}
-                onChange={(v) => saveSetting("closeButton", v)}
-                options={[
-                  { value: "hide", label: "Hide" },
-                  { value: "quit", label: "Quit" },
-                ]}
-              />
-            )}
+            <span className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] font-medium text-muted">
+              Quit Hopilo
+            </span>
           </Row>
           {isLinux ? (
             <Row label="System tray interaction" hint="Linux tray APIs expose the menu, not direct icon clicks.">

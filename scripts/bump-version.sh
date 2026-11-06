@@ -112,7 +112,7 @@ node -e '
       console.log("  ✓ Updated " + rel);
     }
   }
-' "$TARGET_VERSION" "$DESKTOP_PKG" "$EXT_PKG" "$MANIFEST_JSON" "$TAURI_CONF"
+' "$TARGET_VERSION" "$PACKAGE_JSON" "$DESKTOP_PKG" "$EXT_PKG" "$MANIFEST_JSON" "$TAURI_CONF"
 
 node -e '
   const fs = require("fs");

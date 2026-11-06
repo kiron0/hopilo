@@ -42,19 +42,20 @@ cd "$ROOT_DIR"
 echo "[1/5] Verify"
 pnpm --filter @hopilo/desktop typecheck
 pnpm --filter @hopilo/desktop test
+node apps/desktop/scripts/sidecar.mjs
 cargo check -p hopilo-desktop
 
 echo "[2/5] Build signed $OS bundle"
 if [ -f "$KEY_PATH" ]; then
   case "$OS" in
     macos)
-      TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH" pnpm --filter @hopilo/desktop tauri build --bundles app
+      TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" pnpm --filter @hopilo/desktop tauri build --bundles app
       ;;
     linux)
-      TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH" pnpm --filter @hopilo/desktop tauri build --bundles appimage
+      TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" pnpm --filter @hopilo/desktop tauri build --bundles appimage
       ;;
     windows)
-      TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH" pnpm --filter @hopilo/desktop tauri build --bundles nsis
+      TAURI_SIGNING_PRIVATE_KEY="$KEY_PATH" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" pnpm --filter @hopilo/desktop tauri build --bundles nsis
       ;;
   esac
 else
@@ -81,12 +82,8 @@ case "$OS" in
       echo "macOS app bundle not found." >&2
       exit 1
     fi
-    if [ -w /Applications ]; then
-      DEST="/Applications/Hopilo.app"
-    else
-      DEST="$HOME/Applications/Hopilo.app"
-      mkdir -p "$HOME/Applications"
-    fi
+    DEST="$HOME/Applications/Hopilo.app"
+    mkdir -p "$HOME/Applications"
     rm -rf -- "$DEST"
     ditto "$BUNDLE" "$DEST"
     DATA_DIR="$HOME/Library/Application Support/io.coreify.hopilo"

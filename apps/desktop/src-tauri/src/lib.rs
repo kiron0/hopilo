@@ -31,23 +31,12 @@ fn fit_main_to_display(w: &tauri::WebviewWindow) {
         }
     }
 }
-
 struct PanelState {
     hidden_at: Mutex<Option<Instant>>,
 }
 
 struct StartupState {
     show_main: std::sync::atomic::AtomicBool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CloseAction {
-    Hide,
-    Quit,
-}
-
-fn close_action(macos: bool, setting: Option<&str>) -> CloseAction {
-    if macos || setting != Some("quit") { CloseAction::Hide } else { CloseAction::Quit }
 }
 
 #[tauri::command]
@@ -180,35 +169,19 @@ pub fn run() {
                 fit_main_to_display(&w);
             }
 
-            let first_run = !settings.contains_key("onboarded");
-            let default_startup = if cfg!(target_os = "linux") { "overview" } else { "tray" };
-            let startup = settings.get("startupSurface").and_then(|v| v.as_str()).unwrap_or(default_startup);
-            let want = first_run || startup != "tray";
-            app.manage(StartupState { show_main: std::sync::atomic::AtomicBool::new(want) });
-            if want {
-
-                let handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_secs(3));
-                    if handle.state::<StartupState>().show_main.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                        show_main(&handle);
-                    }
-                });
-            }
+            app.manage(StartupState { show_main: std::sync::atomic::AtomicBool::new(true) });
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(3));
+                if handle.state::<StartupState>().show_main.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    show_main(&handle);
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| match (window.label(), event) {
-            ("main", WindowEvent::CloseRequested { api, .. }) => {
-                match close_action(cfg!(target_os = "macos"), setting_str(window.app_handle(), "closeButton").as_deref()) {
-                    CloseAction::Quit => window.app_handle().exit(0),
-                    CloseAction::Hide => {
-                        api.prevent_close();
-                        if let Some(quick) = window.app_handle().get_webview_window("quick") {
-                            let _ = quick.hide();
-                        }
-                        let _ = window.hide();
-                    }
-                }
+            ("main", WindowEvent::CloseRequested { .. }) => {
+                window.app_handle().exit(0);
             }
             ("main" | "quick", WindowEvent::Focused(true)) => {
                 let app = window.app_handle().clone();
@@ -274,16 +247,4 @@ pub fn run() {
         }
         let _ = (app, event);
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn macos_close_always_hides_but_other_platforms_honor_setting() {
-        assert_eq!(close_action(true, Some("quit")), CloseAction::Hide);
-        assert_eq!(close_action(false, Some("quit")), CloseAction::Quit);
-        assert_eq!(close_action(false, Some("hide")), CloseAction::Hide);
-    }
 }
