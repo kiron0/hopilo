@@ -24,6 +24,7 @@ All notable changes to Hopilo will be documented in this file.
 - **Copy controls**: Session details now keep target and conciseness controls inside the Copy modal, which opens with the defaults saved in Settings while remaining editable for that copy.
 - **Smoother interface and lower background usage**: Duplicate data loads are coalesced, focus syncs are throttled, file previews load near the viewport, transcript search work is delayed until typing pauses, and animated backgrounds pause while hidden and render at a lower frame rate.
 - **Stable navigation and loading**: Removed staggered page reveals and route-shell remounts, moved fitted-row measurement before paint, and kept browser/app metadata from reloading after unrelated library changes.
+- **Debounced search**: Session lists, conversation transcripts, quick panel, imports, and command palette now delay expensive filtering or database searches until typing pauses.
 
 ## 0.1.2
 

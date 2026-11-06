@@ -32,7 +32,7 @@ import {
 import { api, errorText, type Attachment, type SessionRow } from "../lib/api";
 import { pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
-import { prefetch, saveSetting, useLoad } from "../lib/hooks";
+import { prefetch, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
 import { target, TARGETS } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
@@ -143,6 +143,7 @@ function SessionList() {
   const settings = useApp((s) => s.settings);
   const setListView = useApp((s) => s.setListView);
   const setQ = (v: string) => setListView({ q: v, page: 0 });
+  const debouncedQ = useDebouncedValue(q);
   const setFilter = (v: Filter) => setListView({ filter: v, page: 0 });
   const setPage = (v: number) => setListView({ page: v });
   const selected = useMemo(() => new Set(picked), [picked]);
@@ -186,7 +187,7 @@ function SessionList() {
   }, []);
 
   const rows = useMemo(() => {
-    const needle = q.trim().toLowerCase();
+    const needle = debouncedQ.trim().toLowerCase();
     return (data ?? []).filter(
       (r) =>
         matches(r, filter) &&
@@ -196,7 +197,7 @@ function SessionList() {
         !(hideUnanswered && isUnanswered(r)) &&
         (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle) || (r.model ?? "").toLowerCase().includes(needle) || provider(r.provider).label.toLowerCase().includes(needle) || r.tags.some((t) => t.includes(needle))),
     );
-  }, [data, q, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
+  }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
   const providerOptions = useMemo<SelectOption[]>(() => {
     const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
     const targets = TARGETS.filter((t) => t.id !== "other")
@@ -874,7 +875,7 @@ function SessionPage({ id }: { id: string }) {
   const toast = useApp((s) => s.toast);
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
   const [search, setSearch] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const searchQuery = useDebouncedValue(search);
   const [matchIndex, setMatchIndex] = useState(0);
   const [activeMatchId, setActiveMatchId] = useState<string | undefined>();
   const [activeMessageId, setActiveMessageId] = useState<string | undefined>();
@@ -929,11 +930,6 @@ function SessionPage({ id }: { id: string }) {
     }
     return found;
   }, [messages, searchQuery]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSearchQuery(search), 140);
-    return () => window.clearTimeout(timer);
-  }, [search]);
 
   const jumpTo = (targetIdx: number) => {
     if (matches.length === 0) return;

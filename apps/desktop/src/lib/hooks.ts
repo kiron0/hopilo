@@ -8,6 +8,15 @@ const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
 const inflight = new Map<string, Promise<unknown>>();
 
+export function useDebouncedValue<T>(value: T, delay = 150) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 function remember(key: string, value: unknown) {
   queryCache.delete(key);
   queryCache.set(key, value);

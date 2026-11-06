@@ -4,6 +4,7 @@ import { Command } from "cmdk";
 import { Globe, ClipboardPaste, OverviewIcon, MessagesSquare, Search, Settings, X } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
 import { captureClipboard } from "../lib/actions";
+import { useDebouncedValue } from "../lib/hooks";
 import { type Route, useApp } from "../lib/store";
 import { cx, IconButton, Kbd } from "./ui";
 
@@ -19,6 +20,7 @@ export function CommandPalette() {
   const setOpen = useApp((s) => s.setPaletteOpen);
   const navigate = useApp((s) => s.navigate);
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [closing, setClosing] = useState(false);
   const [active, setActive] = useState(open);
@@ -52,27 +54,24 @@ export function CommandPalette() {
   }, [open]);
 
   useEffect(() => {
-    const query = q.trim();
+    const query = debouncedQ.trim();
     if (query.length < 2) {
       setHits([]);
       return;
     }
     let cancelled = false;
-    const t = setTimeout(() => {
-      api
-        .search(query)
-        .then((next) => {
-          if (!cancelled) setHits(next);
-        })
-        .catch(() => {
-          if (!cancelled) setHits([]);
-        });
-    }, 120);
+    api
+      .search(query)
+      .then((next) => {
+        if (!cancelled) setHits(next);
+      })
+      .catch(() => {
+        if (!cancelled) setHits([]);
+      });
     return () => {
       cancelled = true;
-      clearTimeout(t);
     };
-  }, [q]);
+  }, [debouncedQ]);
 
   if (!active || typeof document === "undefined") return null;
   const go = (r: Route) => {

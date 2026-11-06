@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../lib/api";
 import { captureClipboard, copySessions } from "../lib/actions";
 import { basename, provider, relativeTime } from "../lib/format";
-import { useBootstrap, useLoad } from "../lib/hooks";
+import { useBootstrap, useDebouncedValue, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
@@ -15,6 +15,7 @@ export function QuickPanel() {
   const settings = useApp((s) => s.settings);
   const sessions = useLoad(() => api.listSessions());
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,7 +34,7 @@ export function QuickPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const needle = q.trim().toLowerCase();
+  const needle = debouncedQ.trim().toLowerCase();
   const recent = (sessions.data ?? [])
     .filter((s) => !needle || s.title.toLowerCase().includes(needle) || provider(s.provider).label.toLowerCase().includes(needle))
     .slice(0, needle ? 12 : 8);

@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { provider } from "../lib/providers";
+import { useDebouncedValue } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { Button, Checkbox, Modal, Spinner, SearchField } from "./ui";
 
@@ -18,13 +19,14 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api.listChatExport(path).then(setData).catch((e) => setError(errorText(e)));
   }, [path]);
 
-  const rows = useMemo(() => (data?.conversations ?? []).filter((c) => !q.trim() || c.title.toLowerCase().includes(q.trim().toLowerCase())), [data, q]);
+  const rows = useMemo(() => (data?.conversations ?? []).filter((c) => !debouncedQ.trim() || c.title.toLowerCase().includes(debouncedQ.trim().toLowerCase())), [data, debouncedQ]);
   const label = data ? provider(data.provider).label : "";
 
   return (
@@ -68,7 +70,7 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <SearchField label={`Search ${data.conversations.length} conversations`} value={q} onChange={setQ} className="flex-1" />
-            <Button size="sm" variant="ghost" onClick={() => setPicked(new Set(rows.map((r) => r.id)))}>Select shown</Button>
+            <Button size="sm" variant="ghost" disabled={q !== debouncedQ} onClick={() => setPicked(new Set(rows.map((r) => r.id)))}>Select shown</Button>
           </div>
           <ul className="max-h-[50vh] divide-y divide-line overflow-auto rounded-2xl border border-line">
             {rows.map((c) => (
