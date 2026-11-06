@@ -237,9 +237,6 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
     })
 }
 
-/// Exported files are meant to be shared. Absolute paths on this machine (attachment
-/// origins, local agent transcript paths) reveal the user name and project layout and are
-/// useless to the recipient, so only web links survive in the exported pack.
 fn strip_local_paths(pack: &mut Pack) {
     for a in &mut pack.attachments {
         a.origin_path = None;
@@ -341,8 +338,6 @@ pub fn copy_latest_session(app: &AppHandle) {
         let flash = |text: &str| {
             if let Some(tray) = app.tray_by_id("hopilo") {
                 let _ = tray.set_title(Some(text));
-                // Only the newest flash may clear the title; an older timer must not
-                // wipe a message that a later click just put up.
                 let generation = FLASH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
                 let app2 = app.clone();
                 std::thread::spawn(move || {

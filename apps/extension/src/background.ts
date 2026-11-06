@@ -53,7 +53,6 @@ async function fetchFile(url: string, maxBytes: number) {
   const limit = Math.min(Math.max(0, Number(maxBytes) || 0), MAX_FETCH_BYTES);
   const res = await fetch(u.href, { credentials: "include" });
   if (!res.ok) return { ok: false };
-  // Redirects are followed automatically; refuse bytes that ended up on a host we never allowed.
   try {
     const final = new URL(res.url || u.href);
     if (final.protocol !== "https:" || !hostAllowed(final)) return { ok: false };
@@ -79,9 +78,6 @@ chrome.runtime.onMessage.addListener((msg: BgRequest, sender, reply) => {
   }
 
   if (msg?.kind !== "host") return false;
-  // Content scripts live inside third-party pages. They only need to fetch one draft for a
-  // dropped session and record the result; listing the library or importing captures is
-  // reserved for the extension's own popup.
   if (sender.tab && !CONTENT_SCRIPT_TYPES.has(String(msg.body?.type))) {
     reply({ requestId: "", ok: false, error: { code: "forbidden", message: "Not allowed from a web page." } });
     return false;

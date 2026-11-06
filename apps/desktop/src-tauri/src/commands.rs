@@ -74,8 +74,6 @@ pub(crate) async fn blocking<T: Send + 'static>(
 }
 
 pub(crate) fn with_store<T>(state: &State<AppState>, f: impl FnOnce(&mut Store) -> Result<T, String>) -> CmdResult<T> {
-    // A panic while the lock was held must not brick the library for the rest of the
-    // session: SQLite rolls back any open transaction on drop, so the store is consistent.
     let mut store = state.store.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut store)
 }
@@ -462,7 +460,6 @@ fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str)
     let ids = with_store(state, |s| {
         for a in &pack.attachments {
             if let Some(bytes) = blobs.get(&a.id) {
-                // The sender's local path means nothing here and must never be read as a fallback.
                 let a = Attachment { origin_path: None, ..a.clone() };
                 s.insert_attachment(&a, bytes).map_err(err)?;
             }
@@ -543,8 +540,6 @@ fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec
                 return Ok((a, bytes));
             }
             if let Some(origin) = &a.origin_path {
-                // Only trust the original file if it still has the recorded contents;
-                // otherwise a stale or foreign path could serve an unrelated local file.
                 if let Ok(bytes) = std::fs::read(origin) {
                     if hopilo_pack_format::sha256_hex(&bytes).eq_ignore_ascii_case(sha) {
                         return Ok((a, bytes));
@@ -614,18 +609,12 @@ pub fn open_folder(app: AppHandle, path: String) -> CmdResult<()> {
     if !p.is_dir() {
         return Err(format!("Folder does not exist: {path}"));
     }
-    // Bundles (`Foo.app`, `.pkg`, `.workflow`, …) are directories that the OS launches
-    // instead of browsing. Session project paths can come from imported data, so reveal
-    // anything with an extension rather than opening it.
     if p.extension().is_some() {
         return app.opener().reveal_item_in_dir(p).map_err(err);
     }
     app.opener().open_path(path, None::<&str>).map_err(err)
 }
 
-/// File types the OS would execute (or hand to an interpreter) when "opened".
-/// Library files can come from web captures or imported handoffs, and the copy we
-/// write to the cache carries no quarantine flag, so these are revealed instead.
 const LAUNCHABLE_EXTS: &[&str] = &[
     "app", "command", "tool", "terminal", "sh", "bash", "zsh", "csh", "ksh", "fish", "pkg", "mpkg", "dmg",
     "scpt", "scptd", "applescript", "workflow", "action", "prefpane", "webloc", "inetloc", "fileloc", "url",

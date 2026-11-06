@@ -154,7 +154,6 @@ export function Settings() {
               checked={!!autostart}
               disabled={autostart === null}
               onChange={async (v) => {
-                // Flip at once; turning it off removes the login item.
                 setAutostart(v);
                 try {
                   await (v ? enable() : disable());
@@ -165,7 +164,6 @@ export function Settings() {
               }}
             />
           </Row>
-          {/* Linux trays only open their menu on click, so there is no click to configure. */}
           {!isLinux && (
             <Row
               label={isMac ? "Menu-bar icon click" : "System tray icon click"}

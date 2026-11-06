@@ -16,18 +16,13 @@ os_name() {
   esac
 }
 
-# PIDs of every installed Hopilo, whatever copy or path it runs from (e.g. a
-# GitHub release in /Applications next to a local build in ~/Applications).
-# Dev builds (target/debug/Hopilo) are left alone.
 running_pids() {
   case "$OS" in
     macos)
-      # Every running app bundle with Hopilo's bundle id.
       lsappinfo list 2>/dev/null | awk -v id="\"$BUNDLE_ID\"" '
         /bundleID=/ { want = index($0, "bundleID=" id) > 0 }
         want && /pid = / { for (i = 1; i <= NF; i++) if ($i == "pid") { print $(i + 2); want = 0 } }
       '
-      # Fallback for copies LaunchServices doesn't list (e.g. started by a login agent before registration).
       pgrep -f "\.app/Contents/MacOS/$APP_NAME\$" 2>/dev/null || true
       ;;
     linux)
@@ -42,7 +37,6 @@ stop_running() {
   pids="$(running_pids)"
   [ -z "$pids" ] && return 0
   echo "Stopping $APP_NAME (pid $(echo $pids | tr '\n' ' '))"
-  # Graceful first so the library flushes, then force.
   # shellcheck disable=SC2086
   kill $pids 2>/dev/null || true
   while [ -n "$(running_pids)" ] && [ "$attempt" -lt 20 ]; do
@@ -61,8 +55,6 @@ stop_running() {
   fi
 }
 
-# Launch at login must start the copy just installed, not an older one: the
-# login agent stores an absolute path to whichever copy last turned it on.
 repoint_login_item() {
   local exe="$1"
   case "$OS" in
@@ -84,8 +76,6 @@ repoint_login_item() {
   esac
 }
 
-# Other installed copies of the app (same bundle id, different path). They are
-# not removed, but they can start at login or be opened by mistake.
 warn_other_copies() {
   local dest="$1"
   [ "$OS" = "macos" ] || return 0
@@ -196,7 +186,6 @@ echo "App data preserved: $DATA_DIR"
 echo "[5/5] Launch + verify"
 case "$OS" in
   macos)
-    # No -n: never start a second instance next to a running one.
     open "$DEST"
     ;;
   linux)

@@ -317,8 +317,6 @@ export function Overview() {
   const agents = all.filter((r) => r.kind === "local-agent").length;
   const webRows = all.filter((r) => r.kind === "browser-chat");
   const web = webRows.length;
-  // Not derived from `now`: that state only moves on banner timers, and the
-  // dashboard can stay mounted (hidden in the menu bar) across midnight.
   const startOfDay = new Date().setHours(0, 0, 0, 0);
   const webToday = webRows.filter((r) => Date.parse(r.updatedAt) >= startOfDay).length;
   const tools = new Set(all.map((r) => r.provider)).size;

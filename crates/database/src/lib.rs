@@ -425,8 +425,6 @@ impl Store {
                 )));
             }
         }
-        // Blob files and lookups are keyed by lowercase hex; an uppercase digest (e.g. from
-        // an imported pack) would otherwise create an entry no later lookup can find.
         let normalized;
         let att = if att.sha256.bytes().any(|b| b.is_ascii_uppercase()) {
             normalized = Attachment { sha256: att.sha256.to_ascii_lowercase(), ..att.clone() };
@@ -439,8 +437,6 @@ impl Store {
         }
         let path = self.blob_path(&att.sha256);
         let created = !path.exists();
-        // The desktop app and the browser bridge are separate processes writing to the same
-        // folder; a per-process temp name keeps concurrent writes of one blob from colliding.
         let tmp = path.with_extension(format!("{}.part", std::process::id()));
         std::fs::write(&tmp, bytes)?;
         std::fs::rename(&tmp, &path)?;
