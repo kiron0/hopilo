@@ -132,16 +132,27 @@ export function QuickPanel() {
           </button>
         </div>
 
+        <footer className="flex shrink-0 items-center gap-2 border-t border-line bg-surface-2/40 px-2.5 py-2">
+          <button
+            type="button"
+            onClick={() => api.showMainWindow()}
+            className="flex h-8 flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 text-[12.5px] font-medium text-ink shadow-xs transition-colors hover:border-line-strong hover:bg-surface-2 active:bg-surface-3 cursor-pointer"
+          >
+            <OverviewIcon size={14} className="text-accent" />
+            <span>Open Hopilo</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => api.quit()}
+            title="Quit Hopilo"
+            className="flex h-8 items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 text-[12px] font-medium text-muted shadow-xs transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger active:bg-danger-soft/80 cursor-pointer"
+          >
+            <Power size={13} />
+            <span>Quit</span>
+          </button>
+        </footer>
       </div>
 
-      <footer className="flex shrink-0 items-center justify-between px-3 pb-2.5 text-[12.5px]">
-        <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px]" onClick={() => api.showMainWindow()}>
-          <span className="text-faint"><OverviewIcon size={15} /></span> Open Hopilo
-        </button>
-        <button type="button" className="nav-item h-8 gap-2 px-2.5 text-[12.5px] hover:text-danger" onClick={() => api.quit()}>
-          <Power size={14} /> Quit
-        </button>
-      </footer>
       <Toasts />
     </div>
   );

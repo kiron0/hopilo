@@ -18,7 +18,7 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Changed
 
-- 
+- **Quick panel footer redesign**: Redesigned "Open Hopilo" and "Quit" into a cohesive toolbar docked at the bottom of the card with solid surfaces and balanced spacing, eliminating transparent backgrounds and awkward layout gaps.
 
 ## 0.1.2
 
