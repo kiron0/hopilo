@@ -106,9 +106,6 @@ pub fn expand(paths: &[String]) -> (Vec<PathBuf>, Vec<String>) {
     (out, notes)
 }
 
-/// `is_known` reports whether a SHA-256 is already in the library. It is a
-/// callback so the caller can hold the store lock only for that lookup, not
-/// while the file is read and hashed.
 pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let (media_type, kind) = classify(path);

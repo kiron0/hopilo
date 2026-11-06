@@ -40,13 +40,8 @@ struct PanelState {
 
 const FIRST_LAUNCH_KEY: &str = "firstLaunchAt";
 const WELCOME_WIDTH: f64 = 390.0;
-/// Distance from the top of the work area to the welcome window, in logical
-/// points. Matches QuitX's top-biased placement.
 const WELCOME_TOP_OFFSET: f64 = 110.0;
 
-/// Called by each webview once it has rendered. Only the welcome window acts
-/// on it: it is created hidden and shown here, sized to its content, so it
-/// never flashes blank. `height` is the content height in logical points.
 #[tauri::command]
 fn app_ready(window: tauri::Window, height: Option<f64>) {
     if window.label() != "welcome" {
@@ -63,8 +58,6 @@ fn app_ready(window: tauri::Window, height: Option<f64>) {
     let _ = w.set_focus();
 }
 
-/// "Get Started" on the welcome window: close it, then point the user at the
-/// menu-bar panel, which is where Hopilo lives from now on.
 #[tauri::command]
 fn finish_welcome(app: AppHandle) {
     if let Some(w) = app.get_webview_window("welcome") {
@@ -99,14 +92,10 @@ fn open_welcome(app: &AppHandle) -> tauri::Result<()> {
 }
 
 enum Placement {
-    /// Horizontally centered, this many logical points below the top of the work area.
     Top(f64),
-    /// Centered both ways.
     Center,
 }
 
-/// The monitor under the mouse pointer: the one the user is looking at when
-/// they click the menu-bar icon (QuitX's `WindowPositioner.targetScreen`).
 fn cursor_monitor(w: &WebviewWindow) -> Option<Monitor> {
     w.cursor_position()
         .ok()
@@ -137,10 +126,6 @@ fn setting_str(app: &AppHandle, key: &str) -> Option<String> {
     app.state::<AppState>().setting(key)?.as_str().map(str::to_string)
 }
 
-/// Menu-bar app model (macOS): Hopilo runs as an accessory app (no Dock
-/// icon, no app menu). While the dashboard or welcome window is open it is
-/// promoted to a regular app so it gets a Dock icon and Cmd-Tab; once neither
-/// is open it is demoted again (see `refresh_dock`).
 #[cfg(target_os = "macos")]
 fn set_dock_presence(app: &AppHandle, visible: bool) {
     let policy = if visible { tauri::ActivationPolicy::Regular } else { tauri::ActivationPolicy::Accessory };
@@ -150,9 +135,6 @@ fn set_dock_presence(app: &AppHandle, visible: bool) {
 #[cfg(not(target_os = "macos"))]
 fn set_dock_presence(_app: &AppHandle, _visible: bool) {}
 
-/// Recomputes Dock presence from the windows that are actually open, so
-/// closing one window doesn't drop the Dock icon while another is still up.
-/// `closing` names a window that is going away but may still report visible.
 fn refresh_dock(app: &AppHandle, closing: Option<&str>) {
     let open = ["main", "welcome"].iter().any(|label| {
         Some(*label) != closing
@@ -161,8 +143,6 @@ fn refresh_dock(app: &AppHandle, closing: Option<&str>) {
     set_dock_presence(app, open);
 }
 
-/// Tells a window's webview whether it is on screen, so hidden windows can
-/// defer library refreshes (see `hopilo://visibility` in src/lib/hooks.ts).
 fn emit_visibility(app: &AppHandle, label: &str, visible: bool) {
     let _ = app.emit_to(label, "hopilo://visibility", visible);
 }
@@ -178,8 +158,6 @@ pub(crate) fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         set_dock_presence(app, true);
         emit_visibility(app, "main", true);
-        // Opening (not just refocusing): always centered on the screen the
-        // user is on, never wherever it was last left.
         if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
             fit_main_to_display_on(&w, cursor_monitor(&w));
             place_on_cursor_monitor(&w, Placement::Center);
@@ -288,7 +266,6 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["quick", "welcome"])
-                // Size only: the dashboard always opens centered (see show_main).
                 .with_state_flags(tauri_plugin_window_state::StateFlags::SIZE)
                 .build(),
         )
@@ -310,7 +287,6 @@ pub fn run() {
                 settings: std::sync::RwLock::new(settings.clone()),
             });
 
-            // HOPILO_SHOW_WELCOME=1 re-shows the welcome in debug builds, for testing it.
             let first_launch = (!settings.contains_key(FIRST_LAUNCH_KEY) && !settings.contains_key("onboarded"))
                 || (cfg!(debug_assertions) && std::env::var_os("HOPILO_SHOW_WELCOME").is_some());
             if !settings.contains_key(FIRST_LAUNCH_KEY) {
@@ -340,10 +316,6 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match (window.label(), event) {
-            // Closing the dashboard only hides it, on every OS. "main" and
-            // "quick" are never destroyed, so the last-window-closed exit can't
-            // fire: Hopilo stays in the menu bar / system tray until the user
-            // quits it (tray "Quit Hopilo", the panel's Quit, Cmd-Q).
             ("main", WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
                 hide_main(window);
@@ -408,19 +380,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Hopilo");
 
-    // Set before the event loop starts so macOS never launches Hopilo as a
-    // regular app. From `setup` it would apply only after launch, flashing a
-    // Dock icon on every start (visible on each `tauri dev` rebuild).
     #[cfg(target_os = "macos")]
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     app.run(|app, event| {
-
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
-            // Dock icon only exists while the dashboard is open, so a reopen
-            // with the dashboard hidden means a relaunch from Finder/Spotlight:
-            // answer with the menu-bar panel, never the dashboard.
             let main_visible = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false);
             if main_visible {
                 show_main(app);

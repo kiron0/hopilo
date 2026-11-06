@@ -6,14 +6,8 @@ import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type
 
 const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
-// In-flight requests are shared only within one library generation (`tick`):
-// a request started before a library change must not satisfy a reload that
-// the change triggered, or the UI would keep showing pre-change data.
 const inflight = new Map<string, { tick: number; promise: Promise<unknown> }>();
 
-// Whether this webview's window is on screen. The Rust side emits
-// `hopilo://visibility` on show/hide; hidden windows defer library refreshes
-// until they are shown again instead of refetching on every change.
 let windowShown = true;
 export const isWindowShown = () => windowShown;
 
@@ -42,8 +36,6 @@ function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
   if (current && current.tick === tick) return current.promise as Promise<T>;
   const pending = loader()
     .then((data) => {
-      // A newer generation may have refetched meanwhile; don't let this
-      // older response overwrite its cache entry.
       if (useApp.getState().tick === tick || !queryCache.has(key)) remember(key, data);
       return data;
     })
@@ -138,7 +130,6 @@ export function useBootstrap() {
         })
         .finally(() => setReady(true));
     load();
-    // Coalesce bursts (sync emits repeatedly) and hold refreshes while hidden.
     let dirty = false;
     let timer: number | undefined;
     const flush = () => {
@@ -164,8 +155,6 @@ export function useBootstrap() {
     const un1 = listen("hopilo://library-changed", schedule);
     const un3 = listen<boolean>("hopilo://visibility", ({ payload }) => {
       windowShown = payload !== false;
-      // Always refresh on show: the window may have been hidden for hours,
-      // so relative times and "today" counts are stale even without changes.
       if (windowShown) schedule();
     });
     const un2 = listen<[string, unknown]>("hopilo://settings-changed", ({ payload }) => {

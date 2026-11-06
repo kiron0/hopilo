@@ -504,7 +504,6 @@ impl Store {
     }
 
     pub fn attachment_bytes(&self, sha: &str) -> Option<Vec<u8>> {
-        // Blob names are SHA-256 hex; anything else could escape the store directory.
         if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
@@ -847,8 +846,6 @@ impl Store {
         let now = chrono::Utc::now();
         let today = now.format("%Y-%m-%d").to_string();
         let tomorrow = (now + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
-        // Range on the raw RFC 3339 column (not substr) so the
-        // sources_captured / handoffs_created indexes are used.
         let since = |table: &str, col: &str| -> Result<i64> {
             Ok(self.conn.query_row(
                 &format!("SELECT COUNT(*) FROM {table} WHERE {col} >= ?1 AND {col} < ?2"),
@@ -856,8 +853,6 @@ impl Store {
                 |r| r.get(0),
             )?)
         };
-        // Blob sizes are recorded per attachment (one blob per SHA), so sum
-        // them in SQL instead of stat-ing every file on each stats call.
         let blob_bytes: i64 = self.conn.query_row("SELECT COALESCE(SUM(size), 0) FROM attachments", [], |r| r.get(0))?;
         let storage_bytes = blob_bytes.max(0) as u64
             + std::fs::metadata(self.root.join("hopilo.db")).map(|m| m.len()).unwrap_or(0);

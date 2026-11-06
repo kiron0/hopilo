@@ -27,8 +27,6 @@ export function Welcome() {
     if (!ready || shown.current || !root.current) return;
     shown.current = true;
     const height = root.current.getBoundingClientRect().height;
-    // Not requestAnimationFrame: the window is still hidden here, and WebKit
-    // doesn't run animation frames for hidden windows, so it would never fire.
     invoke("app_ready", { height }).catch(() => undefined);
   }, [ready]);
 

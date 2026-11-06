@@ -13,8 +13,6 @@ function hostAllowed(u: URL): boolean {
   });
 }
 
-// Reads the body but stops as soon as it passes `limit`, so a response with
-// no (or a lying) Content-Length can't make us buffer an unbounded download.
 async function readCapped(res: Response, limit: number): Promise<Uint8Array | null> {
   if (!res.body) {
     const buf = await res.arrayBuffer();
