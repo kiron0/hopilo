@@ -47,6 +47,7 @@ import {
   EmptyState,
   ErrorNote,
   IconButton,
+  Modal,
   PageHeader,
   Pagination,
   ProviderBadge,
@@ -617,20 +618,31 @@ function SessionList() {
 
 function FilesTab({ files }: { files: Attachment[] }) {
   const toast = useApp((s) => s.toast);
+  const [preview, setPreview] = useState<{ file: Attachment; url: string } | null>(null);
   if (files.length === 0)
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8">
         <EmptyState icon={<Paperclip size={20} />} title="No files" body="Files shared in this conversation show up here. Add more with Add files." />
       </div>
     );
+  const images = files.filter((file) => file.mediaType.startsWith("image/"));
+  const documents = files.filter((file) => !file.mediaType.startsWith("image/"));
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-5">
-      <ul className="divide-y divide-line rounded-2xl border border-line">
-        {files.map((f) => {
-          const Icon = f.mediaType.startsWith("image/") ? FileImage : FileText;
+    <div className="min-h-0 flex-1 space-y-5 overflow-auto p-5">
+      {images.length > 0 && (
+        <section aria-label="Images">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+            {images.map((file) => (
+              <ImageTile key={file.sha256} file={file} onOpen={(url) => setPreview({ file, url })} />
+            ))}
+          </ul>
+        </section>
+      )}
+      {documents.length > 0 && <ul className="divide-y divide-line rounded-2xl border border-line">
+        {documents.map((f) => {
           return (
             <li key={f.sha256} className="flex items-center gap-3 px-3.5 py-2.5">
-              <Icon size={16} className="shrink-0 text-faint" />
+              <FileText size={16} className="shrink-0 text-faint" />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium" data-selectable>{f.fileName}</div>
                 <div className="font-mono text-[11px] text-faint">
@@ -646,8 +658,60 @@ function FilesTab({ files }: { files: Attachment[] }) {
             </li>
           );
         })}
-      </ul>
+      </ul>}
+      {preview && (
+        <Modal
+          title={preview.file.fileName}
+          onClose={() => setPreview(null)}
+          wide
+          footer={
+            <Button icon={<Download size={13} />} onClick={() => saveFileAs(preview.file.sha256, preview.file.fileName)}>
+              Save image
+            </Button>
+          }
+        >
+          <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-xl bg-surface-2 p-3">
+            <img src={preview.url} alt={preview.file.fileName} className="max-h-[70vh] max-w-full object-contain" />
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+}
+
+function ImageTile({ file, onOpen }: { file: Attachment; onOpen: (url: string) => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api.previewFile(file.sha256).then((value) => active && setUrl(value)).catch(() => active && setFailed(true));
+    return () => {
+      active = false;
+    };
+  }, [file.sha256]);
+
+  return (
+    <li className="min-w-0">
+      <button
+        type="button"
+        disabled={!url}
+        aria-label={`Preview ${file.fileName}`}
+        onClick={() => url && onOpen(url)}
+        className="group w-full overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-item transition hover:border-accent/40 hover:shadow-pop disabled:cursor-default"
+      >
+        <span className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-surface-2">
+          {url ? (
+            <img src={url} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
+          ) : (
+            <FileImage size={24} className={failed ? "text-danger" : "animate-pulse text-faint"} />
+          )}
+        </span>
+        <span className="block px-3 py-2">
+          <span className="block truncate text-[12.5px] font-medium">{file.fileName}</span>
+          <span className="block font-mono text-[10.5px] text-faint">{bytes(file.size)}</span>
+        </span>
+      </button>
+    </li>
   );
 }
 

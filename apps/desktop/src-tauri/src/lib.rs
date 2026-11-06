@@ -207,6 +207,7 @@ pub fn run() {
             commands::preflight_files,
             commands::add_files,
             commands::save_file,
+            commands::preview_file,
             commands::open_file,
             commands::open_folder,
             commands::open_url,

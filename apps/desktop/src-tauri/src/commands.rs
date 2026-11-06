@@ -208,6 +208,16 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
         },
     };
     let mut result = SyncResult::default();
+    const ANTIGRAVITY_MEDIA_MIGRATION: &str = "migration.antigravityMediaV1";
+    let backfill_antigravity = with_store(&state, |s| {
+        Ok(s.settings()
+            .map_err(err)?
+            .get(ANTIGRAVITY_MEDIA_MIGRATION)
+            .and_then(serde_json::Value::as_bool)
+            != Some(true))
+    })
+    .unwrap_or(false);
+    let mut antigravity_backfill_failed = false;
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
     let found = discover_all(app);
     result.found = found.len();
@@ -215,7 +225,8 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     let mut pending = false;
     for d in found {
         let prior = known.get(&d.path);
-        if prior.is_some_and(|p| p.hidden || (p.updated_at >= d.modified_at && p.project == d.project)) {
+        let force_backfill = backfill_antigravity && d.adapter == "antigravity";
+        if prior.is_some_and(|p| p.hidden || (!force_backfill && p.updated_at >= d.modified_at && p.project == d.project)) {
             continue;
         }
         let saved = read_session(&d.adapter, &d.path).and_then(|(source, messages, files)| {
@@ -228,7 +239,10 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
             Ok(out) if out.duplicate_of.is_some() => {}
             Ok(_) if prior.is_some() => result.updated += 1,
             Ok(_) => result.added += 1,
-            Err(_) => result.failed += 1,
+            Err(_) => {
+                result.failed += 1;
+                antigravity_backfill_failed |= force_backfill;
+            }
         }
         if result.added + result.updated > 0 {
             pending = true;
@@ -241,6 +255,9 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     }
     if pending {
         notify(app);
+    }
+    if backfill_antigravity && !antigravity_backfill_failed {
+        let _ = with_store(&state, |s| s.set_setting(ANTIGRAVITY_MEDIA_MIGRATION, &serde_json::Value::Bool(true)).map_err(err));
     }
     result
 }
@@ -501,6 +518,20 @@ pub async fn save_file(app: AppHandle, sha: String, path: String) -> CmdResult<S
         let (_, bytes) = stored_file(&state, &sha)?;
         write_atomic(Path::new(&path), &bytes)?;
         Ok(path)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn preview_file(app: AppHandle, sha: String) -> CmdResult<String> {
+    blocking(app, move |_, state| {
+        use base64::Engine;
+        let (attachment, bytes) = stored_file(&state, &sha)?;
+        if !attachment.media_type.starts_with("image/") {
+            return Err("Only images can be previewed".into());
+        }
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Ok(format!("data:{};base64,{encoded}", attachment.media_type))
     })
     .await
 }

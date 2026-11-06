@@ -351,6 +351,8 @@ fn read_session(path: &Path) -> Result<Capture> {
     let mut project = None;
     let mut first_prompt = None;
     let mut model = None;
+    let mut files = Vec::new();
+    let mut missing_files = 0;
 
     for line in open_lines(&transcript)?.map_while(|l| l.ok()) {
         let Ok(v) = serde_json::from_str::<Value>(&line) else {
@@ -370,7 +372,8 @@ fn read_session(path: &Path) -> Result<Capture> {
             "USER_INPUT" => {
                 let raw = v.get("content").and_then(Value::as_str).unwrap_or("");
                 let clean = extract_user_request(raw);
-                if clean.is_empty() {
+                let media = v.get("media").and_then(Value::as_array);
+                if clean.is_empty() && media.is_none_or(Vec::is_empty) {
                     continue;
                 }
                 if first_prompt.is_none() {
@@ -379,12 +382,35 @@ fn read_session(path: &Path) -> Result<Capture> {
                 if project.is_none() {
                     project = extract_project(raw);
                 }
+                let mut blocks = Vec::new();
+                if !clean.is_empty() {
+                    blocks.push(Block::text(clean));
+                }
+                for item in media.into_iter().flatten() {
+                    let uri = item.get("uri").or_else(|| item.get("url")).and_then(Value::as_str).unwrap_or("");
+                    let mime = item.get("mime_type").or_else(|| item.get("mimeType")).and_then(Value::as_str).unwrap_or("");
+                    match crate::text::read_local_file(uri) {
+                        Some(mut file) => {
+                            if !mime.is_empty() {
+                                file.media_type = mime.to_string();
+                            }
+                            blocks.push(file.block());
+                            if !files.iter().any(|saved: &hopilo_core::CapturedFile| saved.sha256() == file.sha256()) {
+                                files.push(file);
+                            }
+                        }
+                        None => {
+                            missing_files += 1;
+                            blocks.push(Block::Missing { description: "file shared in the Antigravity conversation".into() });
+                        }
+                    }
+                }
                 messages.push(Message {
                     id,
                     source_id: source_id.clone(),
                     role: Role::User,
                     created_at,
-                    blocks: vec![Block::text(clean)],
+                    blocks,
                 });
             }
             "PLANNER_RESPONSE" => {
@@ -469,6 +495,11 @@ fn read_session(path: &Path) -> Result<Capture> {
     let title = first_prompt
         .unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())]));
 
+    let missing_items = if missing_files == 0 {
+        vec![]
+    } else {
+        vec![format!("{missing_files} attached file(s) referenced but not recovered")]
+    };
     let source = Source {
         source_id: source_id.clone(),
         kind: SourceKind::LocalAgent,
@@ -478,15 +509,15 @@ fn read_session(path: &Path) -> Result<Capture> {
         project,
         model: model.or_else(|| Some("Gemini".into())),
         captured_at: now_rfc3339(),
-        capture_status: CaptureStatus::Complete,
-        missing_items: vec![],
+        capture_status: if missing_items.is_empty() { CaptureStatus::Complete } else { CaptureStatus::Partial },
+        missing_items,
         omitted: vec![],
     };
 
     Ok(Capture {
         source,
         messages,
-        files: vec![],
+        files,
     })
 }
 
@@ -568,5 +599,27 @@ Other open documents:
             extract_project(metadata),
             Some("/Users/test/Documents/hopilo".into())
         );
+    }
+
+    #[test]
+    fn recovers_uploaded_media() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("session/.system_generated/logs");
+        let uploaded = dir.path().join("session/.user_uploaded/image.png");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::create_dir_all(uploaded.parent().unwrap()).unwrap();
+        std::fs::write(&uploaded, [137, 80, 78, 71]).unwrap();
+        let line = serde_json::json!({
+            "step_index": 0,
+            "type": "USER_INPUT",
+            "content": "<USER_REQUEST>Review this image</USER_REQUEST>",
+            "media": [{ "mime_type": "image/png", "uri": uploaded.display().to_string() }]
+        });
+        std::fs::write(logs.join("transcript.jsonl"), format!("{line}\n")).unwrap();
+
+        let capture = read_session(&logs.join("transcript.jsonl")).unwrap();
+        assert_eq!(capture.files.len(), 1);
+        assert_eq!(capture.files[0].media_type, "image/png");
+        assert!(matches!(capture.messages[0].blocks[1], Block::File { .. }));
     }
 }

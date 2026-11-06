@@ -240,6 +240,7 @@ struct Tally {
     media: usize,
     unreadable: usize,
     system: usize,
+    files: Vec<hopilo_core::CapturedFile>,
 }
 
 const CONTEXT_TAGS: [&str; 7] = ["environment_details", "user_info", "additional_data", "env", "project_layout", "rules", "attached_files"];
@@ -331,6 +332,27 @@ fn push_text(role: Role, s: &str, blocks: &mut Vec<Block>, t: &mut Tally) {
     }
 }
 
+fn recover_file_part(part: &Value, n: usize) -> Option<hopilo_core::CapturedFile> {
+    let name = first_str(part, &["/name", "/filename", "/title"]).unwrap_or("file");
+    let mime = first_str(part, &["/mime_type", "/mimeType", "/source/media_type", "/source/mime_type"]).unwrap_or("");
+    if let Some(data) = first_str(part, &["/source/data", "/data"]) {
+        return hopilo_core::CapturedFile::from_base64(name, mime, data);
+    }
+    let url = first_str(part, &["/image_url/url", "/image_url", "/url", "/uri", "/source/url", "/source/path", "/path"])?;
+    if url.starts_with("data:") {
+        return hopilo_core::CapturedFile::from_base64(if name == "file" { format!("file-{n}") } else { name.to_string() }, mime, url);
+    }
+    crate::text::read_local_file(url).map(|mut file| {
+        if name != "file" {
+            file.name = name.to_string();
+        }
+        if !mime.is_empty() {
+            file.media_type = mime.to_string();
+        }
+        file
+    })
+}
+
 fn parts_to_blocks(role: Role, content: &Value, names: &mut HashMap<String, String>, t: &mut Tally) -> Vec<Block> {
     let mut blocks = Vec::new();
     match content {
@@ -364,8 +386,16 @@ fn parts_to_blocks(role: Role, content: &Value, names: &mut HashMap<String, Stri
                     }
                     "thinking" | "reasoning" | "redacted_thinking" => t.thinking += 1,
                     "image" | "image_url" | "input_image" | "file" | "document" => {
-                        t.media += 1;
-                        blocks.push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                        match recover_file_part(p, t.files.len() + 1) {
+                            Some(file) => {
+                                blocks.push(file.block());
+                                t.files.push(file);
+                            }
+                            None => {
+                                t.media += 1;
+                                blocks.push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                            }
+                        }
                     }
                     _ => {
                         if let Some(s) = p.get("text").and_then(Value::as_str) {
@@ -605,7 +635,7 @@ fn read_log(agent: &ChatLogAgent, path: &Path) -> Result<Capture> {
         missing_items: missing,
         omitted: om,
     };
-    Ok(Capture { source, messages, files: vec![] })
+    Ok(Capture { source, messages, files: t.files })
 }
 
 #[cfg(test)]

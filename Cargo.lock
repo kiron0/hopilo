@@ -1690,6 +1690,7 @@ dependencies = [
 name = "hopilo-desktop"
 version = "0.1.3"
 dependencies = [
+ "base64 0.22.1",
  "hopilo-adapters",
  "hopilo-core",
  "hopilo-database",

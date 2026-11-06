@@ -330,6 +330,7 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
     let (mut reasoning, mut files, mut compactions, mut unreadable, mut synthetic, mut system) = (0, 0, 0, 0, 0, 0);
     let mut model = row.model.as_deref().and_then(model_name);
     let mut first_prompt = None;
+    let mut recovered = Vec::new();
 
     for (mid, kind, created, data) in rows {
         let Ok(v) = serde_json::from_str::<Value>(&data) else {
@@ -348,8 +349,29 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
                 }
                 for f in v.get("files").and_then(Value::as_array).into_iter().flatten() {
                     let name = f.get("filename").or_else(|| f.get("name")).and_then(Value::as_str).unwrap_or("file");
-                    files += 1;
-                    blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                    let mime = f.get("mime").or_else(|| f.get("mimeType")).and_then(Value::as_str).unwrap_or("");
+                    let url = f.get("url").or_else(|| f.get("uri")).and_then(Value::as_str).unwrap_or("");
+                    let file = if url.starts_with("data:") {
+                        hopilo_core::CapturedFile::from_base64(name, mime, url)
+                    } else {
+                        crate::text::read_local_file(url).map(|mut file| {
+                            file.name = name.to_string();
+                            if !mime.is_empty() {
+                                file.media_type = mime.to_string();
+                            }
+                            file
+                        })
+                    };
+                    match file {
+                        Some(file) => {
+                            blocks.push(file.block());
+                            recovered.push(file);
+                        }
+                        None => {
+                            files += 1;
+                            blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                        }
+                    }
                 }
                 if !blocks.is_empty() {
                     messages.push(Message { id: mid, source_id: source_id.clone(), role: Role::User, created_at, blocks });
@@ -439,7 +461,7 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
             omitted: om,
         },
         messages,
-        files: vec![],
+        files: recovered,
     })
 }
 
@@ -507,7 +529,7 @@ mod tests {
                 time_created INTEGER, time_updated INTEGER, time_archived INTEGER);
             CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);
             INSERT INTO session_v2 VALUES ('ses_2', NULL, 'New session - 2026-11-05T06:41:06.253Z', '/work/app', '{"id":"mimo","providerID":"opencode"}', 1, 1793861149822, NULL);
-            INSERT INTO session_message VALUES ('a', 'ses_2', 'user', 1, 10, 10, '{"text":"Sweep the workspace for bugs","files":[]}');
+            INSERT INTO session_message VALUES ('a', 'ses_2', 'user', 1, 10, 10, '{"text":"Sweep the workspace for bugs","files":[{"filename":"note.txt","mime":"text/plain","url":"data:text/plain;base64,aGk="}]}');
             INSERT INTO session_message VALUES ('b', 'ses_2', 'synthetic', 2, 11, 11, '{"text":"Continue"}');
             INSERT INTO session_message VALUES ('c', 'ses_2', 'assistant', 3, 12, 12, '{"model":{"id":"mimo"},"content":[{"type":"reasoning","text":"x"},{"type":"tool","id":"t","name":"bash","state":{"status":"completed","input":{"command":"ls"},"content":[{"type":"text","text":"a.rs"}]}},{"type":"text","text":"Found it."}]}');
             "#,
@@ -526,5 +548,7 @@ mod tests {
         assert_eq!(roles, vec![Role::User, Role::Assistant, Role::Tool]);
         assert_eq!(cap.messages[2].blocks[0].plain_text(), "a.rs");
         assert_eq!(cap.messages[1].blocks.last().unwrap().plain_text(), "Found it.");
+        assert_eq!(cap.files.len(), 1);
+        assert_eq!(cap.files[0].name, "note.txt");
     }
 }

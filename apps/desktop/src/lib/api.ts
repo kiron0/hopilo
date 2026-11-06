@@ -270,6 +270,7 @@ export const api = {
   openFile: (sha: string) => invoke<void>("open_file", { sha }),
   openFolder: (path: string) => invoke<void>("open_folder", { path }),
   saveFile: (sha: string, path: string) => invoke<string>("save_file", { sha, path }),
+  previewFile: (sha: string) => invoke<string>("preview_file", { sha }),
 
   listHandoffs: (limit?: number) => invoke<HandoffRow[]>("list_handoffs", { limit }),
   recentActivity: (limit?: number) => invoke<ActivityRow[]>("recent_activity", { limit }),
