@@ -148,6 +148,12 @@ fn extract_project(s: &str) -> Option<String> {
             }
         }
     }
+    let documents = metadata_documents(s);
+    if documents.len() > 1 {
+        if let Some(root) = common_parent(&documents) {
+            return Some(root.display().to_string());
+        }
+    }
     if let Some(pos) = s.find("Active Document:") {
         let after = &s[pos + "Active Document:".len()..];
         if let Some(line) = after.lines().next() {
@@ -170,6 +176,43 @@ fn extract_project(s: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn metadata_documents(s: &str) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(pos) = s.find("Active Document:") {
+        let after = &s[pos + "Active Document:".len()..];
+        if let Some(line) = after.lines().next() {
+            let path = line.split(" (").next().unwrap_or(line).trim();
+            if !path.is_empty() {
+                paths.push(PathBuf::from(path));
+            }
+        }
+    }
+    if let Some(pos) = s.find("Other open documents:") {
+        let after = &s[pos + "Other open documents:".len()..];
+        for line in after.lines() {
+            let Some(path) = line.trim().strip_prefix("- ") else {
+                if !line.trim().is_empty() {
+                    break;
+                }
+                continue;
+            };
+            let path = path.split(" (").next().unwrap_or(path).trim();
+            if !path.is_empty() {
+                paths.push(PathBuf::from(path));
+            }
+        }
+    }
+    paths
+}
+
+fn common_parent(paths: &[PathBuf]) -> Option<PathBuf> {
+    let mut root = paths.first()?.parent()?.to_path_buf();
+    while !paths.iter().all(|path| path.starts_with(&root)) {
+        root = root.parent()?.to_path_buf();
+    }
+    (root.parent().is_some()).then_some(root)
 }
 
 fn project_root(document: &Path) -> Option<PathBuf> {
@@ -510,6 +553,20 @@ mod tests {
         assert_eq!(
             extract_project(&metadata),
             Some(dir.path().display().to_string())
+        );
+    }
+
+    #[test]
+    fn protected_documents_use_shared_workspace_root() {
+        let metadata = r#"Active Document: /Users/test/Documents/hopilo/apps/desktop/src/pages/Settings.tsx (LANGUAGE_TYPESCRIPT)
+Other open documents:
+- /Users/test/Documents/hopilo/apps/desktop/src/pages/Sessions.tsx (LANGUAGE_TYPESCRIPT)
+- /Users/test/Documents/hopilo/.github/workflows/release.yml (LANGUAGE_YAML)
+- /Users/test/Documents/hopilo/CHANGELOG.md (LANGUAGE_MARKDOWN)
+</ADDITIONAL_METADATA>"#;
+        assert_eq!(
+            extract_project(metadata),
+            Some("/Users/test/Documents/hopilo".into())
         );
     }
 }
