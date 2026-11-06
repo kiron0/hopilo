@@ -631,3 +631,12 @@ fn session_files_and_count_match_with_or_without_attachment_rows() {
     assert_eq!(files[1].file_name, "doc.txt");
     assert_eq!(files[2].file_name, "test_copy.png");
 }
+
+#[test]
+fn attachment_bytes_rejects_non_sha_names() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("secret.txt"), b"nope").unwrap();
+    let db = Store::open(dir.path()).unwrap();
+    assert!(db.attachment_bytes("../secret.txt").is_none());
+    assert!(db.attachment_bytes("").is_none());
+}

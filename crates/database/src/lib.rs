@@ -504,6 +504,10 @@ impl Store {
     }
 
     pub fn attachment_bytes(&self, sha: &str) -> Option<Vec<u8>> {
+        // Blob names are SHA-256 hex; anything else could escape the store directory.
+        if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
         std::fs::read(self.blob_path(sha)).ok()
     }
 
@@ -840,17 +844,22 @@ impl Store {
 
     pub fn stats(&self) -> Result<Stats> {
         let count = |sql: &str| -> Result<i64> { Ok(self.conn.query_row(sql, [], |r| r.get(0))?) };
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let now = chrono::Utc::now();
+        let today = now.format("%Y-%m-%d").to_string();
+        let tomorrow = (now + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        // Range on the raw RFC 3339 column (not substr) so the
+        // sources_captured / handoffs_created indexes are used.
         let since = |table: &str, col: &str| -> Result<i64> {
             Ok(self.conn.query_row(
-                &format!("SELECT COUNT(*) FROM {table} WHERE substr({col}, 1, 10) = ?1"),
-                [&today],
+                &format!("SELECT COUNT(*) FROM {table} WHERE {col} >= ?1 AND {col} < ?2"),
+                [&today, &tomorrow],
                 |r| r.get(0),
             )?)
         };
-        let storage_bytes = std::fs::read_dir(self.root.join("attachments"))
-            .map(|rd| rd.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum())
-            .unwrap_or(0)
+        // Blob sizes are recorded per attachment (one blob per SHA), so sum
+        // them in SQL instead of stat-ing every file on each stats call.
+        let blob_bytes: i64 = self.conn.query_row("SELECT COALESCE(SUM(size), 0) FROM attachments", [], |r| r.get(0))?;
+        let storage_bytes = blob_bytes.max(0) as u64
             + std::fs::metadata(self.root.join("hopilo.db")).map(|m| m.len()).unwrap_or(0);
         Ok(Stats {
             source_count: count("SELECT COUNT(*) FROM sources WHERE hidden = 0")?,

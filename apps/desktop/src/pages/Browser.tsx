@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, CircleDashed, Download, ExternalLink, Refr
 import { RELEASES_LATEST_URL, RELEASES_URL, openExternal } from "../lib/updates";
 import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
-import { useLoad } from "../lib/hooks";
+import { isWindowShown, useLoad } from "../lib/hooks";
 import { provider } from "../lib/providers";
 import { useApp } from "../lib/store";
 import { AlertDialog, Badge, Button, Card, Checkbox, ErrorNote, PageHeader, ProviderChip, SectionLabel } from "../components/ui";
@@ -80,7 +80,7 @@ export function Browser() {
     const onFocus = () => reload();
     window.addEventListener("focus", onFocus);
     const timer = setInterval(() => {
-      if (!document.hidden) reload();
+      if (!document.hidden && isWindowShown()) reload();
     }, 30000);
     return () => {
       window.removeEventListener("focus", onFocus);

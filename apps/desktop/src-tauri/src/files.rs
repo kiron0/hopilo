@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, Attachment};
-use hopilo_database::Store;
 use hopilo_pack_format::sha256_hex;
 use serde::Serialize;
 
@@ -107,7 +106,10 @@ pub fn expand(paths: &[String]) -> (Vec<PathBuf>, Vec<String>) {
     (out, notes)
 }
 
-pub fn preflight(path: &Path, store: &Store) -> FilePreflight {
+/// `is_known` reports whether a SHA-256 is already in the library. It is a
+/// callback so the caller can hold the store lock only for that lookup, not
+/// while the file is read and hashed.
+pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let (media_type, kind) = classify(path);
     let mut pf = FilePreflight {
@@ -171,7 +173,7 @@ pub fn preflight(path: &Path, store: &Store) -> FilePreflight {
             if kind == "text" && std::str::from_utf8(&bytes).is_err() {
                 pf.warnings.push("Not valid UTF-8 text — kept as a file only".into());
             }
-            pf.duplicate = store.has_sha(&sha256_hex(&bytes)).unwrap_or(false);
+            pf.duplicate = is_known(&sha256_hex(&bytes));
             if pf.duplicate {
                 pf.warnings.push("Already in your library — the existing copy will be reused".into());
             }

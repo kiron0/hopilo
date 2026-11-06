@@ -6,16 +6,17 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Added
 
-- 
+- **Settings… in the menu-bar menu**: Opens the dashboard straight to Settings.
 
 ### Fixed
 
-- **Launch and close behavior**: Hopilo now always opens the dashboard on launch. On macOS, closing behaves like a normal window close and leaves Hopilo in the menu bar. On Windows and Linux, closing removes the dashboard while Hopilo continues in the system tray. Use **Quit Hopilo** to exit fully.
+- **Menu-bar app model**: Hopilo now lives in the menu bar (system tray on Windows and Linux). Launching it no longer opens the dashboard, except once on first launch as a welcome; open the dashboard or Settings from the menu-bar icon. On macOS the Dock icon appears only while the dashboard is open, and relaunching Hopilo from Finder or Spotlight shows the quick panel. Use **Quit Hopilo** to exit fully.
 - **macOS launch permissions**: Automatic session sync no longer probes files inside protected Desktop, Documents, or Downloads folders, preventing Files & Folders prompts from blocking the dashboard.
 - **Antigravity project grouping**: Sessions now derive their workspace from shared editor-document metadata, so files under paths such as `apps/desktop/src/pages` group under the `hopilo` project without triggering macOS protected-folder permission prompts.
 - **Agent file capture and image gallery**: Antigravity now imports files from its `USER_INPUT.media` records instead of dropping them. Session images appear as gallery thumbnails and open in an in-app preview instead of the system image viewer.
-- **Foreground launch after shipping**: macOS local installs now launch Hopilo in foreground, so dashboard receives focus immediately.
 - **Clean and ship scripts**: Cleanup now accepts native and cross-target bundle paths, while shipping regenerates the required sidecar before Rust validation. Root package version now stays synchronized during version bumps.
+- **Faster, safer library access**: Checking dropped files no longer locks the library while each file is read and hashed. Library stats use indexed queries instead of scanning tables and the attachments folder. Stored-file commands reject anything but a SHA-256 name. Hidden windows hold refreshes until shown, and refreshes no longer reuse a request started before the change.
+- **Browser file downloads**: The extension stops reading a file as soon as it passes the size limit, even when the server sends no size.
 - **Passwordless local installs**: Local shipping installs macOS builds under the user Applications folder and Windows NSIS builds per-user, avoiding administrator-password and UAC prompts.
 
 ### Changed

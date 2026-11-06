@@ -6,7 +6,16 @@ import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type
 
 const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
-const inflight = new Map<string, Promise<unknown>>();
+// In-flight requests are shared only within one library generation (`tick`):
+// a request started before a library change must not satisfy a reload that
+// the change triggered, or the UI would keep showing pre-change data.
+const inflight = new Map<string, { tick: number; promise: Promise<unknown> }>();
+
+// Whether this webview's window is on screen. The Rust side emits
+// `hopilo://visibility` on show/hide; hidden windows defer library refreshes
+// until they are shown again instead of refetching on every change.
+let windowShown = true;
+export const isWindowShown = () => windowShown;
 
 export function useDebouncedValue<T>(value: T, delay = 150) {
   const [debounced, setDebounced] = useState(value);
@@ -28,15 +37,20 @@ function remember(key: string, value: unknown) {
 }
 
 function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
-  const current = inflight.get(key) as Promise<T> | undefined;
-  if (current) return current;
+  const tick = useApp.getState().tick;
+  const current = inflight.get(key);
+  if (current && current.tick === tick) return current.promise as Promise<T>;
   const pending = loader()
     .then((data) => {
-      remember(key, data);
+      // A newer generation may have refetched meanwhile; don't let this
+      // older response overwrite its cache entry.
+      if (useApp.getState().tick === tick || !queryCache.has(key)) remember(key, data);
       return data;
     })
-    .finally(() => inflight.delete(key));
-  inflight.set(key, pending);
+    .finally(() => {
+      if (inflight.get(key)?.promise === pending) inflight.delete(key);
+    });
+  inflight.set(key, { tick, promise: pending });
   return pending;
 }
 
@@ -124,7 +138,36 @@ export function useBootstrap() {
         })
         .finally(() => setReady(true));
     load();
-    const un1 = listen("hopilo://library-changed", () => bump());
+    // Coalesce bursts (sync emits repeatedly) and hold refreshes while hidden.
+    let dirty = false;
+    let timer: number | undefined;
+    const flush = () => {
+      timer = undefined;
+      if (!windowShown) return;
+      dirty = false;
+      bump();
+    };
+    const schedule = () => {
+      dirty = true;
+      if (windowShown && timer === undefined) timer = window.setTimeout(flush, 120);
+    };
+    const native = "__TAURI_INTERNALS__" in window && !(window as { __HOPILO_MOCK__?: boolean }).__HOPILO_MOCK__;
+    if (native) {
+      getCurrentWindow()
+        .isVisible()
+        .then((v) => {
+          windowShown = v;
+          if (v && dirty) schedule();
+        })
+        .catch(() => undefined);
+    }
+    const un1 = listen("hopilo://library-changed", schedule);
+    const un3 = listen<boolean>("hopilo://visibility", ({ payload }) => {
+      windowShown = payload !== false;
+      // Always refresh on show: the window may have been hidden for hours,
+      // so relative times and "today" counts are stale even without changes.
+      if (windowShown) schedule();
+    });
     const un2 = listen<[string, unknown]>("hopilo://settings-changed", ({ payload }) => {
       if (!Array.isArray(payload) || typeof payload[0] !== "string") return;
       const [key, value] = payload;
@@ -137,8 +180,10 @@ export function useBootstrap() {
       }
     });
     return () => {
+      window.clearTimeout(timer);
       un1.then((f) => f());
       un2.then((f) => f());
+      un3.then((f) => f());
     };
   }, [setSettings, hydrateListView, bump]);
 

@@ -13,6 +13,35 @@ function hostAllowed(u: URL): boolean {
   });
 }
 
+// Reads the body but stops as soon as it passes `limit`, so a response with
+// no (or a lying) Content-Length can't make us buffer an unbounded download.
+async function readCapped(res: Response, limit: number): Promise<Uint8Array | null> {
+  if (!res.body) {
+    const buf = await res.arrayBuffer();
+    return buf.byteLength > limit ? null : new Uint8Array(buf);
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+
 async function fetchFile(url: string, maxBytes: number) {
   let u: URL;
   try {
@@ -26,9 +55,8 @@ async function fetchFile(url: string, maxBytes: number) {
   if (!res.ok) return { ok: false };
   const declared = Number(res.headers.get("content-length"));
   if (declared > limit) return { ok: false };
-  const buf = await res.arrayBuffer();
-  if (buf.byteLength > limit) return { ok: false };
-  const bytes = new Uint8Array(buf);
+  const bytes = await readCapped(res, limit);
+  if (!bytes) return { ok: false };
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return { ok: true, data: btoa(bin), mediaType: res.headers.get("content-type")?.split(";")[0] ?? "" };

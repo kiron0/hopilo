@@ -108,9 +108,7 @@ pub fn show_main_window(app: AppHandle, route: Option<String>) -> CmdResult<()> 
     if let Some(r) = route {
         app.emit_to("main", "hopilo://navigate", r).map_err(err)?;
     }
-    if let Some(q) = app.get_webview_window("quick") {
-        let _ = q.hide();
-    }
+    crate::hide_quick(&app);
     Ok(())
 }
 
@@ -228,14 +226,8 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     }
     let mut result = SyncResult::default();
     const ANTIGRAVITY_MEDIA_MIGRATION: &str = "migration.antigravityMediaV1";
-    let backfill_antigravity = with_store(&state, |s| {
-        Ok(s.settings()
-            .map_err(err)?
-            .get(ANTIGRAVITY_MEDIA_MIGRATION)
-            .and_then(serde_json::Value::as_bool)
-            != Some(true))
-    })
-    .unwrap_or(false);
+    let backfill_antigravity =
+        state.setting(ANTIGRAVITY_MEDIA_MIGRATION).and_then(|v| v.as_bool()) != Some(true);
     let mut antigravity_backfill_failed = false;
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
     let found = discover_all(app);
@@ -276,7 +268,12 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
         notify(app);
     }
     if backfill_antigravity && !antigravity_backfill_failed {
-        let _ = with_store(&state, |s| s.set_setting(ANTIGRAVITY_MEDIA_MIGRATION, &serde_json::Value::Bool(true)).map_err(err));
+        let done = serde_json::Value::Bool(true);
+        if with_store(&state, |s| s.set_setting(ANTIGRAVITY_MEDIA_MIGRATION, &done).map_err(err)).is_ok() {
+            if let Ok(mut mirror) = state.settings.write() {
+                mirror.insert(ANTIGRAVITY_MEDIA_MIGRATION.into(), done);
+            }
+        }
     }
     result
 }
@@ -484,7 +481,8 @@ pub async fn preflight_files(app: AppHandle, paths: Vec<String>) -> CmdResult<Pr
     tauri::async_runtime::spawn_blocking(move || {
         let (expanded, notes) = files::expand(&paths);
         let state = app.state::<AppState>();
-        with_store(&state, |s| Ok(PreflightResult { files: expanded.iter().map(|p| files::preflight(p, s)).collect(), notes }))
+        let is_known = |sha: &str| with_store(&state, |s| Ok(s.has_sha(sha).unwrap_or(false))).unwrap_or(false);
+        Ok(PreflightResult { files: expanded.iter().map(|p| files::preflight(p, &is_known)).collect(), notes })
     })
     .await
     .map_err(err)?
@@ -527,7 +525,14 @@ pub async fn add_files(app: AppHandle, session: Option<String>, paths: Vec<Strin
     Ok(out)
 }
 
+fn is_sha256(sha: &str) -> bool {
+    sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec<u8>)> {
+    if !is_sha256(sha) {
+        return Err("Not a library file reference".into());
+    }
     with_store(state, |s| {
         if let Some(a) = s.attachment_by_sha(sha).map_err(err)? {
             if let Some(bytes) = s.attachment_bytes(sha) {
@@ -611,9 +616,6 @@ pub async fn open_file(app: AppHandle, sha: String) -> CmdResult<()> {
 
 fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
-    if sha.len() < 16 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("Not a library file reference".into());
-    }
     let (a, bytes) = stored_file(state, sha)?;
     let name: String = a
         .file_name

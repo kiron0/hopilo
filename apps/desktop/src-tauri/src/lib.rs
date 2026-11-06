@@ -3,6 +3,7 @@ mod commands;
 mod files;
 mod handoff;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -10,7 +11,7 @@ use commands::AppState;
 use hopilo_database::Store;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, PhysicalPosition, Rect, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Rect, WindowEvent};
 
 const MAIN_MIN_SHARE: f64 = 0.8;
 
@@ -33,11 +34,17 @@ fn fit_main_to_display(w: &tauri::WebviewWindow) {
 }
 struct PanelState {
     hidden_at: Mutex<Option<Instant>>,
+    /// Set only on the very first launch: the dashboard opens once the
+    /// frontend is ready, as a welcome. Every later launch stays in the
+    /// menu bar; the dashboard is reachable only from the tray.
+    show_on_ready: AtomicBool,
 }
+
+const FIRST_LAUNCH_KEY: &str = "firstLaunchAt";
 
 #[tauri::command]
 fn app_ready(window: tauri::Window) {
-    if window.label() == "main" {
+    if window.label() == "main" && window.state::<PanelState>().show_on_ready.swap(false, Ordering::SeqCst) {
         show_main(window.app_handle());
     }
 }
@@ -46,18 +53,56 @@ fn setting_str(app: &AppHandle, key: &str) -> Option<String> {
     app.state::<AppState>().setting(key)?.as_str().map(str::to_string)
 }
 
+/// Menu-bar app model (macOS): Hopilo runs as an accessory app (no Dock
+/// icon, no app menu). While the dashboard is open it is promoted to a
+/// regular app so it gets a Dock icon and Cmd-Tab; hiding the dashboard
+/// demotes it again.
+#[cfg(target_os = "macos")]
+fn set_dock_presence(app: &AppHandle, visible: bool) {
+    let policy = if visible { tauri::ActivationPolicy::Regular } else { tauri::ActivationPolicy::Accessory };
+    let _ = app.set_activation_policy(policy);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_dock_presence(_app: &AppHandle, _visible: bool) {}
+
+/// Tells a window's webview whether it is on screen, so hidden windows can
+/// defer library refreshes (see `hopilo://visibility` in src/lib/hooks.ts).
+fn emit_visibility(app: &AppHandle, label: &str, visible: bool) {
+    let _ = app.emit_to(label, "hopilo://visibility", visible);
+}
+
+pub(crate) fn hide_quick(app: &AppHandle) {
+    if let Some(q) = app.get_webview_window("quick") {
+        let _ = q.hide();
+        emit_visibility(app, "quick", false);
+    }
+}
+
 pub(crate) fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        set_dock_presence(app, true);
+        emit_visibility(app, "main", true);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
 }
 
+fn hide_main(window: &tauri::Window) {
+    let _ = window.hide();
+    emit_visibility(window.app_handle(), "main", false);
+    set_dock_presence(window.app_handle(), false);
+}
+
+fn tray_rect(app: &AppHandle) -> Option<Rect> {
+    app.tray_by_id("hopilo")?.rect().ok().flatten()
+}
+
 fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
     let Some(w) = app.get_webview_window("quick") else { return };
     if w.is_visible().unwrap_or(false) {
-        let _ = w.hide();
+        hide_quick(app);
         return;
     }
     let recently_hidden = app
@@ -86,6 +131,7 @@ fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
         }
         let _ = w.set_position(PhysicalPosition::new(x, y));
     }
+    emit_visibility(app, "quick", true);
     let _ = w.show();
     let _ = w.set_focus();
 }
@@ -93,8 +139,12 @@ fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let latest = MenuItem::with_id(app, "latest", "Copy latest session", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Hopilo", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Hopilo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&latest, &PredefinedMenuItem::separator(app)?, &open, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&latest, &PredefinedMenuItem::separator(app)?, &open, &settings, &PredefinedMenuItem::separator(app)?, &quit],
+    )?;
     let icon_bytes: &[u8] = if cfg!(target_os = "macos") {
         include_bytes!("../icons/tray.png")
     } else {
@@ -110,6 +160,9 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, e| match e.id.as_ref() {
             "latest" => handoff::copy_latest_session(app),
             "open" => show_main(app),
+            "settings" => {
+                let _ = commands::show_main_window(app.clone(), Some("settings".into()));
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -156,13 +209,25 @@ pub fn run() {
                 settings: std::sync::RwLock::new(settings.clone()),
             });
 
-            app.manage(PanelState { hidden_at: Mutex::new(None) });
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            let first_launch = !settings.contains_key(FIRST_LAUNCH_KEY) && !settings.contains_key("onboarded");
+            if !settings.contains_key(FIRST_LAUNCH_KEY) {
+                let stamp = serde_json::Value::String(hopilo_core::now_rfc3339());
+                if let Ok(mut store) = app.state::<AppState>().store.lock() {
+                    let _ = store.set_setting(FIRST_LAUNCH_KEY, &stamp);
+                }
+                if let Ok(mut mirror) = app.state::<AppState>().settings.write() {
+                    mirror.insert(FIRST_LAUNCH_KEY.into(), stamp);
+                }
+            }
+            app.manage(PanelState { hidden_at: Mutex::new(None), show_on_ready: AtomicBool::new(first_launch) });
             build_tray(app)?;
 
             if let Some(w) = app.get_webview_window("main") {
                 fit_main_to_display(&w);
             }
-            show_main(app.handle());
 
             let sync_handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -174,14 +239,14 @@ pub fn run() {
         .on_window_event(|window, event| match (window.label(), event) {
             ("main", WindowEvent::CloseRequested { api, .. }) => {
                 api.prevent_close();
-                let _ = window.hide();
+                hide_main(window);
             }
             ("main" | "quick", WindowEvent::Focused(true)) => {
                 let app = window.app_handle().clone();
                 tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&app, commands::SyncMode::Background));
             }
             ("quick", WindowEvent::Focused(false)) => {
-                let _ = window.hide();
+                hide_quick(window.app_handle());
                 if let Ok(mut t) = window.app_handle().state::<PanelState>().hidden_at.lock() {
                     *t = Some(Instant::now());
                 }
@@ -237,7 +302,15 @@ pub fn run() {
     app.run(|app, event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
-            show_main(app);
+            // Dock icon only exists while the dashboard is open, so a reopen
+            // with the dashboard hidden means a relaunch from Finder/Spotlight:
+            // answer with the menu-bar panel, never the dashboard.
+            let main_visible = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false);
+            if main_visible {
+                show_main(app);
+            } else {
+                toggle_quick_panel(app, tray_rect(app));
+            }
         }
         let _ = (app, event);
     });
