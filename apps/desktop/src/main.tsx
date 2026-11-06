@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { App } from "./App";
 import { QuickPanel } from "./quick/QuickPanel";
+import { Welcome } from "./welcome/Welcome";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window && (window as any).__TAURI_INTERNALS__?.invoke)) {
@@ -13,9 +14,10 @@ if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window && (window as any).
 
 const surface = new URLSearchParams(window.location.search).get("surface");
 if (surface === "quick") document.body.classList.add("quick-surface");
+if (surface === "welcome") document.body.classList.add("welcome-surface");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ErrorBoundary>{surface === "quick" ? <QuickPanel /> : <App />}</ErrorBoundary>
+    <ErrorBoundary>{surface === "quick" ? <QuickPanel /> : surface === "welcome" ? <Welcome /> : <App />}</ErrorBoundary>
   </StrictMode>,
 );

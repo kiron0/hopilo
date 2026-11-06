@@ -157,6 +157,10 @@
     padding: 10px;
   }
 
+  body.welcome-surface {
+    overflow: hidden;
+  }
+
   input,
   textarea,
   [data-selectable],
