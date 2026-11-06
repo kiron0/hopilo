@@ -934,15 +934,12 @@
   .hero-plume {
     position: absolute;
     inset: 0;
+    border-radius: inherit;
     pointer-events: none;
     overflow: hidden;
   }
   :root[data-theme='dark'] .hero-plume {
-    inset: -16px;
-    filter: saturate(2.4) hue-rotate(-12deg) blur(12px);
-    mix-blend-mode: screen;
-    -webkit-mask-image: linear-gradient(to top, #000 0%, #000 28%, transparent 80%);
-    mask-image: linear-gradient(to top, #000 0%, #000 28%, transparent 80%);
+    display: none;
   }
 
   .lc-top {
