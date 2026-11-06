@@ -937,9 +937,17 @@
     border-radius: inherit;
     pointer-events: none;
     overflow: hidden;
+    contain: paint;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
   :root[data-theme='dark'] .hero-plume {
-    display: none;
+    inset: 0;
+    border-radius: inherit;
+    overflow: hidden;
+    opacity: 0.7;
+    mix-blend-mode: screen;
+    contain: paint;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
 
   .lc-top {

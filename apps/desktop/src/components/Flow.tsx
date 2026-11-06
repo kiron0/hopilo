@@ -58,6 +58,7 @@ const hex = (h: string): RGB => {
 };
 
 const PLUME = ["#ffa8c4", "#ffd2a1", "#a9d6ff", "#cbb9ff"].map(hex);
+const DARK_PLUME = ["#5a63ff", "#7b4fe0", "#9b51e0", "#262a57"].map(hex);
 const CALM = ["#8fefc9", "#a8dcff", "#d4f6ff", "#b9f0e0"].map(hex);
 const MOODS = [
   ["#ffb8cf", "#ffd9b0", "#c9d8ff", "#e6c8ff"],
@@ -173,7 +174,8 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
 
     const reduce = motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const initialMoods = live.current.dark ? DARK_MOODS : MOODS;
-    const colors = (mode === "mist" ? initialMoods[0] : PLUME).map((c) => [...c] as RGB);
+    const initialPlume = live.current.dark ? DARK_PLUME : PLUME;
+    const colors = (mode === "mist" ? initialMoods[0] : initialPlume).map((c) => [...c] as RGB);
     let clock = mode === "mist" ? 50 : 20;
     let thin = live.current.dark ? 1 : 0;
     let last = performance.now();
@@ -207,6 +209,8 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
           ? (st.dark ? DARK_MOODS : MOODS)[Math.floor(clock / 18) % MOODS.length]
           : st.calm
           ? CALM
+          : st.dark
+          ? DARK_PLUME
           : PLUME;
       const ease = mode === "mist" ? 1 - Math.exp(-dt / 5) : 1 - Math.exp(-dt * 2);
       for (let i = 0; i < 4; i++) {

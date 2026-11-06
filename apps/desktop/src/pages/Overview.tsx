@@ -358,7 +358,7 @@ export function Overview() {
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]" aria-label="Overview">
         <Card className="card-w relative isolate overflow-hidden p-7">
-          <div className="hero-plume pointer-events-none absolute inset-0 -z-10 dark:hidden">
+          <div className="hero-plume pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-[inherit]">
             <Flow mode="plume" />
           </div>
           <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 overflow-hidden rounded-[inherit] dark:hidden">
