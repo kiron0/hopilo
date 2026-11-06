@@ -300,12 +300,13 @@ pub struct SessionDetail {
 #[tauri::command]
 pub async fn get_session(app: AppHandle, id: String) -> CmdResult<SessionDetail> {
     blocking(app, move |_, state| {
-        let (row, source, messages, files) = with_store(&state, |s| {
+        let (mut row, source, messages, files) = with_store(&state, |s| {
             let row = s.session_row(&id).map_err(err)?;
             let (source, messages) = s.get_source(&id).map_err(err)?;
             let files = s.session_files(&messages);
             Ok((row, source, messages, files))
         })?;
+        row.file_count = files.len() as i64;
         let text = messages.iter().flat_map(|m| m.blocks.iter().map(|b| b.plain_text())).collect::<Vec<_>>().join("\n");
         Ok(SessionDetail { files, token_estimate: estimate_tokens(&text), row, source, messages })
     })
@@ -362,7 +363,10 @@ pub async fn import_chat_export(app: AppHandle, path: String, ids: Vec<String>) 
         let mut outcomes = Vec::new();
         for (meta, cap) in parsed.conversations {
             if wanted.contains(&meta.id) {
-                outcomes.push(with_store(&state, |s| s.upsert_session(&cap.source, &cap.messages, Some(&meta.updated_at)).map_err(err))?);
+                outcomes.push(with_store(&state, |s| {
+                    store_captured_files(s, &cap.files)?;
+                    s.upsert_session(&cap.source, &cap.messages, Some(&meta.updated_at)).map_err(err)
+                })?);
             }
         }
         Ok::<_, String>(outcomes)
@@ -506,9 +510,30 @@ pub async fn add_files(app: AppHandle, session: Option<String>, paths: Vec<Strin
 
 fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec<u8>)> {
     with_store(state, |s| {
-        let a = s.attachment_by_sha(sha).map_err(err)?.ok_or("That file is no longer in the library")?;
-        let bytes = s.attachment_bytes(sha).ok_or("That file's contents are missing from the library")?;
-        Ok((a, bytes))
+        if let Some(a) = s.attachment_by_sha(sha).map_err(err)? {
+            if let Some(bytes) = s.attachment_bytes(sha) {
+                return Ok((a, bytes));
+            }
+            if let Some(origin) = &a.origin_path {
+                if let Ok(bytes) = std::fs::read(origin) {
+                    return Ok((a, bytes));
+                }
+            }
+            return Err("That file's contents are missing from the library".into());
+        }
+        if let Some(bytes) = s.attachment_bytes(sha) {
+            let a = Attachment {
+                id: format!("file-{sha}"),
+                file_name: format!("file-{}.bin", &sha[..8.min(sha.len())]),
+                media_type: "application/octet-stream".into(),
+                size: bytes.len() as u64,
+                sha256: sha.to_string(),
+                origin_path: None,
+                text: None,
+            };
+            return Ok((a, bytes));
+        }
+        Err("That file is no longer in the library".into())
     })
 }
 

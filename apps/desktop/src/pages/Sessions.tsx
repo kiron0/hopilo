@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
   LayoutGrid,
   List,
   MessagesSquare,
+  MoreHorizontal,
   Paperclip,
   Pin,
   Plus,
@@ -616,9 +618,39 @@ function SessionList() {
   );
 }
 
+function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 backdrop-blur-md cursor-zoom-out select-none"
+    >
+      <img
+        src={url}
+        alt={alt}
+        onClick={onClose}
+        className="max-h-full max-w-full object-contain rounded shadow-2xl"
+      />
+    </div>,
+    document.body
+  );
+}
+
 function FilesTab({ files }: { files: Attachment[] }) {
   const toast = useApp((s) => s.toast);
   const [preview, setPreview] = useState<{ file: Attachment; url: string } | null>(null);
+  const [infoFile, setInfoFile] = useState<Attachment | null>(null);
+
   if (files.length === 0)
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8">
@@ -633,14 +665,19 @@ function FilesTab({ files }: { files: Attachment[] }) {
         <section aria-label="Images">
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
             {images.map((file) => (
-              <ImageTile key={file.sha256} file={file} onOpen={(url) => setPreview({ file, url })} />
+              <ImageTile
+                key={file.sha256}
+                file={file}
+                onOpen={(url) => setPreview({ file, url })}
+                onInfo={() => setInfoFile(file)}
+              />
             ))}
           </ul>
         </section>
       )}
-      {documents.length > 0 && <ul className="divide-y divide-line rounded-2xl border border-line">
-        {documents.map((f) => {
-          return (
+      {documents.length > 0 && (
+        <ul className="divide-y divide-line rounded-2xl border border-line">
+          {documents.map((f) => (
             <li key={f.sha256} className="flex items-center gap-3 px-3.5 py-2.5">
               <FileText size={16} className="shrink-0 text-faint" />
               <div className="min-w-0 flex-1">
@@ -656,22 +693,81 @@ function FilesTab({ files }: { files: Attachment[] }) {
                 Save
               </Button>
             </li>
-          );
-        })}
-      </ul>}
+          ))}
+        </ul>
+      )}
       {preview && (
-        <Modal
-          title={preview.file.fileName}
+        <ImageLightbox
+          url={preview.url}
+          alt={preview.file.fileName}
           onClose={() => setPreview(null)}
-          wide
+        />
+      )}
+      {infoFile && (
+        <Modal
+          title="File info"
+          onClose={() => setInfoFile(null)}
           footer={
-            <Button icon={<Download size={13} />} onClick={() => saveFileAs(preview.file.sha256, preview.file.fileName)}>
-              Save image
-            </Button>
+            <div className="flex w-full items-center justify-between gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<FolderOpen size={13} />}
+                onClick={() =>
+                  api
+                    .openFile(infoFile.sha256)
+                    .catch((e) => toast({ kind: "error", text: errorText(e) }))
+                }
+              >
+                Open
+              </Button>
+              <Button
+                size="sm"
+                icon={<Download size={13} />}
+                onClick={() => saveFileAs(infoFile.sha256, infoFile.fileName)}
+              >
+                Save
+              </Button>
+            </div>
           }
         >
-          <div className="flex min-h-64 items-center justify-center overflow-hidden rounded-xl bg-surface-2 p-3">
-            <img src={preview.url} alt={preview.file.fileName} className="max-h-[70vh] max-w-full object-contain" />
+          <div className="space-y-3.5 text-[13px]">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-wider text-faint">File name</div>
+              <div className="mt-0.5 break-all font-medium text-ink select-text">{infoFile.fileName}</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-faint">Size</div>
+                <div className="mt-0.5 font-mono text-muted">{bytes(infoFile.size)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-faint">Media type</div>
+                <div className="mt-0.5 font-mono text-muted">{infoFile.mediaType || "image"}</div>
+              </div>
+            </div>
+            {infoFile.originPath && (
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-wider text-faint">Original path</div>
+                <div className="mt-0.5 break-all font-mono text-[11px] text-muted select-text">{infoFile.originPath}</div>
+              </div>
+            )}
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-faint">SHA-256</span>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-[11px] text-accent hover:underline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(infoFile.sha256);
+                    toast({ kind: "success", text: "Copied SHA-256" });
+                  }}
+                >
+                  <Copy size={11} /> Copy
+                </button>
+              </div>
+              <div className="mt-0.5 break-all font-mono text-[11px] text-muted select-text">{infoFile.sha256}</div>
+            </div>
           </div>
         </Modal>
       )}
@@ -679,38 +775,71 @@ function FilesTab({ files }: { files: Attachment[] }) {
   );
 }
 
-function ImageTile({ file, onOpen }: { file: Attachment; onOpen: (url: string) => void }) {
+function ImageTile({
+  file,
+  onOpen,
+  onInfo,
+}: {
+  file: Attachment;
+  onOpen: (url: string) => void;
+  onInfo: () => void;
+}) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let active = true;
-    api.previewFile(file.sha256).then((value) => active && setUrl(value)).catch(() => active && setFailed(true));
+    api
+      .previewFile(file.sha256)
+      .then((value) => active && setUrl(value))
+      .catch(() => active && setFailed(true));
     return () => {
       active = false;
     };
   }, [file.sha256]);
 
   return (
-    <li className="min-w-0">
+    <li className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-item transition hover:border-accent/40 hover:shadow-pop">
       <button
         type="button"
         disabled={!url}
         aria-label={`Preview ${file.fileName}`}
         onClick={() => url && onOpen(url)}
-        className="group w-full overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-item transition hover:border-accent/40 hover:shadow-pop disabled:cursor-default"
+        className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-surface-2 disabled:cursor-default"
       >
-        <span className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-surface-2">
-          {url ? (
-            <img src={url} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]" />
-          ) : (
-            <FileImage size={24} className={failed ? "text-danger" : "animate-pulse text-faint"} />
-          )}
-        </span>
-        <span className="block px-3 py-2">
-          <span className="block truncate text-[12.5px] font-medium">{file.fileName}</span>
-          <span className="block font-mono text-[10.5px] text-faint">{bytes(file.size)}</span>
-        </span>
+        {url ? (
+          <img
+            src={url}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+          />
+        ) : (
+          <FileImage size={24} className={failed ? "text-danger" : "animate-pulse text-faint"} />
+        )}
       </button>
+      <div className="flex items-center justify-between gap-1.5 px-3 py-2">
+        <button
+          type="button"
+          disabled={!url}
+          onClick={() => url && onOpen(url)}
+          className="min-w-0 flex-1 text-left disabled:cursor-default"
+        >
+          <span className="block truncate text-[12.5px] font-medium text-ink">{file.fileName}</span>
+          <span className="block font-mono text-[10.5px] text-faint">{bytes(file.size)}</span>
+        </button>
+        <button
+          type="button"
+          title="More info"
+          aria-label={`More info for ${file.fileName}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onInfo();
+          }}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition hover:bg-surface-2 hover:text-ink focus:text-ink"
+        >
+          <MoreHorizontal size={15} />
+        </button>
+      </div>
     </li>
   );
 }

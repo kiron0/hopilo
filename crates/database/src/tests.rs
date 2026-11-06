@@ -570,3 +570,57 @@ fn restored_session_is_searchable_again() {
     db.restore_session(&id).unwrap();
     assert_eq!(db.search_kind("quokka", "source", 20).unwrap().len(), 1);
 }
+
+#[test]
+fn session_files_and_count_match_with_or_without_attachment_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let source = Source {
+        source_id: new_id(),
+        kind: SourceKind::LocalAgent,
+        provider: "claude-code".into(),
+        title: "Test Files".into(),
+        origin: None,
+        project: None,
+        model: None,
+        captured_at: now_rfc3339(),
+        capture_status: CaptureStatus::Complete,
+        missing_items: vec![],
+        omitted: vec![],
+    };
+    let file_a = Block::File {
+        name: "test.png".into(),
+        media_type: "image/png".into(),
+        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        size: 1024,
+    };
+    let file_b = Block::File {
+        name: "doc.txt".into(),
+        media_type: "text/plain".into(),
+        sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        size: 256,
+    };
+    let msgs = vec![
+        Message {
+            id: new_id(),
+            source_id: source.source_id.clone(),
+            role: Role::User,
+            created_at: None,
+            blocks: vec![Block::text("Here is image"), file_a.clone(), file_a.clone()],
+        },
+        Message {
+            id: new_id(),
+            source_id: source.source_id.clone(),
+            role: Role::Assistant,
+            created_at: None,
+            blocks: vec![Block::text("And doc"), file_b.clone(), file_a.clone()],
+        },
+    ];
+    let outcome = db.upsert_session(&source, &msgs, None).unwrap();
+    let row = db.session_row(&outcome.source_id).unwrap();
+    let files = db.session_files(&msgs);
+    assert_eq!(row.file_count, 2);
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].file_name, "test.png");
+    assert_eq!(files[1].file_name, "doc.txt");
+}

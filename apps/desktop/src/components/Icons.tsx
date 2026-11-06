@@ -245,6 +245,20 @@ export const XCircle = ({ size = 18, className, style, ...rest }: IconProps) => 
 );
 export const X = make("m6.5 6.5 11 11m0-11-11 11");
 export const Plus = make("M12 5v14M5 12h14");
+export const MoreHorizontal = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+  </Icon>
+);
+export const MoreVertical = ({ size = 18, className, style, ...rest }: IconProps) => (
+  <Icon size={size} className={className} style={style} {...rest}>
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none" />
+  </Icon>
+);
 export const Info = ({ size = 18, className, style, ...rest }: IconProps) => (
   <Icon size={size} className={className} style={style} {...rest}>
     <circle className="f" cx="12" cy="12" r="8.5" />

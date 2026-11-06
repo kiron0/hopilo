@@ -76,7 +76,22 @@ fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
 }
 
 fn file_count(messages: &[Message]) -> i64 {
-    messages.iter().flat_map(|m| m.blocks.iter()).filter(|b| matches!(b, Block::File { .. })).count() as i64
+    let mut seen = HashSet::new();
+    messages
+        .iter()
+        .flat_map(|m| m.blocks.iter())
+        .filter_map(|b| match b {
+            Block::File { name, sha256, .. } => {
+                let key = if sha256.is_empty() { name.as_str() } else { sha256.as_str() };
+                if seen.insert(key) {
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        })
+        .count() as i64
 }
 
 fn reply_count(messages: &[Message]) -> i64 {
@@ -280,17 +295,26 @@ impl Store {
 
     pub fn session_files(&self, messages: &[Message]) -> Vec<Attachment> {
         let mut seen = HashSet::new();
-        let shas: Vec<&str> = messages
+        let mut file_blocks: Vec<&Block> = Vec::new();
+        for b in messages.iter().flat_map(|m| m.blocks.iter()) {
+            if let Block::File { name, sha256, .. } = b {
+                let key = if sha256.is_empty() { name.as_str() } else { sha256.as_str() };
+                if seen.insert(key) {
+                    file_blocks.push(b);
+                }
+            }
+        }
+        if file_blocks.is_empty() {
+            return Vec::new();
+        }
+
+        let shas: Vec<&str> = file_blocks
             .iter()
-            .flat_map(|m| m.blocks.iter())
             .filter_map(|b| match b {
-                Block::File { sha256, .. } if seen.insert(sha256.as_str()) => Some(sha256.as_str()),
+                Block::File { sha256, .. } if !sha256.is_empty() => Some(sha256.as_str()),
                 _ => None,
             })
             .collect();
-        if shas.is_empty() {
-            return Vec::new();
-        }
 
         let mut found: HashMap<String, Attachment> = HashMap::new();
         for chunk in shas.chunks(500) {
@@ -306,7 +330,28 @@ impl Store {
                 found.entry(row.sha256.clone()).or_insert(row);
             }
         }
-        shas.iter().filter_map(|sha| found.remove(*sha)).collect()
+
+        file_blocks
+            .into_iter()
+            .filter_map(|b| match b {
+                Block::File { name, media_type, sha256, size } => {
+                    if let Some(att) = found.remove(sha256.as_str()) {
+                        Some(att)
+                    } else {
+                        Some(Attachment {
+                            id: if sha256.is_empty() { format!("file-{}", new_id()) } else { format!("file-{}", sha256) },
+                            file_name: name.clone(),
+                            media_type: media_type.clone(),
+                            size: *size,
+                            sha256: sha256.clone(),
+                            origin_path: None,
+                            text: None,
+                        })
+                    }
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn update_session(&mut self, id: &str, patch: &SessionPatch) -> Result<()> {
