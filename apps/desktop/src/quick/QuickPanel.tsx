@@ -9,6 +9,7 @@ import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
 import { IconButton, Kbd, ProviderBadge, Skeleton } from "../components/ui";
 import { CaptureIcon, OverviewIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
+import { BackgroundLayer } from "../components/Flow";
 
 export function QuickPanel() {
   const ready = useBootstrap();
@@ -42,6 +43,7 @@ export function QuickPanel() {
   if (!ready) return null;
 
   const row = "nav-item h-auto min-h-10 w-full py-1.5 text-left text-[13px] focus-visible:bg-surface focus-visible:shadow-item disabled:opacity-50";
+  const bg = settings.background ?? "mist";
   const copy = async (id: string) => {
     setBusy(id);
     await copySessions([id]);
@@ -50,9 +52,9 @@ export function QuickPanel() {
 
   return (
     <div
-      className="quick-shell relative isolate flex h-full flex-col overflow-hidden rounded-[18px] border border-line text-[13px]"
+      className="quick-shell app relative isolate flex h-full flex-col overflow-hidden rounded-[18px] border border-line text-[13px]"
+      data-bg={bg}
       onKeyDown={(e) => {
-
         if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
         const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-row]:not(:disabled)"));
         const i = rows.indexOf(document.activeElement as HTMLElement);
@@ -63,13 +65,9 @@ export function QuickPanel() {
         }
       }}
     >
-      <div aria-hidden className="app-aura app-aura-contained overflow-hidden rounded-[17px]">
-        <span />
-        <span />
-        <span />
-      </div>
+      <BackgroundLayer />
 
-      <header className="flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-3">
+      <header className="relative z-10 flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-3">
         <img src="/hopilo-mark.svg" alt="" className="h-7 w-7 drop-shadow-[0_3px_6px_rgb(40_30_120/0.25)]" draggable={false} />
         <span className="font-display flex-1 text-[16px] font-semibold">Hopilo</span>
         <IconButton label="Settings" onClick={() => api.showMainWindow("settings")}>
@@ -77,7 +75,7 @@ export function QuickPanel() {
         </IconButton>
       </header>
 
-      <div className="shrink-0 px-3 pb-2.5">
+      <div className="relative z-10 shrink-0 px-3 pb-2.5">
         <label className="flex h-8.5 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item focus-within:border-accent">
           <SearchIcon size={14} />
           <input
@@ -92,7 +90,7 @@ export function QuickPanel() {
         </label>
       </div>
 
-      <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-line bg-canvas/80 shadow-card">
+      <div className="relative z-10 mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-line bg-canvas/80 shadow-card">
         <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
           <div className="label-mono px-3 pt-1 pb-1.5 text-faint">Tap to copy for {target(settings.defaultTarget).label}</div>
           {sessions.loading && !sessions.data &&
