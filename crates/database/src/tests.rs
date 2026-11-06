@@ -600,27 +600,34 @@ fn session_files_and_count_match_with_or_without_attachment_rows() {
         sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
         size: 256,
     };
+    let file_c = Block::File {
+        name: "test_copy.png".into(),
+        media_type: "image/png".into(),
+        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        size: 1024,
+    };
     let msgs = vec![
         Message {
             id: new_id(),
             source_id: source.source_id.clone(),
             role: Role::User,
             created_at: None,
-            blocks: vec![Block::text("Here is image"), file_a.clone(), file_a.clone()],
+            blocks: vec![Block::text("Here is image"), file_a.clone()],
         },
         Message {
             id: new_id(),
             source_id: source.source_id.clone(),
             role: Role::Assistant,
             created_at: None,
-            blocks: vec![Block::text("And doc"), file_b.clone(), file_a.clone()],
+            blocks: vec![Block::text("And doc"), file_b.clone(), file_c.clone()],
         },
     ];
     let outcome = db.upsert_session(&source, &msgs, None).unwrap();
     let row = db.session_row(&outcome.source_id).unwrap();
     let files = db.session_files(&msgs);
-    assert_eq!(row.file_count, 2);
-    assert_eq!(files.len(), 2);
+    assert_eq!(row.file_count, 3);
+    assert_eq!(files.len(), 3);
     assert_eq!(files[0].file_name, "test.png");
     assert_eq!(files[1].file_name, "doc.txt");
+    assert_eq!(files[2].file_name, "test_copy.png");
 }

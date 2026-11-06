@@ -663,10 +663,10 @@ function FilesTab({ files }: { files: Attachment[] }) {
     <div className="min-h-0 flex-1 space-y-5 overflow-auto p-5">
       {images.length > 0 && (
         <section aria-label="Images">
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+          <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {images.map((file) => (
               <ImageTile
-                key={file.sha256}
+                key={file.id}
                 file={file}
                 onOpen={(url) => setPreview({ file, url })}
                 onInfo={() => setInfoFile(file)}
@@ -678,7 +678,7 @@ function FilesTab({ files }: { files: Attachment[] }) {
       {documents.length > 0 && (
         <ul className="divide-y divide-line rounded-2xl border border-line">
           {documents.map((f) => (
-            <li key={f.sha256} className="flex items-center gap-3 px-3.5 py-2.5">
+            <li key={f.id} className="flex items-center gap-3 px-3.5 py-2.5">
               <FileText size={16} className="shrink-0 text-faint" />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium" data-selectable>{f.fileName}</div>

@@ -76,22 +76,7 @@ fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
 }
 
 fn file_count(messages: &[Message]) -> i64 {
-    let mut seen = HashSet::new();
-    messages
-        .iter()
-        .flat_map(|m| m.blocks.iter())
-        .filter_map(|b| match b {
-            Block::File { name, sha256, .. } => {
-                let key = if sha256.is_empty() { name.as_str() } else { sha256.as_str() };
-                if seen.insert(key) {
-                    Some(())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        })
-        .count() as i64
+    messages.iter().flat_map(|m| m.blocks.iter()).filter(|b| matches!(b, Block::File { .. })).count() as i64
 }
 
 fn reply_count(messages: &[Message]) -> i64 {
@@ -294,16 +279,11 @@ impl Store {
     }
 
     pub fn session_files(&self, messages: &[Message]) -> Vec<Attachment> {
-        let mut seen = HashSet::new();
-        let mut file_blocks: Vec<&Block> = Vec::new();
-        for b in messages.iter().flat_map(|m| m.blocks.iter()) {
-            if let Block::File { name, sha256, .. } = b {
-                let key = if sha256.is_empty() { name.as_str() } else { sha256.as_str() };
-                if seen.insert(key) {
-                    file_blocks.push(b);
-                }
-            }
-        }
+        let file_blocks: Vec<&Block> = messages
+            .iter()
+            .flat_map(|m| m.blocks.iter())
+            .filter(|b| matches!(b, Block::File { .. }))
+            .collect();
         if file_blocks.is_empty() {
             return Vec::new();
         }
@@ -333,13 +313,17 @@ impl Store {
 
         file_blocks
             .into_iter()
-            .filter_map(|b| match b {
+            .enumerate()
+            .filter_map(|(i, b)| match b {
                 Block::File { name, media_type, sha256, size } => {
-                    if let Some(att) = found.remove(sha256.as_str()) {
-                        Some(att)
+                    if let Some(att) = found.get(sha256.as_str()) {
+                        let mut a = att.clone();
+                        a.id = format!("{}-{i}", a.id);
+                        a.file_name = name.clone();
+                        Some(a)
                     } else {
                         Some(Attachment {
-                            id: if sha256.is_empty() { format!("file-{}", new_id()) } else { format!("file-{}", sha256) },
+                            id: format!("file-{sha256}-{i}"),
                             file_name: name.clone(),
                             media_type: media_type.clone(),
                             size: *size,
