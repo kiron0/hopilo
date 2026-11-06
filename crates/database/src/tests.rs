@@ -181,6 +181,26 @@ fn attachments_are_content_addressed() {
 }
 
 #[test]
+fn uppercase_digests_are_stored_under_the_lowercase_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let lower = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+    let att = Attachment {
+        id: new_id(),
+        file_name: "notes.txt".into(),
+        media_type: "text/plain".into(),
+        size: 5,
+        sha256: lower.to_ascii_uppercase(),
+        origin_path: None,
+        text: None,
+    };
+    let (stored, _) = db.insert_attachment(&att, b"hello").unwrap();
+    assert_eq!(stored.sha256, lower);
+    assert!(db.has_sha(lower).unwrap());
+    assert_eq!(db.attachment_bytes(lower).unwrap(), b"hello");
+}
+
+#[test]
 fn deleting_attachment_keeps_blob_still_referenced_by_a_message() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = Store::open(dir.path()).unwrap();

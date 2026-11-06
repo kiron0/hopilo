@@ -325,7 +325,7 @@ fn quick_scan(transcript: &Path, session_dir: &Path) -> Option<DiscoveredSession
         path: transcript.display().to_string(),
         session_id: session_id.clone(),
         title: title
-            .unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())])),
+            .unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>())),
         project,
         model,
         modified_at,
@@ -510,7 +510,7 @@ fn read_session(path: &Path) -> Result<Capture> {
     let db_title = find_summary_db(&transcript).and_then(|db| lookup_antigravity_title(&db, &session_id));
     let title = db_title
         .or(first_prompt)
-        .unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())]));
+        .unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>()));
 
     let missing_items = if missing_files == 0 {
         vec![]

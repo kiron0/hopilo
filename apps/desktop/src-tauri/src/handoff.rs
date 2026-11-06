@@ -221,6 +221,7 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
     let want_blobs = formats.contains(&"handoff");
     with_store(state, |s| {
         let mut pack = s.compose(ids).map_err(err)?;
+        strip_local_paths(&mut pack);
         if opts.exclude_secrets {
             hopilo_core::scan::redact_pack(&mut pack);
         }
@@ -234,6 +235,24 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
         }
         Ok(Prepared { pack, blobs, ropts, exclude_secrets: opts.exclude_secrets })
     })
+}
+
+/// Exported files are meant to be shared. Absolute paths on this machine (attachment
+/// origins, local agent transcript paths) reveal the user name and project layout and are
+/// useless to the recipient, so only web links survive in the exported pack.
+fn strip_local_paths(pack: &mut Pack) {
+    for a in &mut pack.attachments {
+        a.origin_path = None;
+    }
+    for s in &mut pack.sources {
+        let is_web = s.origin.as_deref().is_some_and(|o| {
+            let o = o.trim_start().to_ascii_lowercase();
+            o.starts_with("https://") || o.starts_with("http://")
+        });
+        if !is_web {
+            s.origin = None;
+        }
+    }
 }
 
 fn render_export(p: &Prepared, format: &str) -> CmdResult<Vec<u8>> {
@@ -313,15 +332,24 @@ pub async fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
     .await
 }
 
+static FLASH_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn copy_latest_session(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let flash = |text: &str| {
             if let Some(tray) = app.tray_by_id("hopilo") {
                 let _ = tray.set_title(Some(text));
+                // Only the newest flash may clear the title; an older timer must not
+                // wipe a message that a later click just put up.
+                let generation = FLASH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
                 let app2 = app.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
+                    if FLASH_GENERATION.load(Ordering::SeqCst) != generation {
+                        return;
+                    }
                     if let Some(t) = app2.tray_by_id("hopilo") {
                         let _ = t.set_title(None::<&str>);
                     }

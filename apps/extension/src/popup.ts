@@ -186,7 +186,12 @@ $("insert").addEventListener("click", async () => {
     inserted = (await tab<InsertReply>({ kind: "insert", text: d.result.text }))?.ok ?? false;
   }
   if (!inserted) {
-    await navigator.clipboard.writeText(d.result.text);
+    try {
+      await navigator.clipboard.writeText(d.result.text);
+    } catch {
+      await host({ type: "handoff.record", ids: d.result.ids, target: page?.provider ?? "other", status: "failed" });
+      return status("Couldn't insert or copy the draft. Copy it from the Hopilo app instead.", "err");
+    }
   }
   await host({ type: "handoff.record", ids: d.result.ids, target: page?.provider ?? "other", status: inserted ? "drafted" : "copied" });
   const tail = warn.length ? ` Check before sending: ${warn.join(", ")}.` : "";

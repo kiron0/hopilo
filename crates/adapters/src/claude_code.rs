@@ -114,7 +114,7 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
     Some(DiscoveredSession {
         adapter: "claude-code".into(),
         path: path.display().to_string(),
-        title: title.or(first_prompt).unwrap_or_else(|| format!("Session {}", &session_id[..8.min(session_id.len())])),
+        title: title.or(first_prompt).unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>())),
         session_id,
         project,
         model,

@@ -4,6 +4,8 @@ let seq = 0;
 
 const MAX_FETCH_BYTES = 20 * 1024 * 1024;
 
+const CONTENT_SCRIPT_TYPES = new Set(["session.getDraft", "handoff.record"]);
+
 function hostAllowed(u: URL): boolean {
   const patterns = chrome.runtime.getManifest().host_permissions ?? [];
   return patterns.some((p: string) => {
@@ -51,6 +53,13 @@ async function fetchFile(url: string, maxBytes: number) {
   const limit = Math.min(Math.max(0, Number(maxBytes) || 0), MAX_FETCH_BYTES);
   const res = await fetch(u.href, { credentials: "include" });
   if (!res.ok) return { ok: false };
+  // Redirects are followed automatically; refuse bytes that ended up on a host we never allowed.
+  try {
+    const final = new URL(res.url || u.href);
+    if (final.protocol !== "https:" || !hostAllowed(final)) return { ok: false };
+  } catch {
+    return { ok: false };
+  }
   const declared = Number(res.headers.get("content-length"));
   if (declared > limit) return { ok: false };
   const bytes = await readCapped(res, limit);
@@ -70,6 +79,13 @@ chrome.runtime.onMessage.addListener((msg: BgRequest, sender, reply) => {
   }
 
   if (msg?.kind !== "host") return false;
+  // Content scripts live inside third-party pages. They only need to fetch one draft for a
+  // dropped session and record the result; listing the library or importing captures is
+  // reserved for the extension's own popup.
+  if (sender.tab && !CONTENT_SCRIPT_TYPES.has(String(msg.body?.type))) {
+    reply({ requestId: "", ok: false, error: { code: "forbidden", message: "Not allowed from a web page." } });
+    return false;
+  }
   const body = { ...msg.body, requestId: `${Date.now()}-${++seq}` };
   chrome.runtime.sendNativeMessage(HOST_NAME, body, (resp) => {
     const err = chrome.runtime.lastError;

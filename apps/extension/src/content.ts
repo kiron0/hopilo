@@ -100,6 +100,8 @@ if (adapter && !(window as unknown as { __hopilo_overlay_injected?: boolean })._
   ui.zone.addEventListener("dragover", (e) => e.preventDefault());
   ui.zone.addEventListener("drop", async (e) => {
     e.preventDefault();
+    // Only a real drag by the user may pull a library session into the page.
+    if (!e.isTrusted) return;
     depth = 0;
     ui.hostEl.style.display = "none";
     const ref = e.dataTransfer?.getData("text/plain").trim() ?? "";
