@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { saveSetting, useBootstrap } from "../lib/hooks";
 import { type Settings, useApp } from "../lib/store";
-import { autostartLabel, isLinux, isMac, trayIconLabel, trayLabel } from "../lib/platform";
+import { autostartLabel, isLinux, trayIconLabel, trayLabel } from "../lib/platform";
 import { Button, Segmented, Toggle } from "../components/ui";
 
 /**
@@ -33,9 +33,9 @@ export function Welcome() {
   if (!ready) return null;
 
   const toggleAutostart = async (v: boolean) => {
+    setAutostart(v);
     try {
       await (v ? enable() : disable());
-      setAutostart(await isEnabled());
     } catch {
       setAutostart(await isEnabled().catch(() => null));
     }
@@ -89,7 +89,7 @@ export function Welcome() {
       <Button variant="primary" className="mt-4 w-full" onClick={() => invoke("finish_welcome").catch(() => undefined)}>
         Get Started
       </Button>
-      {isMac && <p className="mt-2.5 text-center text-[11px] text-faint">Open Settings any time from the menu-bar icon.</p>}
+      <p className="mt-2.5 text-center text-[11px] text-faint">Open Settings any time from the {trayIconLabel.toLowerCase()}.</p>
     </div>
   );
 }

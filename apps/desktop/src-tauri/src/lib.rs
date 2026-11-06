@@ -174,6 +174,19 @@ fn hide_main(window: &tauri::Window) {
     refresh_dock(window.app_handle(), Some("main"));
 }
 
+/// The Dock icon only exists while the dashboard is open, so a reopen or a
+/// second launch with the dashboard hidden means a relaunch from Finder,
+/// Spotlight or another copy of the app: answer with the menu-bar panel,
+/// never the dashboard.
+fn answer_relaunch(app: &AppHandle) {
+    let visible = |label: &str| app.get_webview_window(label).and_then(|w| w.is_visible().ok()).unwrap_or(false);
+    if visible("main") {
+        show_main(app);
+    } else if !visible("quick") {
+        toggle_quick_panel(app, tray_rect(app));
+    }
+}
+
 fn tray_rect(app: &AppHandle) -> Option<Rect> {
     app.tray_by_id("hopilo")?.rect().ok().flatten()
 }
@@ -262,7 +275,15 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
-    let mut app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be registered first. One Hopilo per user, whatever copy or path it
+    // was launched from (e.g. a GitHub release in /Applications next to a
+    // local build in ~/Applications): a second launch exits at once and the
+    // running instance answers it like a relaunch. Release builds only, so a
+    // `tauri dev` build can run next to an installed Hopilo.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| answer_relaunch(app)));
+    let mut app = builder
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["quick", "welcome"])
@@ -306,6 +327,18 @@ pub fn run() {
             }
             if first_launch {
                 open_welcome(app.handle())?;
+            }
+
+            // Launch at login stores an absolute path to whichever copy turned it
+            // on. Re-register from this copy so login starts the version that is
+            // actually running (an updated or relocated install), not a stale one.
+            // Release builds only: a dev binary must never become the login item.
+            if !cfg!(debug_assertions) {
+                use tauri_plugin_autostart::ManagerExt;
+                let launcher = app.autolaunch();
+                if launcher.is_enabled().unwrap_or(false) {
+                    let _ = launcher.enable();
+                }
             }
 
             let sync_handle = app.handle().clone();
@@ -386,12 +419,7 @@ pub fn run() {
     app.run(|app, event| {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
-            let main_visible = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false);
-            if main_visible {
-                show_main(app);
-            } else {
-                toggle_quick_panel(app, tray_rect(app));
-            }
+            answer_relaunch(app);
         }
         let _ = (app, event);
     });

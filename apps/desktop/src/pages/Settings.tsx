@@ -85,7 +85,7 @@ export function Settings() {
   const [verifying, setVerifying] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateCheckResult>({
     status: "idle",
-    currentVersion: "0.1.0",
+    currentVersion: "",
   });
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
@@ -143,10 +143,10 @@ export function Settings() {
               autostart === null
                 ? "Not supported in this environment."
                 : isMac
-                ? "Off unless you turn it on."
+                ? "Start Hopilo in the menu bar when you log in."
                 : isWindows
-                ? "Start Hopilo automatically when Windows boots."
-                : "Start Hopilo automatically on desktop login."
+                ? "Start Hopilo in the system tray when you sign in to Windows."
+                : "Start Hopilo in the system tray when you log in."
             }
           >
             <Toggle
@@ -154,33 +154,23 @@ export function Settings() {
               checked={!!autostart}
               disabled={autostart === null}
               onChange={async (v) => {
+                // Flip at once; turning it off removes the login item.
+                setAutostart(v);
                 try {
                   await (v ? enable() : disable());
-                  setAutostart(await isEnabled());
                 } catch (e) {
                   toast({ kind: "error", text: errorText(e) });
+                  setAutostart(await isEnabled().catch(() => !v));
                 }
               }}
             />
           </Row>
-          <Row
-            label="Closing the window"
-            hint={
-              isMac
-                ? "Closes the dashboard like a normal macOS window. Hopilo remains available from the menu bar."
-                : "Closes the dashboard while Hopilo keeps running in the system tray."
-            }
-          >
-            <span className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] font-medium text-muted">
-              {isMac ? "Close window" : "Run in background"}
-            </span>
-          </Row>
-          {isLinux ? (
-            <Row label="System tray interaction" hint="Linux tray APIs expose the menu, not direct icon clicks.">
-              <span className="text-[12.5px] text-muted">Open from menu</span>
-            </Row>
-          ) : (
-            <Row label={isMac ? "Menu-bar icon click" : "System tray icon click"}>
+          {/* Linux trays only open their menu on click, so there is no click to configure. */}
+          {!isLinux && (
+            <Row
+              label={isMac ? "Menu-bar icon click" : "System tray icon click"}
+              hint={`Closing the dashboard keeps Hopilo running in the ${isMac ? "menu bar" : "system tray"}.`}
+            >
               <Segmented
                 label="Tray click"
                 value={s.trayClick}
@@ -253,9 +243,6 @@ export function Settings() {
           <Row label="How much to include" hint="Full is everything; Balanced keeps every request and recent messages; Minimal is goal, latest exchange and key references. No AI is used: the levels are fixed rules.">
             <Segmented label="Default level" value={s.level} onChange={(v) => saveSetting("level", v)} options={[{ value: "full", label: "Full" }, { value: "balanced", label: "Balanced" }, { value: "minimal", label: "Minimal" }]} />
           </Row>
-          <Row label="Delivery" hint="Copy and export only. Hopilo never submits a message.">
-            <span className="text-[12.5px] text-muted">Draft only</span>
-          </Row>
         </Group>
         </>
         )}
@@ -279,7 +266,7 @@ export function Settings() {
           <Row label="Network" hint="100% offline. No accounts, analytics, telemetry or AI calls. Only Check for Updates contacts GitHub, when you click it.">
             <span className="text-[12.5px] font-medium text-success">{`100% Offline · Nothing leaves your ${deviceNoun}`}</span>
           </Row>
-          <Row label="Clipboard" hint="Read only when you choose Clipboard in Add.">
+          <Row label="Clipboard" hint="Read only when you save the clipboard as a session. Hopilo never submits a message: copies are drafts you paste yourself.">
             <span className="text-[12.5px] text-muted">On request</span>
           </Row>
           <Row label="Sensitive-data check" hint="Warns about keys, tokens and emails when you copy.">
@@ -350,7 +337,7 @@ export function Settings() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-display text-[18px] font-bold tracking-tight">Hopilo</span>
                     <span className="rounded-full bg-accent-soft px-2.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">
-                      VERSION {info.data ? info.data.version : "0.1.0"}
+                      VERSION {info.data ? info.data.version : "…"}
                     </span>
                     <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-500 border border-emerald-500/20">
                       100% OFFLINE
@@ -547,7 +534,7 @@ export function Settings() {
       {showUpdateModal && updateState.update && (
         <UpdateModal
           update={updateState.update}
-          currentVersion={info.data?.version ?? "0.1.0"}
+          currentVersion={info.data?.version ?? updateState.currentVersion}
           onClose={() => setShowUpdateModal(false)}
         />
       )}

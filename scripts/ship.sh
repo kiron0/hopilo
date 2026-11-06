@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_NAME="Hopilo"
+BUNDLE_ID="io.coreify.hopilo"
 KEY_PATH="$ROOT_DIR/apps/desktop/.tauri/hopilo.key"
 
 os_name() {
@@ -15,16 +16,85 @@ os_name() {
   esac
 }
 
-wait_for_exit() {
-  local attempt=0
-  while pgrep -x "$APP_NAME" >/dev/null 2>&1 && [ "$attempt" -lt 20 ]; do
+# PIDs of every installed Hopilo, whatever copy or path it runs from (e.g. a
+# GitHub release in /Applications next to a local build in ~/Applications).
+# Dev builds (target/debug/Hopilo) are left alone.
+running_pids() {
+  case "$OS" in
+    macos)
+      # Every running app bundle with Hopilo's bundle id.
+      lsappinfo list 2>/dev/null | awk -v id="\"$BUNDLE_ID\"" '
+        /bundleID=/ { want = index($0, "bundleID=" id) > 0 }
+        want && /pid = / { for (i = 1; i <= NF; i++) if ($i == "pid") { print $(i + 2); want = 0 } }
+      '
+      # Fallback for copies LaunchServices doesn't list (e.g. started by a login agent before registration).
+      pgrep -f "\.app/Contents/MacOS/$APP_NAME\$" 2>/dev/null || true
+      ;;
+    linux)
+      pgrep -f "$APP_NAME\.AppImage" 2>/dev/null || true
+      pgrep -x "$APP_NAME" 2>/dev/null || true
+      ;;
+  esac | sort -u
+}
+
+stop_running() {
+  local pids attempt=0
+  pids="$(running_pids)"
+  [ -z "$pids" ] && return 0
+  echo "Stopping $APP_NAME (pid $(echo $pids | tr '\n' ' '))"
+  # Graceful first so the library flushes, then force.
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  while [ -n "$(running_pids)" ] && [ "$attempt" -lt 20 ]; do
     sleep 0.25
     attempt=$((attempt + 1))
   done
-  if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+  pids="$(running_pids)"
+  if [ -n "$pids" ]; then
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
+    sleep 0.5
+  fi
+  if [ -n "$(running_pids)" ]; then
     echo "$APP_NAME did not exit." >&2
     exit 1
   fi
+}
+
+# Launch at login must start the copy just installed, not an older one: the
+# login agent stores an absolute path to whichever copy last turned it on.
+repoint_login_item() {
+  local exe="$1"
+  case "$OS" in
+    macos)
+      local plist="$HOME/Library/LaunchAgents/$APP_NAME.plist"
+      [ -f "$plist" ] || return 0
+      local current
+      current="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$plist" 2>/dev/null || true)"
+      if [ "$current" != "$exe" ]; then
+        /usr/libexec/PlistBuddy -c "Set :ProgramArguments:0 $exe" "$plist"
+        echo "Launch at login now starts: $exe (was: ${current:-unset})"
+      fi
+      ;;
+    linux)
+      local desktop="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP_NAME.desktop"
+      [ -f "$desktop" ] || return 0
+      sed -i "s|^Exec=.*|Exec=$exe|" "$desktop"
+      ;;
+  esac
+}
+
+# Other installed copies of the app (same bundle id, different path). They are
+# not removed, but they can start at login or be opened by mistake.
+warn_other_copies() {
+  local dest="$1"
+  [ "$OS" = "macos" ] || return 0
+  mdfind "kMDItemCFBundleIdentifier == '$BUNDLE_ID'" 2>/dev/null | while read -r app; do
+    case "$app" in
+      "$dest"|"$ROOT_DIR"/*) ;;
+      *) echo "Note: another copy of $APP_NAME is installed at $app ($(defaults read "$app/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo '?')). Only one runs at a time; remove it if you no longer need it." ;;
+    esac
+  done
 }
 
 latest_file() {
@@ -63,14 +133,13 @@ else
   exit 1
 fi
 
-echo "[3/5] Stop running $APP_NAME"
+echo "[3/5] Stop every running $APP_NAME"
 case "$OS" in
   windows)
-    powershell.exe -NoProfile -Command "Get-Process '$APP_NAME' -ErrorAction SilentlyContinue | Stop-Process -Force"
+    powershell.exe -NoProfile -Command "Get-Process '$APP_NAME' -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 500"
     ;;
   *)
-    pkill -x "$APP_NAME" 2>/dev/null || true
-    wait_for_exit
+    stop_running
     ;;
 esac
 
@@ -117,12 +186,18 @@ case "$OS" in
 esac
 
 echo "Installed: $DEST"
+case "$OS" in
+  macos) repoint_login_item "$DEST/Contents/MacOS/$APP_NAME" ;;
+  linux) repoint_login_item "$DEST" ;;
+esac
+warn_other_copies "$DEST"
 echo "App data preserved: $DATA_DIR"
 
 echo "[5/5] Launch + verify"
 case "$OS" in
   macos)
-    open -n "$DEST"
+    # No -n: never start a second instance next to a running one.
+    open "$DEST"
     ;;
   linux)
     nohup "$DEST" > /tmp/hopilo-ship.log 2>&1 &
@@ -136,9 +211,15 @@ esac
 sleep 2
 if [ "$OS" = "windows" ]; then
   powershell.exe -NoProfile -Command "if (-not (Get-Process '$APP_NAME' -ErrorAction SilentlyContinue)) { exit 1 }"
-elif ! pgrep -x "$APP_NAME" >/dev/null 2>&1; then
-  echo "$APP_NAME launch verification failed." >&2
-  exit 1
+else
+  count="$(running_pids | grep -c . || true)"
+  if [ "$count" -eq 0 ]; then
+    echo "$APP_NAME launch verification failed." >&2
+    exit 1
+  elif [ "$count" -gt 1 ]; then
+    echo "More than one $APP_NAME is running: $(running_pids | tr '\n' ' ')" >&2
+    exit 1
+  fi
 fi
 
 echo "$APP_NAME installed, launched, app data kept."
