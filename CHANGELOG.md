@@ -10,7 +10,7 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Fixed
 
-- **Launch and close behavior**: Hopilo now always opens the dashboard on launch. Closing the main window fully quits the app, removing the Dock running-indicator dot while leaving any user-pinned Dock icon in place.
+- **Launch and close behavior**: Hopilo now always opens the dashboard on launch. On macOS, closing behaves like a normal window close and leaves Hopilo in the menu bar. On Windows and Linux, closing removes the dashboard while Hopilo continues in the system tray. Use **Quit Hopilo** to exit fully.
 - **macOS launch permissions**: Automatic session sync no longer probes files inside protected Desktop, Documents, or Downloads folders, preventing Files & Folders prompts from blocking the dashboard.
 - **Foreground launch after shipping**: macOS local installs now launch Hopilo in foreground, so dashboard receives focus immediately.
 - **Clean and ship scripts**: Cleanup now accepts native and cross-target bundle paths, while shipping regenerates the required sidecar before Rust validation. Root package version now stays synchronized during version bumps.

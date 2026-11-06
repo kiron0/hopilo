@@ -165,10 +165,14 @@ export function Settings() {
           </Row>
           <Row
             label="Closing the window"
-            hint="The close button fully quits Hopilo, including its menu-bar or system-tray process."
+            hint={
+              isMac
+                ? "Closes the dashboard like a normal macOS window. Hopilo remains available from the menu bar."
+                : "Closes the dashboard while Hopilo keeps running in the system tray."
+            }
           >
             <span className="rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-[12.5px] font-medium text-muted">
-              Quit Hopilo
+              {isMac ? "Close window" : "Run in background"}
             </span>
           </Row>
           {isLinux ? (
