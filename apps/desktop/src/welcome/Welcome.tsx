@@ -11,6 +11,7 @@ export function Welcome() {
   const ready = useBootstrap();
   const settings = useApp((s) => s.settings);
   const [autostart, setAutostart] = useState<boolean | null>(null);
+  const [finishing, setFinishing] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const shown = useRef(false);
   const bg = settings.background ?? "mist";
@@ -84,7 +85,15 @@ export function Welcome() {
       </section>
 
       <div className="relative z-10 mt-4">
-        <Button variant="primary" className="w-full" onClick={() => invoke("finish_welcome").catch(() => undefined)}>
+        <Button
+          variant="primary"
+          className="w-full"
+          disabled={finishing}
+          onClick={() => {
+            setFinishing(true);
+            invoke("finish_welcome").catch(() => setFinishing(false));
+          }}
+        >
           Get Started
         </Button>
       </div>

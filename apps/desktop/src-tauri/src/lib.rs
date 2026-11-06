@@ -60,14 +60,10 @@ fn app_ready(window: tauri::Window, height: Option<f64>) {
 
 #[tauri::command]
 fn finish_welcome(app: AppHandle) {
+    show_main(&app);
     if let Some(w) = app.get_webview_window("welcome") {
         let _ = w.close();
     }
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(150));
-        let handle = app.clone();
-        let _ = app.run_on_main_thread(move || toggle_quick_panel(&handle, tray_rect(&handle)));
-    });
 }
 
 fn open_welcome(app: &AppHandle) -> tauri::Result<()> {
