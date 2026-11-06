@@ -453,4 +453,33 @@ mod tests {
             vec!["1 compaction(s): Codex stored the summary encrypted without decryption material"]
         );
     }
+
+    #[test]
+    fn discovers_codex_titles_from_sqlite() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("state_5.sqlite");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE threads (id TEXT PRIMARY KEY, title TEXT, name TEXT);
+             INSERT INTO threads VALUES ('01a19260-6c0e-71b0-af05-663eab868c63', 'Course alerts', 'Add course material alerts');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let sessions = dir.path().join("sessions/2026/11/01");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let path = sessions.join("rollout-2026-11-01T02-10-53-01a19260-6c0e-71b0-af05-663eab868c63.jsonl");
+        std::fs::write(
+            &path,
+            "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/work/app\"}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"# Context from IDE\"}]}}\n",
+        )
+        .unwrap();
+
+        let found = Codex.discover(&dir.path().join("sessions")).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].title, "Add course material alerts");
+
+        let cap = Codex.read(&path).unwrap();
+        assert_eq!(cap.source.title, "Add course material alerts");
+    }
 }
