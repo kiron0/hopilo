@@ -49,7 +49,7 @@ function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: bo
         <button
           type="button"
           onClick={() => navigate({ page: "sessions", filter: "all" })}
-          className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
+          className="group flex items-center gap-1 rounded-full border border-line bg-surface px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:text-ink hover:shadow-card active:scale-[0.98]"
         >
           <span>Open</span>
           <ChevronRight size={13} className="text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
@@ -394,7 +394,7 @@ export function Overview() {
             <button
               type="button"
               onClick={() => navigate({ page: "sessions", filter: "all" })}
-              className="group flex h-12 items-center gap-2.5 rounded-full border border-line bg-surface/90 px-4 text-[13px] font-medium text-ink shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:shadow-card active:scale-[0.98]"
+              className="group flex h-12 items-center gap-2.5 rounded-full border border-line bg-surface px-4 text-[13px] font-medium text-ink shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:shadow-card active:scale-[0.98]"
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-white">
                 <MessagesSquare size={14} />
@@ -475,7 +475,7 @@ export function Overview() {
             <h2 className="font-semibold text-[15px]">Recent sessions</h2>
             <button
               type="button"
-              className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
+              className="group flex items-center gap-1 rounded-full border border-line bg-surface px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:text-ink hover:shadow-card active:scale-[0.98]"
               onClick={() => navigate({ page: "sessions", filter: "all" })}
             >
               <span>All</span>
@@ -501,7 +501,7 @@ export function Overview() {
             <h2 className="font-semibold text-[15px]">How it works</h2>
             <button
               type="button"
-              className="group flex items-center gap-1 rounded-full border border-line bg-surface/80 px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:bg-surface hover:text-ink hover:shadow-card active:scale-[0.98]"
+              className="group flex items-center gap-1 rounded-full border border-line bg-surface px-3 py-1 text-[12px] font-medium text-muted shadow-item transition-all hover:-translate-y-px hover:border-line-strong hover:text-ink hover:shadow-card active:scale-[0.98]"
               onClick={() => setAdding(true)}
             >
               <span>Add session</span>

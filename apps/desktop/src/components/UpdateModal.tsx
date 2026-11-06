@@ -50,7 +50,7 @@ export function UpdateModal({
       )}
     >
       <div className="space-y-4">
-        <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface-2/60 p-4">
+        <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface-2 p-4">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
             <SparkIcon size={22} />
           </div>

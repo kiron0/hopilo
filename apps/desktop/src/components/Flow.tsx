@@ -3,7 +3,7 @@ import { useApp } from "../lib/store";
 
 const FRAG = `
 precision highp float;
-uniform vec2 r; uniform float t; uniform float energy; uniform float mode;
+uniform vec2 r; uniform float t; uniform float energy; uniform float mode; uniform float dark;
 uniform vec3 c1; uniform vec3 c2; uniform vec3 c3; uniform vec3 c4;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
@@ -43,7 +43,9 @@ void main(){
     vec2 c = uv - 0.5;
     float vig = smoothstep(0.12, 0.78, length(c * vec2(1.0, 1.35)));
     float mask = (0.16 + 0.6 * ribbon + 0.45 * gust) * (0.4 + 0.6 * vig) * (0.55 + 0.6 * f);
-    vec3 col = mix(paint(w, ribbon, f), vec3(1.0), gust * 0.35);
+    vec3 base = paint(w, ribbon, f);
+    vec3 highlight = mix(vec3(1.0), base * 1.4, dark);
+    vec3 col = mix(base, highlight, gust * mix(0.35, 0.25, dark));
     float a = clamp(mask * energy + dither, 0.0, 0.9);
     gl_FragColor = vec4(col * a, a);
   }
@@ -62,6 +64,13 @@ const MOODS = [
   ["#a9d2ff", "#c9bcff", "#ffc6dd", "#e4f1ff"],
   ["#a8f0dc", "#b5dcff", "#ffd6c2", "#d9cfff"],
   ["#ffc2b0", "#d6b8ff", "#ffb8d6", "#ffe6c4"],
+].map((m) => m.map(hex));
+
+const DARK_MOODS = [
+  ["#f43f8e", "#fb923c", "#3b82f6", "#a855f7"],
+  ["#06b6d4", "#6366f1", "#ec4899", "#8b5cf6"],
+  ["#10b981", "#0ea5e9", "#f97316", "#9333ea"],
+  ["#fb7185", "#7c3aed", "#e11d48", "#f59e0b"],
 ].map((m) => m.map(hex));
 
 const DARK_THIN = 0.62;
@@ -113,6 +122,9 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       const s = gl.createShader(type)!;
       gl.shaderSource(s, src);
       gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error("Shader compile error:", gl.getShaderInfoLog(s));
+      }
       return s;
     };
     const prog = gl.createProgram()!;
@@ -125,7 +137,10 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     );
     gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.error("Program link error:", gl.getProgramInfoLog(prog));
+      return;
+    }
     gl.useProgram(prog);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(
@@ -142,6 +157,7 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       t: u("t"),
       energy: u("energy"),
       mode: u("mode"),
+      dark: u("dark"),
       c: [u("c1"), u("c2"), u("c3"), u("c4")],
     };
 
@@ -156,7 +172,8 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     ro.observe(canvas);
 
     const reduce = motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const colors = (mode === "mist" ? MOODS[0] : PLUME).map((c) => [...c] as RGB);
+    const initialMoods = live.current.dark ? DARK_MOODS : MOODS;
+    const colors = (mode === "mist" ? initialMoods[0] : PLUME).map((c) => [...c] as RGB);
     let clock = mode === "mist" ? 50 : 20;
     let thin = live.current.dark ? 1 : 0;
     let last = performance.now();
@@ -187,7 +204,7 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
 
       const target =
         mode === "mist"
-          ? MOODS[Math.floor(clock / 18) % MOODS.length]
+          ? (st.dark ? DARK_MOODS : MOODS)[Math.floor(clock / 18) % MOODS.length]
           : st.calm
           ? CALM
           : PLUME;
@@ -202,8 +219,10 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       gl.uniform1f(U.t, clock);
       thin += ((st.dark ? 1 : 0) - thin) * (1 - Math.exp(-dt * 3));
       const plume = (1.15 + st.boost * 0.25) * (1 - thin * DARK_THIN);
-      gl.uniform1f(U.energy, mode === "mist" ? 1.4 : plume);
+      const mistEnergy = st.dark ? 1.35 : 1.4;
+      gl.uniform1f(U.energy, mode === "mist" ? mistEnergy : plume);
       gl.uniform1f(U.mode, mode === "mist" ? 1 : 0);
+      gl.uniform1f(U.dark, st.dark ? 1 : 0);
       U.c.forEach((loc, i) => gl.uniform3fv(loc, colors[i]));
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -257,15 +276,10 @@ export function BacklightGlow() {
 
 export function BackgroundLayer() {
   const settings = useApp((s) => s.settings);
-  const theme = settings.theme;
-  const systemDark = useSystemDark();
-  const dark = theme === "dark" || (theme === "system" && systemDark);
   const bg = settings.background ?? "mist";
 
   if (bg === "mist") {
-    return dark ? (
-      <BacklightGlow />
-    ) : (
+    return (
       <div className="bg-layer" aria-hidden="true">
         <Flow mode="mist" />
       </div>

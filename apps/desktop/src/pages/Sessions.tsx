@@ -511,7 +511,7 @@ function SessionList() {
               return (
                 <section key={group.key} aria-label={group.label || "Sessions"} className={settings.sessionGroup === "none" ? undefined : "border-b border-line last:border-b-0"}>
                   {group.label && (
-                    <div className="flex items-center gap-2 border-b border-line bg-surface-2/70 px-4 py-2">
+                    <div className="flex items-center gap-2 border-b border-line bg-surface-2 px-4 py-2">
                       {isFolder && (
                         <Checkbox
                           label={`Select all in ${group.label}`}
@@ -543,7 +543,7 @@ function SessionList() {
               );
             })}
           </div>
-          <div className="shrink-0 border-t border-line bg-surface-2/50 px-4 py-2.5">
+          <div className="shrink-0 border-t border-line bg-surface-2 px-4 py-2.5">
             {ids.length > 0 ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[12.5px] font-medium">{plural(ids.length, "session")} selected</span>

@@ -103,7 +103,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={() => setPaletteOpen(true)}
-          className="flex h-8.5 w-72 items-center gap-2 rounded-full border border-line bg-card/90 px-3 text-faint shadow-item transition-all hover:bg-card hover:text-muted hover:shadow-card active:scale-[0.99] cursor-pointer"
+          className="flex h-8.5 w-72 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item transition-all hover:text-muted hover:shadow-card active:scale-[0.99] cursor-pointer"
         >
           <Kbd>{modKey}K</Kbd>
           <span className="flex-1 text-left text-[12.5px] text-muted">Search sessions & actions…</span>

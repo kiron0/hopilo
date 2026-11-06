@@ -189,7 +189,7 @@ export function HandoffModal({
     >
       <div className="space-y-4">
         {action === "copy" && (
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-line bg-surface-2/40 px-3.5 py-2.5">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-line bg-surface-2 px-3.5 py-2.5">
             <div>
               <span className="text-[13px] font-semibold text-ink">Continue in target</span>
               <p className="text-[11.5px] text-muted">Hopilo will format the prompt pack for this assistant.</p>
@@ -314,7 +314,7 @@ export function HandoffModal({
           </div>
         </div>
 
-        <div className="rounded-xl border border-line bg-surface-2/40 p-3.5">
+        <div className="rounded-xl border border-line bg-surface-2 p-3.5">
           {loading && !data ? (
             <div className="flex items-center gap-3">
               <Skeleton className="h-5 w-5 rounded-full" />

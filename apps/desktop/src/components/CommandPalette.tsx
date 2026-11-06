@@ -178,7 +178,7 @@ export function CommandPalette() {
           </Command.Group>
         </Command.List>
 
-        <div className="flex items-center justify-between border-t border-line bg-surface-2/40 px-5 py-2.5 text-[11.5px] text-faint">
+        <div className="flex items-center justify-between border-t border-line bg-surface-2 px-5 py-2.5 text-[11.5px] text-faint">
           <div className="flex items-center gap-3">
             <span><Kbd>↑</Kbd> <Kbd>↓</Kbd> navigate</span>
             <span><Kbd>↵</Kbd> select</span>

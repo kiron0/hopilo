@@ -50,7 +50,7 @@ export function Welcome() {
         </p>
       </header>
 
-      <section className="relative z-10 space-y-2.5 rounded-xl border border-line bg-surface-2/50 p-3">
+      <section className="relative z-10 space-y-2.5 rounded-xl border border-line bg-surface-2 p-3">
         <h2 className="text-[13px] font-semibold">Quick setup</h2>
         <Line label={autostartLabel}>
           <Toggle label={autostartLabel} checked={!!autostart} disabled={autostart === null} onChange={toggleAutostart} />

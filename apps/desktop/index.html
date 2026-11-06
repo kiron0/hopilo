@@ -6,9 +6,155 @@
     <meta name="color-scheme" content="light dark" />
     <title>Hopilo</title>
     <script src="/theme-init.js"></script>
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle 500px at 50% 42%, #f1f0f8 0%, #e7e8ee 100%);
+        z-index: 9999;
+        user-select: none;
+        -webkit-user-select: none;
+        overflow: hidden;
+      }
+      :root[data-theme="dark"] #splash {
+        background: radial-gradient(circle 500px at 50% 42%, #141726 0%, #07080c 100%);
+      }
+      html:not([data-surface]) #splash {
+        display: flex;
+      }
+      .splash-glow {
+        position: absolute;
+        width: 380px;
+        height: 380px;
+        border-radius: 9999px;
+        background: radial-gradient(circle, rgba(122, 130, 255, 0.15) 0%, rgba(224, 82, 142, 0.06) 45%, transparent 70%);
+        filter: blur(40px);
+        pointer-events: none;
+        animation: splash-glow-pulse 3.6s ease-in-out infinite alternate;
+      }
+      :root[data-theme="dark"] .splash-glow {
+        background: radial-gradient(circle, rgba(122, 130, 255, 0.22) 0%, rgba(224, 82, 142, 0.10) 45%, transparent 70%);
+        filter: blur(48px);
+      }
+      .splash-body {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        animation: splash-body-reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .splash-mark-wrap {
+        position: relative;
+        width: 68px;
+        height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: splash-float 3.2s ease-in-out infinite alternate;
+      }
+      .splash-mark-halo {
+        position: absolute;
+        inset: -6px;
+        border-radius: 24px;
+        background: radial-gradient(circle at 50% 30%, rgba(138, 147, 255, 0.3), transparent 75%);
+        filter: blur(12px);
+        pointer-events: none;
+      }
+      .splash-icon {
+        width: 68px;
+        height: 68px;
+        border-radius: 20px;
+        filter: drop-shadow(0 12px 24px rgba(42, 22, 147, 0.25));
+      }
+      :root[data-theme="dark"] .splash-icon {
+        filter: drop-shadow(0 14px 32px rgba(90, 99, 255, 0.35));
+      }
+      .splash-brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .splash-title {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        color: #161822;
+      }
+      :root[data-theme="dark"] .splash-title {
+        color: #f2f4f8;
+        text-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+      }
+      .splash-loader {
+        width: 130px;
+        height: 3px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.07);
+        overflow: hidden;
+        position: relative;
+        margin-top: 2px;
+      }
+      :root[data-theme="dark"] .splash-loader {
+        background: rgba(255, 255, 255, 0.09);
+        box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.3);
+      }
+      .splash-loader::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 45%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #ff5d8f, #8c93ff 60%, #5a63ff);
+        box-shadow: 0 0 12px rgba(140, 147, 255, 0.55);
+        animation: splash-shimmer 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      #splash.splash-fading {
+        opacity: 0;
+        transform: scale(1.02);
+        filter: blur(6px);
+        transition: opacity 280ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        pointer-events: none;
+      }
+      @keyframes splash-glow-pulse {
+        0% { transform: scale(0.92); opacity: 0.65; }
+        100% { transform: scale(1.08); opacity: 1; }
+      }
+      @keyframes splash-body-reveal {
+        from { opacity: 0; transform: translateY(8px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes splash-float {
+        0% { transform: translateY(0); }
+        100% { transform: translateY(-4px); }
+      }
+      @keyframes splash-shimmer {
+        0% { left: -45%; }
+        100% { left: 100%; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="splash" aria-hidden="true">
+        <div class="splash-glow"></div>
+        <div class="splash-body">
+          <div class="splash-mark-wrap">
+            <div class="splash-mark-halo"></div>
+            <img src="/hopilo-mark.svg" alt="" class="splash-icon" draggable="false" />
+          </div>
+          <div class="splash-brand">
+            <span class="splash-title">Hopilo</span>
+          </div>
+          <div class="splash-loader"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

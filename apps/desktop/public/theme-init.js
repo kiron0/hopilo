@@ -7,5 +7,10 @@
   var root = document.documentElement;
   root.dataset.theme = dark ? "dark" : "light";
   root.style.colorScheme = dark ? "dark" : "light";
-  if (!/[?&]surface=/.test(location.search)) root.style.background = dark ? "#07080c" : "#ecebf3";
+  var match = location.search.match(/[?&]surface=([^&]+)/);
+  if (match) {
+    root.dataset.surface = match[1];
+  } else {
+    root.style.background = dark ? "#07080c" : "#ecebf3";
+  }
 })();

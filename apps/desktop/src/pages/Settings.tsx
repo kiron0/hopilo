@@ -228,6 +228,7 @@ export function Settings() {
             </div>
           </div>
 
+
           <Row label="Reduce motion" hint="Disables background wandering and smooth rises. Also follows system.">
             <Toggle label="Reduce motion" checked={s.motion === "reduced"} onChange={(v) => saveSetting("motion", v ? "reduced" : "system")} />
           </Row>
@@ -410,7 +411,7 @@ export function Settings() {
           <div className="py-4">
             <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Why Hopilo</div>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-              <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
+              <div className="rounded-xl border border-line bg-card p-3 shadow-item">
                 <div className="font-semibold text-[12.5px] flex items-center gap-1.5">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   <span>100% Offline</span>
@@ -419,13 +420,13 @@ export function Settings() {
                   Everything runs locally on your device with fast storage.
                 </div>
               </div>
-              <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
+              <div className="rounded-xl border border-line bg-card p-3 shadow-item">
                 <div className="font-semibold text-[12.5px]">100% Private</div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
                   {`No accounts, no telemetry, stays on your ${deviceNoun}.`}
                 </div>
               </div>
-              <div className="rounded-xl border border-line bg-card/60 p-3 shadow-item">
+              <div className="rounded-xl border border-line bg-card p-3 shadow-item">
                 <div className="font-semibold text-[12.5px]">Open & Documented</div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
                   Open source with standard Markdown & .handoff files.

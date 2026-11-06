@@ -68,7 +68,7 @@ export function SessionListSkeleton({ rows = 8 }: { rows?: number }) {
           <RowSkeleton key={i} i={i} check />
         ))}
       </div>
-      <div className="flex shrink-0 items-center justify-between border-t border-line bg-surface-2/50 px-4 py-2.5">
+      <div className="flex shrink-0 items-center justify-between border-t border-line bg-surface-2 px-4 py-2.5">
         <Skeleton className="h-3 w-28" />
         <Skeleton className="h-9 w-40 rounded-full" />
       </div>

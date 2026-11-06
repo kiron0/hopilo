@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type Route, routeFrom, useApp } from "./lib/store";
 import { useBootstrap } from "./lib/hooks";
 import { useFileDrop } from "./lib/useFileDrop";
@@ -35,6 +36,55 @@ export function App() {
   const navigate = useApp((s) => s.navigate);
   const [dropped, setDropped] = useState<string[] | null>(null);
   const hovering = useFileDrop((paths) => setDropped(paths));
+  const [hasBeenVisible, setHasBeenVisible] = useState(false);
+  const [minDelayPassed, setMinDelayPassed] = useState(false);
+  const [splashVisible, setSplashVisible] = useState(true);
+  const [splashFading, setSplashFading] = useState(false);
+
+  useEffect(() => {
+    const markVisible = () => setHasBeenVisible(true);
+
+    getCurrentWindow()
+      .isVisible()
+      .then((v) => {
+        if (v) markVisible();
+      })
+      .catch(() => undefined);
+
+    const unVis = listen<boolean>("hopilo://visibility", ({ payload }) => {
+      if (payload) markVisible();
+    });
+
+    const unFocus = getCurrentWindow().onFocusChanged(({ payload }) => {
+      if (payload) markVisible();
+    });
+
+    const onDocVis = () => {
+      if (document.visibilityState === "visible") markVisible();
+    };
+    document.addEventListener("visibilitychange", onDocVis);
+    window.addEventListener("focus", markVisible);
+
+    return () => {
+      unVis.then((f) => f());
+      unFocus.then((f) => f());
+      document.removeEventListener("visibilitychange", onDocVis);
+      window.removeEventListener("focus", markVisible);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasBeenVisible) return;
+    const timer = setTimeout(() => setMinDelayPassed(true), 1500);
+    return () => clearTimeout(timer);
+  }, [hasBeenVisible]);
+
+  useEffect(() => {
+    if (!ready || !minDelayPassed) return;
+    setSplashFading(true);
+    const timer = setTimeout(() => setSplashVisible(false), 280);
+    return () => clearTimeout(timer);
+  }, [ready, minDelayPassed]);
 
   useEffect(() => {
     const un = listen<string>("hopilo://navigate", (e) => navigate(routeFrom(e.payload)));
@@ -48,16 +98,37 @@ export function App() {
     requestAnimationFrame(() => requestAnimationFrame(() => invoke("app_ready").catch(() => undefined)));
   }, [ready]);
 
-  if (!ready) return null;
   return (
     <>
-      <Shell>
-        <ErrorBoundary key={route.page} onOverview={() => navigate({ page: "overview" })}>
-          <Suspense fallback={<RouteSkeleton page={route.page} />}>
-            <Page route={route} />
-          </Suspense>
-        </ErrorBoundary>
-      </Shell>
+      {splashVisible && (
+        <div
+          id="splash"
+          className={splashFading ? "splash-fading" : ""}
+          aria-hidden="true"
+          style={{ display: "flex" }}
+        >
+          <div className="splash-glow" />
+          <div className="splash-body">
+            <div className="splash-mark-wrap">
+              <div className="splash-mark-halo" />
+              <img src="/hopilo-mark.svg" alt="" className="splash-icon" draggable={false} />
+            </div>
+            <div className="splash-brand">
+              <span className="splash-title">Hopilo</span>
+            </div>
+            <div className="splash-loader" />
+          </div>
+        </div>
+      )}
+      {ready && (
+        <Shell>
+          <ErrorBoundary key={route.page} onOverview={() => navigate({ page: "overview" })}>
+            <Suspense fallback={<RouteSkeleton page={route.page} />}>
+              <Page route={route} />
+            </Suspense>
+          </ErrorBoundary>
+        </Shell>
+      )}
       {hovering && !dropped && (
         <div className="pointer-events-none fixed inset-3 z-40 flex items-center justify-center rounded-3xl border-2 border-dashed border-accent bg-accent-soft/80 backdrop-blur-sm">
           <div className="flex flex-col items-center text-accent">
