@@ -35,15 +35,10 @@ struct PanelState {
     hidden_at: Mutex<Option<Instant>>,
 }
 
-struct StartupState {
-    show_main: std::sync::atomic::AtomicBool,
-}
-
 #[tauri::command]
 fn app_ready(window: tauri::Window) {
-    let app = window.app_handle();
-    if window.label() == "main" && app.state::<StartupState>().show_main.swap(false, std::sync::atomic::Ordering::SeqCst) {
-        show_main(app);
+    if window.label() == "main" {
+        show_main(window.app_handle());
     }
 }
 
@@ -160,22 +155,18 @@ pub fn run() {
                 settings: std::sync::RwLock::new(settings.clone()),
             });
 
-            let sync_handle = app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&sync_handle, commands::SyncMode::Background));
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
 
             if let Some(w) = app.get_webview_window("main") {
                 fit_main_to_display(&w);
             }
+            show_main(app.handle());
 
-            app.manage(StartupState { show_main: std::sync::atomic::AtomicBool::new(true) });
-            let handle = app.handle().clone();
+            let sync_handle = app.handle().clone();
             std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_secs(3));
-                if handle.state::<StartupState>().show_main.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                    show_main(&handle);
-                }
+                std::thread::sleep(Duration::from_secs(1));
+                commands::sync_blocking(&sync_handle, commands::SyncMode::Background);
             });
             Ok(())
         })

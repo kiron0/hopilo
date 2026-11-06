@@ -57,6 +57,9 @@ pub fn read_local_file(reference: &str) -> Option<hopilo_core::CapturedFile> {
     if !path.is_absolute() {
         return None;
     }
+    if crate::macos_protected_user_path(path) {
+        return None;
+    }
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_RECOVERED_FILE {
         return None;

@@ -173,6 +173,9 @@ fn extract_project(s: &str) -> Option<String> {
 }
 
 fn project_root(document: &Path) -> Option<PathBuf> {
+    if crate::macos_protected_user_path(document) {
+        return document.parent().map(Path::to_path_buf);
+    }
     let start = if document.is_dir() {
         document
     } else {

@@ -33,6 +33,16 @@ pub enum AdapterError {
 
 pub type Result<T> = std::result::Result<T, AdapterError>;
 
+pub(crate) fn macos_protected_user_path(path: &Path) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let Some(home) = home() else { return false };
+    ["Desktop", "Documents", "Downloads"]
+        .iter()
+        .any(|folder| path.starts_with(home.join(folder)))
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredSession {

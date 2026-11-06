@@ -122,7 +122,7 @@ echo "App data preserved: $DATA_DIR"
 echo "[5/5] Launch + verify"
 case "$OS" in
   macos)
-    open -g -n "$DEST"
+    open -n "$DEST"
     ;;
   linux)
     nohup "$DEST" > /tmp/hopilo-ship.log 2>&1 &
