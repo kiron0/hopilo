@@ -38,7 +38,7 @@ export function Welcome() {
   };
 
   return (
-    <div ref={root} className="app relative flex flex-col overflow-hidden px-[22px] pt-[22px] pb-[22px] text-ink min-h-full" data-bg={bg}>
+    <div ref={root} className="app relative flex flex-col overflow-hidden px-[22px] pt-[28px] pb-[14px] text-ink" data-bg={bg}>
       <BackgroundLayer />
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-8 z-10" />
       <header data-tauri-drag-region className="relative z-10 flex flex-col items-center gap-2.5 pb-5 text-center">
