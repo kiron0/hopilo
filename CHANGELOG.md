@@ -6,6 +6,8 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Added
 
+- **macOS menu-bar popover notch & dynamic anchor arrow**: Quick panel features a unified SVG popover shape with smooth bezier shoulders and a rounded arrow tip pointing directly to the active menu-bar status item on macOS, with the animated mist background shader flowing seamlessly into the arrow.
+- **Session pin indicators in Quick Panel**: Pinned sessions display a dedicated accent pin icon in the quick panel session list for immediate visual confirmation.
 - **Session comparison view**: Compare two sessions side-by-side to inspect differing file edits, contrasting conclusions, and message/token statistics.
 - **Handoff intents & model-specific formatting**: Configurable handoff goals (continue execution, peer review, executive summary, custom templates) with tailored prompt structures for target models like Claude and ChatGPT.
 - **Custom privacy & secret redaction rules**: Add user-defined regex patterns, keyword blacklists, and file path exclusion rules with inline ignore controls in the preflight scan.
@@ -19,6 +21,9 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Fixed
 
+- **Quick panel hook rendering crash**: Fixed a React Error Boundary crash (`Rendered more hooks than during previous render`) in the quick panel caused by hook definitions placed after conditional readiness checks.
+- **Scrollable page bottom gap & sidebar alignment**: Standardized bottom padding across Overview, Settings, Browser, and Compare pages to 24px, perfectly matching the sidebar's bottom stats card and removing trailing whitespace gaps.
+- **Full-height empty comparison state**: Wrapped the session comparison view in a full-height container so the empty state canvas fills the viewport consistently with the rest of the application.
 - **Overview header plume overflow**: Bounded the animated background strictly within the header card using inherited border-radius, strict inset containment, `contain: paint`, and WebKit mask clipping, eliminating corner bleeding or blur spill into adjacent elements.
 - **Secure file and bundle opening**: Library files matching executable extensions are revealed in the operating system's file manager rather than directly executed. Project directory bundles (`.app`, `.pkg`, `.workflow`) are revealed rather than launched when opened from the dashboard.
 - **Export path privacy**: Strips machine-specific local paths from exported Context Packs so user file structures and usernames are never shared with external AI targets.
@@ -28,6 +33,8 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Changed
 
+- **Desktop bundle code splitting & lazy loading**: Lazy-loaded the Command Palette on first demand and dynamically imported window surface roots (`QuickPanel`, `Welcome`, `App`), reducing initial script parse time and memory footprint.
+- **Interactive cursor consistency**: Applied global pointer cursor styling across all interactive elements including buttons, tabs, switches, menu items, checkboxes, radio inputs, and clickable labels.
 - **Solid dark theme overhaul**: Replaced glassy and translucent surfaces throughout the app with solid, high-contrast dark surfaces. Updates sidebar navigation items, bottom stats disk, quick panel, welcome window, settings swatches, bubble discs, buttons, and skeleton loaders.
 - **Settings appearance thumbnails**: Hardcoded dark and system appearance preview swatches with authentic dark background styling regardless of the active app mode.
 - **Codebase comment cleanup**: Cleaned up internal commentary comments across Rust, TypeScript, and shell scripts.
