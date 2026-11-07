@@ -1755,12 +1755,6 @@
   }
 }
 
-.theme-fade,
-.theme-fade *,
-.theme-fade *::before,
-.theme-fade *::after {
-  transition: background-color 0.26s ease, color 0.26s ease, border-color 0.26s ease, fill 0.26s ease, stroke 0.26s ease, box-shadow 0.26s ease !important;
-}
 @media (prefers-reduced-motion: reduce) {
   .toggle::after,
   .toggle::before,

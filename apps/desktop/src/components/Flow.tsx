@@ -98,6 +98,8 @@ export interface FlowProps {
 
 export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const [generation, setGeneration] = useState(0);
+  const failures = useRef(0);
   const theme = useApp((s) => s.settings.theme);
   const motion = useApp((s) => s.settings.motion);
   const systemDark = useSystemDark();
@@ -105,6 +107,9 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
   const live = useRef({ calm, boost: 0, dark });
   live.current.calm = calm;
   live.current.dark = dark;
+  const kick = useRef<() => void>(() => undefined);
+
+  useEffect(() => kick.current(), [dark, calm]);
 
   useEffect(() => {
     if (pulse) live.current.boost = 1;
@@ -118,7 +123,33 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       alpha: true,
       antialias: false,
     });
-    if (!gl || gl.isContextLost()) return;
+    let recover = 0;
+    let retry = 0;
+    const remount = () => {
+      if (recover || failures.current >= 8) return;
+      failures.current += 1;
+      recover = requestAnimationFrame(() => {
+        retry = window.setTimeout(() => setGeneration((g) => g + 1), 250 * failures.current);
+      });
+    };
+    const onLost = (e: Event) => {
+      e.preventDefault();
+      running = false;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      remount();
+    };
+    canvas.addEventListener("webglcontextlost", onLost);
+    let running = true;
+    let raf = 0;
+    if (!gl || gl.isContextLost()) {
+      if (gl) remount();
+      return () => {
+        canvas.removeEventListener("webglcontextlost", onLost);
+        cancelAnimationFrame(recover);
+        clearTimeout(retry);
+      };
+    }
     const compile = (type: number, src: string) => {
       const s = gl.createShader(type)!;
       gl.shaderSource(s, src);
@@ -143,7 +174,8 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       return;
     }
     gl.useProgram(prog);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(
       gl.ARRAY_BUFFER,
       new Float32Array([-1, -1, 3, -1, -1, 3]),
@@ -179,19 +211,15 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     let clock = mode === "mist" ? 50 : 20;
     let thin = live.current.dark ? 1 : 0;
     let last = performance.now();
-    let raf = 0;
-    let running = true;
     let lastDraw = 0;
 
     const schedule = () => {
-      if (running && !reduce && !document.hidden && raf === 0) {
-        raf = requestAnimationFrame(frame);
-      }
+      if (running && !reduce && raf === 0) raf = requestAnimationFrame(frame);
     };
 
     const frame = (now: number) => {
       raf = 0;
-      if (!running || document.hidden) return;
+      if (!running || gl.isContextLost()) return;
       if (!reduce && now - lastDraw < 1000 / 30) {
         schedule();
         return;
@@ -212,7 +240,7 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
           : st.dark
           ? DARK_PLUME
           : PLUME;
-      const ease = mode === "mist" ? 1 - Math.exp(-dt / 5) : 1 - Math.exp(-dt * 2);
+      const ease = reduce ? 1 : mode === "mist" ? 1 - Math.exp(-dt / 5) : 1 - Math.exp(-dt * 2);
       for (let i = 0; i < 4; i++) {
         for (let j = 0; j < 3; j++) {
           colors[i][j] += (target[i][j] - colors[i][j]) * ease;
@@ -221,7 +249,7 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
 
       gl.uniform2f(U.r, canvas.width, canvas.height);
       gl.uniform1f(U.t, clock);
-      thin += ((st.dark ? 1 : 0) - thin) * (1 - Math.exp(-dt * 3));
+      thin += ((st.dark ? 1 : 0) - thin) * (reduce ? 1 : 1 - Math.exp(-dt * 3));
       const plume = (1.15 + st.boost * 0.25) * (1 - thin * DARK_THIN);
       const mistEnergy = st.dark ? 1.35 : 1.4;
       gl.uniform1f(U.energy, mode === "mist" ? mistEnergy : plume);
@@ -231,33 +259,42 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      failures.current = 0;
       schedule();
     };
     raf = requestAnimationFrame(frame);
-    const onVisibility = () => {
-      if (document.hidden) {
-        cancelAnimationFrame(raf);
-        raf = 0;
-      } else {
-        last = performance.now();
-        schedule();
-      }
+    const redraw = () => {
+      last = performance.now();
+      if (reduce) raf ||= requestAnimationFrame(frame);
+      else schedule();
     };
-    document.addEventListener("visibilitychange", onVisibility);
+    kick.current = redraw;
+    document.addEventListener("visibilitychange", redraw);
+    window.addEventListener("focus", redraw);
 
     return () => {
       running = false;
+      kick.current = () => undefined;
       cancelAnimationFrame(raf);
-      document.removeEventListener("visibilitychange", onVisibility);
+      cancelAnimationFrame(recover);
+      clearTimeout(retry);
+      canvas.removeEventListener("webglcontextlost", onLost);
+      document.removeEventListener("visibilitychange", redraw);
+      window.removeEventListener("focus", redraw);
       ro.disconnect();
+      if (!gl.isContextLost()) {
+        gl.deleteBuffer(buffer);
+        gl.deleteProgram(prog);
+      }
       setTimeout(() => {
         if (!canvas.isConnected) gl.getExtension("WEBGL_lose_context")?.loseContext();
       }, 0);
     };
-  }, [mode, motion]);
+  }, [mode, motion, generation]);
 
   return (
     <canvas
+      key={generation}
       ref={ref}
       className={className}
       aria-hidden="true"

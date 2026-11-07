@@ -171,6 +171,7 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
 }
 
 const THEME_KEY = "hopilo.theme";
+let nativeTheme: Settings["theme"] | undefined;
 
 function applyAppearance(s: Settings) {
   const dark = s.theme === "dark" || (s.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -187,28 +188,12 @@ function applyAppearance(s: Settings) {
   } catch {
 
   }
-  if (native) getCurrentWindow().setTheme(s.theme === "system" ? null : s.theme).catch(() => undefined);
-}
-
-let appliedOnce = false;
-let lastLook = "";
-
-let fadeTimer: number | undefined;
-
-function applySmoothly(s: Settings) {
-  const root = document.documentElement;
-  const look = `${s.theme}|${s.background}|${s.motion}`;
-  const changed = appliedOnce && look !== lastLook;
-  lastLook = look;
-  appliedOnce = true;
-  const reduced = s.motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  window.clearTimeout(fadeTimer);
-  root.classList.remove("theme-fade");
-  if (changed && !reduced) {
-    root.classList.add("theme-fade");
-    fadeTimer = window.setTimeout(() => root.classList.remove("theme-fade"), 320);
+  if (native && s.theme !== nativeTheme) {
+    nativeTheme = s.theme;
+    getCurrentWindow().setTheme(s.theme === "system" ? null : s.theme).catch(() => {
+      nativeTheme = undefined;
+    });
   }
-  applyAppearance(s);
 }
 
 export function useBootstrap() {
@@ -269,6 +254,7 @@ export function useBootstrap() {
       if (key === LIST_VIEW_KEY && value && typeof value === "object") {
         if (!isOwnListViewEcho(value)) hydrateListView(value as Partial<ListView>);
       } else if (key in DEFAULT_SETTINGS) {
+        if (savesInFlight.get(key)) return;
         setSettings(normalizeSetting(key, value));
       } else {
         load();
@@ -283,7 +269,7 @@ export function useBootstrap() {
   }, [setSettings, hydrateListView, bump]);
 
   useEffect(() => {
-    applySmoothly(settings);
+    applyAppearance(settings);
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => applyAppearance(useApp.getState().settings);
     mq.addEventListener("change", onChange);
@@ -309,15 +295,30 @@ const SETTING_LABELS: Partial<Record<keyof Settings, string>> = {
   shortcutRedact: "Shortcut redaction",
 };
 
+const savesInFlight = new Map<string, number>();
+const saveChains = new Map<string, Promise<unknown>>();
+
 export async function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
   const prev = useApp.getState().settings[key];
   useApp.getState().setSettings({ [key]: value } as Partial<Settings>);
   const label = SETTING_LABELS[key];
+  savesInFlight.set(key, (savesInFlight.get(key) ?? 0) + 1);
+  const write = (saveChains.get(key) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(() => api.setSetting(key, value));
+  saveChains.set(key, write);
   try {
-    await api.setSetting(key, value);
+    await write;
     if (label) useApp.getState().toast({ key: "setting-saved", kind: "success", text: `${label} saved.` });
   } catch (e) {
-    useApp.getState().setSettings({ [key]: prev } as Partial<Settings>);
+    if (useApp.getState().settings[key] === value) useApp.getState().setSettings({ [key]: prev } as Partial<Settings>);
     useApp.getState().toast({ key: "setting-saved", kind: "error", text: `Couldn't save ${label?.toLowerCase() ?? "that setting"}: ${errorText(e)}` });
+  } finally {
+    const left = (savesInFlight.get(key) ?? 1) - 1;
+    if (left > 0) savesInFlight.set(key, left);
+    else {
+      savesInFlight.delete(key);
+      saveChains.delete(key);
+    }
   }
 }
