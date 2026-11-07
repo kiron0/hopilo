@@ -21,6 +21,10 @@ if (!env.TAURI_SIGNING_PRIVATE_KEY) {
   }
 }
 
-const res = spawnSync("pnpm", args, { cwd: repo, stdio: "inherit", env });
+const res = spawnSync("pnpm", args, { cwd: repo, stdio: "inherit", env, shell: true });
+if (res.error) {
+  console.error(res.error);
+  process.exit(1);
+}
 process.exit(res.status ?? 0);
 

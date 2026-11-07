@@ -8,9 +8,9 @@
     "build": "node scripts/build.mjs",
     "typecheck": "pnpm --filter @hopilo/desktop typecheck && pnpm --filter @hopilo/extension typecheck",
     "test": "cargo test --workspace && pnpm --filter @hopilo/desktop test && pnpm --filter @hopilo/extension test",
-    "clean": "./scripts/clean.sh",
-    "ship": "./scripts/ship.sh",
-    "start": "./scripts/ship.sh",
-    "bump": "./scripts/bump-version.sh"
+    "clean": "node scripts/clean.mjs",
+    "ship": "node scripts/ship.mjs",
+    "start": "node scripts/ship.mjs",
+    "bump": "node scripts/bump-version.mjs"
   }
 }

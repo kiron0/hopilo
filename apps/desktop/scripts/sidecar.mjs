@@ -8,6 +8,13 @@ const tauriDir = join(here, "..", "src-tauri");
 const repo = join(here, "..", "..", "..");
 const release = process.argv.includes("--release");
 
+if (process.platform === "win32") {
+  const msysBin = "C:\\msys64\\mingw64\\bin";
+  if (!process.env.PATH?.includes(msysBin)) {
+    process.env.PATH = `${msysBin};${process.env.PATH || ""}`;
+  }
+}
+
 const hostTriple = () => {
   const out = execFileSync("rustc", ["-vV"], { encoding: "utf8" });
   const line = out.split("\n").find((l) => l.startsWith("host:"));
