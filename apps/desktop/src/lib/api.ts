@@ -377,6 +377,7 @@ export const api = {
 
   compareSessions: (a: string, b: string) => invoke<Comparison>("compare_sessions", { a, b }),
   copyLatest: () => invoke<void>("copy_latest"),
+  getQuickAnchor: () => invoke<number | null>("get_quick_anchor"),
   setGlobalShortcut: (accelerator: string | null) => invoke<void>("set_global_shortcut", { accelerator }),
   testRedactionRule: (pattern: string, keyword: boolean, sample: string) => invoke<RuleTest>("test_redaction_rule", { pattern, keyword, sample }),
   builtinRedactionKinds: () => invoke<string[]>("builtin_redaction_kinds"),

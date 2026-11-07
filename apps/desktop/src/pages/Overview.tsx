@@ -9,8 +9,8 @@ import { Button, Card, cx, ProviderBadge, Skeleton } from "../components/ui";
 import { RowSkeleton } from "../components/Skeletons";
 import { AddSessionModal } from "../components/AddSession";
 import { HandoffModal, type HandoffAction } from "../components/HandoffModal";
-import { sessionLoader } from "./Sessions";
-import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, Send, ShieldCheck, X } from "../components/Icons";
+import { sessionLoader, setPinned } from "./Sessions";
+import { ArrowRight, Bot, ChevronRight, ClipboardCheck, Copy, Globe, MessagesSquare, Pin, Send, ShieldCheck, X } from "../components/Icons";
 import { Flow } from "../components/Flow";
 
 const SLOTS = [
@@ -251,8 +251,13 @@ const STEPS = [
 
 function RecentRow({ row, onCopy }: { row: SessionRow; onCopy: (id: string) => void }) {
   const navigate = useApp((s) => s.navigate);
+  const togglePin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void setPinned(row.id, !row.pinned, row.title);
+  };
+
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
+    <div className="group flex items-center gap-3 px-4 py-3">
       <ProviderBadge id={row.provider} />
       <button
         type="button"
@@ -260,10 +265,32 @@ function RecentRow({ row, onCopy }: { row: SessionRow; onCopy: (id: string) => v
         onMouseEnter={() => prefetch(sessionLoader(row.id), [row.id])}
         onClick={() => navigate({ page: "sessions", id: row.id })}
       >
-        <div className="truncate font-medium">{row.title}</div>
+        <div className="flex items-center gap-1.5 truncate font-medium">
+          <span className="truncate">{row.title}</span>
+          {row.pinned && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent shadow-xs">
+              <Pin size={9} filled className="shrink-0 fill-current" />
+              <span>Pinned</span>
+            </span>
+          )}
+        </div>
         <div className="truncate font-mono text-[11px] text-faint">
           {provider(row.provider).label} · {basename(row.project) || plural(row.messageCount, "message")} · {relativeTime(row.updatedAt)}
         </div>
+      </button>
+      <button
+        type="button"
+        onClick={togglePin}
+        aria-label={row.pinned ? "Unpin session" : "Pin to top"}
+        title={row.pinned ? "Pinned to top · Click to unpin" : "Pin to top"}
+        className={cx(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[11px] transition-all",
+          row.pinned
+            ? "border-accent/40 bg-accent-soft text-accent shadow-xs hover:bg-accent-soft/80"
+            : "border-line/60 bg-surface text-muted opacity-40 hover:!opacity-100 group-hover:opacity-100 focus-visible:opacity-100 hover:border-line-strong hover:text-ink",
+        )}
+      >
+        <Pin size={12} filled={row.pinned} className={row.pinned ? "fill-current" : "-rotate-45"} />
       </button>
       <Button
         size="sm"
@@ -312,7 +339,14 @@ export function Overview() {
     setNow(ts);
   };
 
-  const recent = useMemo(() => [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [all]);
+  const recent = useMemo(() => {
+    return [...all].sort((a, b) => {
+      const ap = Number(a.pinned);
+      const bp = Number(b.pinned);
+      if (ap !== bp) return bp - ap;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
+  }, [all]);
   const latest = recent[0];
   const agents = all.filter((r) => r.kind === "local-agent").length;
   const webRows = all.filter((r) => r.kind === "browser-chat");
@@ -322,7 +356,7 @@ export function Overview() {
   const tools = new Set(all.map((r) => r.provider)).size;
 
   return (
-    <div className="space-y-5 pb-6">
+    <div className="space-y-5">
       {showBanner && (
         <Card className="flex items-start gap-3 p-4">
           <img
@@ -488,7 +522,11 @@ export function Overview() {
                 ))}
               </div>
             )}
-            {sessions.data && recent.length === 0 && <div className="flex-1 flex items-center justify-center px-4 py-8 text-center text-[13px] text-muted">No sessions yet. Coding-agent sessions show up on their own.</div>}
+            {sessions.data && recent.length === 0 && (
+              <div className="flex flex-1 min-h-[180px] flex-col items-center justify-center px-4 py-8 text-center text-[13px] text-muted">
+                No sessions yet. Coding-agent sessions show up on their own.
+              </div>
+            )}
             {recent.slice(0, 4).map((r) => (
               <RecentRow key={r.id} row={r} onCopy={(id) => setHandoff({ ids: [id], action: "copy" })} />
             ))}

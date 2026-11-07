@@ -202,7 +202,7 @@ export function Transcript({
 
   if (messages.length === 0) {
     return (
-      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8">
+      <div className="flex h-full min-h-[300px] flex-1 items-center justify-center p-8">
         <EmptyState icon={<MessagesSquare size={20} />} title="No messages" body="This session has no recorded conversation messages." />
       </div>
     );

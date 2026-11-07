@@ -58,7 +58,7 @@ const THEMES: { value: "light" | "dark" | "system"; label: string; swatchClass: 
 
 function Group({ id, title, children }: { id: string; title?: string; children: React.ReactNode }) {
   return (
-    <section id={`settings-${id}`} aria-label={title} className="scroll-mt-4 pb-6 last:pb-0">
+    <section id={`settings-${id}`} aria-label={title} className="scroll-mt-4 pb-4 last:pb-0">
       {title && <SectionLabel>{title}</SectionLabel>}
       <Card className="divide-y divide-line px-5 py-1">{children}</Card>
     </section>
@@ -134,7 +134,7 @@ export function Settings() {
   };
 
   return (
-    <div className="space-y-4 pb-6">
+    <div className="space-y-4">
       <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === tab)?.label ?? "Settings"} subtitle={subtitles[tab]} />
       <div>
         {tab === "general" && (

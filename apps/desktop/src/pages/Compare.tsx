@@ -4,6 +4,7 @@ import { ArrowLeft, ClipboardCheck, GitBranch, GitMerge, RefreshCw } from "../co
 import { HandoffModal } from "../components/HandoffModal";
 import { SessionPickerModal } from "../components/SessionPicker";
 import { Badge, Button, Card, cx, EmptyState, ErrorNote, PageHeader, ProviderBadge, Skeleton } from "../components/ui";
+import { FillPage } from "../components/PageSlots";
 import { CompareSkeleton } from "../components/Skeletons";
 import { api, errorText, type CompareSide, type Comparison, type SessionRow } from "../lib/api";
 import { basename, plural, provider, relativeTime, tokens } from "../lib/format";
@@ -203,7 +204,7 @@ export function Compare() {
   const onlyCmd = (x: CompareSide, y: CompareSide) => x.commands.filter((cmd) => !y.commands.includes(cmd));
 
   return (
-    <div className="space-y-4 pb-6">
+    <FillPage className="gap-4">
       <PageHeader
         title="Compare sessions"
         subtitle={
@@ -225,7 +226,7 @@ export function Compare() {
         }
       />
 
-      <Card className="p-3.5">
+      <Card className="p-3.5 shrink-0">
         <div className="grid grid-cols-1 items-center gap-2 md:grid-cols-[1fr_auto_1fr]">
           <SideSlot letter="A" tone="bg-accent" row={rowA} loading={sessions.loading && !sessions.data} onOpen={() => setPicking("a")} />
           <Button size="sm" variant="ghost" icon={<RefreshCw size={13} />} onClick={swap} disabled={!a || !b} title="Swap A and B">
@@ -236,7 +237,7 @@ export function Compare() {
       </Card>
 
       {!ready && (
-        <Card>
+        <Card className="flex flex-1 min-h-0 flex-col items-center justify-center p-8">
           <EmptyState
             icon={<GitBranch size={20} />}
             title="Pick two sessions"
@@ -245,9 +246,13 @@ export function Compare() {
         </Card>
       )}
       {ready && cmp.error && <ErrorNote text={cmp.error} />}
-      {ready && cmp.loading && !c && <CompareSkeleton />}
+      {ready && cmp.loading && !c && (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <CompareSkeleton />
+        </div>
+      )}
       {c && (
-        <>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
           <Card className="space-y-3 p-4">
             <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
               {c.sameProject ? <Badge tone="success">Same project · {basename(c.a.project)}</Badge> : <Badge tone="warning">Different projects</Badge>}
@@ -316,7 +321,7 @@ export function Compare() {
             <Pair title="Final reply" a={c.a.finalReply} b={c.b.finalReply} />
             <Pair title="Files mentioned" a={list(c.a.mentionedFiles)} b={list(c.b.mentionedFiles)} mono />
           </Card>
-        </>
+        </div>
       )}
       {picking && (
         <SessionPickerModal
@@ -329,6 +334,6 @@ export function Compare() {
         />
       )}
       {combine && c && <HandoffModal ids={[c.a.id, c.b.id]} action="copy" onClose={() => setCombine(false)} />}
-    </div>
+    </FillPage>
   );
 }

@@ -11,7 +11,7 @@ use commands::AppState;
 use hopilo_database::Store;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, Monitor, PhysicalPosition, Rect, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, Rect, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 const MAIN_MIN_SHARE: f64 = 0.8;
 
@@ -37,6 +37,12 @@ fn fit_main_to_display_on(w: &tauri::WebviewWindow, monitor: Option<Monitor>) {
 }
 struct PanelState {
     hidden_at: Mutex<Option<Instant>>,
+    last_anchor_x: Mutex<Option<f64>>,
+}
+
+#[tauri::command]
+fn get_quick_anchor(app: AppHandle) -> Option<f64> {
+    *app.state::<PanelState>().last_anchor_x.lock().ok()?
 }
 
 const FIRST_LAUNCH_KEY: &str = "firstLaunchAt";
@@ -260,7 +266,7 @@ fn tray_rect(app: &AppHandle) -> Option<Rect> {
     app.tray_by_id("hopilo")?.rect().ok().flatten()
 }
 
-fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
+fn toggle_quick_panel(app: &AppHandle, anchor_rect: Option<Rect>) {
     let Some(w) = app.get_webview_window("quick") else { return };
     if w.is_visible().unwrap_or(false) {
         hide_quick(app);
@@ -276,21 +282,27 @@ fn toggle_quick_panel(app: &AppHandle, tray_rect: Option<Rect>) {
     if recently_hidden {
         return;
     }
-    if let Some(rect) = tray_rect {
-
+    let rect = anchor_rect.or_else(|| tray_rect(app));
+    if let Some(rect) = rect {
         let scale = w.scale_factor().unwrap_or(1.0);
-        let pos = rect.position.to_physical::<f64>(scale);
-        let size = rect.size.to_physical::<f64>(scale);
-        let win = w.outer_size().unwrap_or_default();
-        let mut x = pos.x + size.width / 2.0 - win.width as f64 / 2.0;
-        let mut y = if cfg!(target_os = "macos") { pos.y + size.height + 6.0 } else { pos.y - win.height as f64 - 6.0 };
+        let pos = rect.position.to_logical::<f64>(scale);
+        let size = rect.size.to_logical::<f64>(scale);
+        let win = w.outer_size().unwrap_or_default().to_logical::<f64>(scale);
+        let tray_center_x = pos.x + size.width / 2.0;
+        let mut x = tray_center_x - win.width / 2.0;
+        let mut y = if cfg!(target_os = "macos") { pos.y + size.height } else { pos.y - win.height - 6.0 };
         if let Ok(Some(m)) = w.current_monitor() {
-            let mp = m.position();
-            let ms = m.size();
-            x = x.clamp(mp.x as f64 + 8.0, (mp.x + ms.width as i32) as f64 - win.width as f64 - 8.0);
-            y = y.max(mp.y as f64);
+            let mp = m.position().to_logical::<f64>(scale);
+            let ms = m.size().to_logical::<f64>(scale);
+            x = x.min(mp.x + ms.width - win.width - 8.0).max(mp.x + 8.0);
+            y = y.max(mp.y);
         }
-        let _ = w.set_position(PhysicalPosition::new(x, y));
+        let _ = w.set_position(LogicalPosition::new(x, y));
+        let arrow_x = tray_center_x - x;
+        if let Ok(mut lock) = app.state::<PanelState>().last_anchor_x.lock() {
+            *lock = Some(arrow_x);
+        }
+        let _ = app.emit_to("quick", "hopilo://quick-anchor", arrow_x);
     }
     emit_visibility(app, "quick", true);
     let _ = w.show();
@@ -399,7 +411,7 @@ pub fn run() {
                     mirror.insert(FIRST_LAUNCH_KEY.into(), stamp);
                 }
             }
-            app.manage(PanelState { hidden_at: Mutex::new(None) });
+            app.manage(PanelState { hidden_at: Mutex::new(None), last_anchor_x: Mutex::new(None) });
             build_tray(app)?;
             if let Some(accel) = settings.get(SHORTCUT_KEY).and_then(|v| v.as_str()) {
                 if let Err(e) = apply_shortcut(app.handle(), Some(accel)) {
@@ -454,6 +466,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_ready,
             finish_welcome,
+            get_quick_anchor,
             set_global_shortcut,
             compare::compare_sessions,
             handoff::copy_latest,

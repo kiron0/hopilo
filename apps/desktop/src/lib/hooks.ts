@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, errorText } from "./api";
+import { api, errorText, type SessionRow, type Stats } from "./api";
 import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type Settings, useApp } from "./store";
 import { normalizeRedaction, normalizeTemplates } from "./handoff";
 
@@ -56,6 +56,52 @@ function remember(key: string, value: unknown) {
   }
 }
 
+const cacheListeners = new Set<() => void>();
+
+function isRow(item: unknown): item is SessionRow {
+  return !!item && typeof item === "object" && typeof (item as SessionRow).id === "string" && "pinned" in (item as object);
+}
+
+export function patchCachedSession(id: string, patch: Partial<SessionRow>) {
+  let before: boolean | undefined;
+  const updates: [string, unknown][] = [];
+  for (const [key, val] of queryCache) {
+    if (Array.isArray(val)) {
+      const idx = val.findIndex((item) => isRow(item) && item.id === id);
+      if (idx < 0) continue;
+      before ??= (val[idx] as SessionRow).pinned;
+      const next = val.slice();
+      next[idx] = { ...val[idx], ...patch };
+      updates.push([key, next]);
+    } else if (val && typeof val === "object" && "row" in val && isRow((val as { row: unknown }).row) && (val as { row: SessionRow }).row.id === id) {
+      const row = (val as { row: SessionRow }).row;
+      before ??= row.pinned;
+      updates.push([key, { ...val, row: { ...row, ...patch } }]);
+    }
+  }
+  if (typeof patch.pinned === "boolean" && before !== undefined && before !== patch.pinned) {
+    const diff = patch.pinned ? 1 : -1;
+    for (const [key, val] of queryCache) {
+      if (val && typeof val === "object" && !Array.isArray(val) && typeof (val as Stats).pinnedCount === "number") {
+        updates.push([key, { ...val, pinnedCount: Math.max(0, (val as Stats).pinnedCount + diff) }]);
+      }
+    }
+  }
+  if (updates.length === 0) return;
+  for (const [key, val] of updates) queryCache.set(key, val);
+  for (const fn of cacheListeners) fn();
+}
+
+export function invalidateQuery(matcher?: (key: string) => boolean) {
+  if (!matcher) {
+    queryCache.clear();
+    return;
+  }
+  for (const key of queryCache.keys()) {
+    if (matcher(key)) queryCache.delete(key);
+  }
+}
+
 function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
   const tick = useApp.getState().tick;
   const current = inflight.get(key);
@@ -70,6 +116,10 @@ function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
     });
   inflight.set(key, { tick, promise: pending });
   return pending;
+}
+
+export function readCached<T>(loader: () => Promise<T>, deps: unknown[] = []): T | undefined {
+  return queryCache.get(loader.toString() + JSON.stringify(deps)) as T | undefined;
 }
 
 export function prefetch<T>(loader: () => Promise<T>, deps: unknown[] = []) {
@@ -113,6 +163,16 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
       seq.current += 1;
     };
   }, [reload, tick]);
+  useEffect(() => {
+    const sync = () => {
+      const cached = queryCache.get(key);
+      if (cached !== undefined) setData(cached as T);
+    };
+    cacheListeners.add(sync);
+    return () => {
+      cacheListeners.delete(sync);
+    };
+  }, [key]);
   return { data, error, loading, reload };
 }
 

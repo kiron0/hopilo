@@ -13,7 +13,13 @@ export type Route =
 
 export function routeFrom(name: string): Route {
   if (name === "browser") return { page: "browser" };
+  if (name === "compare") return { page: "compare" };
+  if (name.startsWith("compare:")) {
+    const [a, b] = name.slice(8).split(",");
+    return { page: "compare", a: a || undefined, b: b || undefined };
+  }
   if (name === "settings") return { page: "settings" };
+  if (name.startsWith("settings:")) return { page: "settings", section: name.slice(9) };
   if (name === "sessions") return { page: "sessions" };
   if (name.startsWith("session:")) return { page: "sessions", id: name.slice(8) };
   return { page: "overview" };

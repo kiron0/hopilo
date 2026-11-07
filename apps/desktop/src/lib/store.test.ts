@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { isOwnListViewEcho, normalizeListView, useApp, type ListView } from "./store";
+import { isOwnListViewEcho, normalizeListView, routeFrom, useApp, type ListView } from "./store";
 
 const base: ListView = {
   q: "",
@@ -25,6 +25,14 @@ describe("normalizeListView", () => {
   it("rejects invalid persisted dropdown values", () => {
     const next = normalizeListView({ filter: "broken", resource: "broken", page: -4, limit: 0 }, base);
     expect(next).toEqual(base);
+  });
+
+  it("parses route strings correctly including compare and settings sections", () => {
+    expect(routeFrom("compare")).toEqual({ page: "compare" });
+    expect(routeFrom("compare:s1,s2")).toEqual({ page: "compare", a: "s1", b: "s2" });
+    expect(routeFrom("settings:redaction")).toEqual({ page: "settings", section: "redaction" });
+    expect(routeFrom("session:s123")).toEqual({ page: "sessions", id: "s123" });
+    expect(routeFrom("unknown")).toEqual({ page: "overview" });
   });
 });
 

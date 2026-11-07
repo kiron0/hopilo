@@ -36,7 +36,7 @@ import {
 import { api, errorText, type Attachment, type SessionRow } from "../lib/api";
 import { pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
-import { prefetch, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
+import { prefetch, patchCachedSession, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
 import { target, TARGETS } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
@@ -85,15 +85,17 @@ const FILTERS: SelectOption[] = [
 
 export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
 
-async function setPinned(id: string, pinned: boolean, title: string) {
+export async function setPinned(id: string, pinned: boolean, title: string) {
   const { toast, bump } = useApp.getState();
+  patchCachedSession(id, { pinned });
   try {
     await api.updateSession(id, { pinned });
     bump();
     toast({ key: `pin-${id}`, kind: "success", text: pinned ? `Pinned “${title}” to the top` : `Unpinned “${title}”` });
     return true;
   } catch (e) {
-    toast({ kind: "error", text: `Couldn't ${pinned ? "pin" : "unpin"} “${title}”: ${errorText(e)}` });
+    patchCachedSession(id, { pinned: !pinned });
+    toast({ key: `pin-${id}`, kind: "error", text: `Couldn't ${pinned ? "pin" : "unpin"} “${title}”: ${errorText(e)}` });
     return false;
   }
 }
@@ -114,8 +116,8 @@ function PinButton({ pinned, onToggle, compact }: { pinned: boolean; onToggle: (
         compact ? "h-8 w-8" : "h-8 px-2.5",
         pinned
           ? "border border-accent/40 bg-accent-soft text-accent shadow-xs hover:bg-accent-soft/80"
-          : "border border-line bg-surface text-muted hover:border-line-strong hover:text-ink",
-        compact && !pinned && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+          : "border border-line/60 bg-surface text-muted hover:border-line-strong hover:text-ink",
+        compact && !pinned && "opacity-40 group-hover:opacity-100 hover:!opacity-100 focus-visible:opacity-100",
       )}
     >
       <Pin size={13} filled={pinned} className={pinned ? "fill-current" : "-rotate-45"} />
@@ -200,7 +202,21 @@ function SessionList() {
   const hideUnanswered = useApp((s) => s.listView.hideUnanswered);
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
   const [pinOverrides, setPinOverrides] = useState<Record<string, boolean>>({});
-  useEffect(() => setPinOverrides({}), [data]);
+  useEffect(() => {
+    setPinOverrides((prev) => {
+      if (!data || Object.keys(prev).length === 0) return prev;
+      const next = { ...prev };
+      let changed = false;
+      for (const [id, pinned] of Object.entries(prev)) {
+        const row = data.find((r) => r.id === id);
+        if (row && row.pinned === pinned) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [data]);
   const isPinned = (r: SessionRow) => pinOverrides[r.id] ?? r.pinned;
   const togglePin = async (r: SessionRow) => {
     const next = !isPinned(r);
@@ -241,15 +257,27 @@ function SessionList() {
 
   const rows = useMemo(() => {
     const needle = debouncedQ.trim().toLowerCase();
-    return (data ?? []).filter(
+    const filtered = (data ?? []).filter(
       (r) =>
         (filter === "pinned" ? isPinned(r) : matches(r, filter)) &&
         (providerFilter === "all" || r.provider === providerFilter) &&
         (modelFilter === "all" || (r.model?.trim() || "__unknown") === modelFilter) &&
         (resourceFilter === "all" || (resourceFilter === "with-files" ? r.fileCount > 0 : r.fileCount === 0)) &&
         !(hideUnanswered && isUnanswered(r)) &&
-        (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle) || (r.model ?? "").toLowerCase().includes(needle) || provider(r.provider).label.toLowerCase().includes(needle) || r.tags.some((t) => t.includes(needle))),
+        (!needle ||
+          r.title.toLowerCase().includes(needle) ||
+          (r.project ?? "").toLowerCase().includes(needle) ||
+          (r.model ?? "").toLowerCase().includes(needle) ||
+          provider(r.provider).label.toLowerCase().includes(needle) ||
+          r.tags.some((t) => t.includes(needle))),
     );
+    if (filter === "hidden") return filtered;
+    return filtered.slice().sort((a, b) => {
+      const ap = isPinned(a) ? 1 : 0;
+      const bp = isPinned(b) ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      return 0;
+    });
   }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered, pinOverrides]);
   const providerOptions = useMemo<SelectOption[]>(() => {
     const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
@@ -342,10 +370,18 @@ function SessionList() {
     <span className="flex min-w-0 items-center gap-2">
       <span className="truncate font-medium">{r.title}</span>
       {isPinned(r) && (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            togglePin(r);
+          }}
+          title="Pinned to top · Click to unpin"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs transition-colors hover:bg-accent-soft/80"
+        >
           <Pin size={10} filled className="shrink-0 fill-current" />
           <span>Pinned</span>
-        </span>
+        </button>
       )}
       {r.missingCount > 0 && <AlertTriangle size={12} className="shrink-0 text-warning" aria-label="Partly captured" />}
       {r.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}
@@ -747,7 +783,7 @@ function FilesTab({ files }: { files: Attachment[] }) {
 
   if (files.length === 0)
     return (
-      <div className="flex h-full min-h-0 flex-1 items-center justify-center p-8">
+      <div className="flex h-full min-h-[300px] flex-1 items-center justify-center p-8">
         <EmptyState icon={<Paperclip size={20} />} title="No files" body="Files shared in this conversation show up here. Add more with Add files." />
       </div>
     );
@@ -1096,7 +1132,11 @@ function SessionPage({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => setPinnedLocal(null), [data?.row.pinned]);
+  useEffect(() => {
+    if (pinned !== null && data?.row && data.row.pinned === pinned) {
+      setPinnedLocal(null);
+    }
+  }, [data?.row.pinned, pinned]);
 
   if (error) return <ErrorNote text={error} />;
   if (loading && !data) return <SessionPageSkeleton />;

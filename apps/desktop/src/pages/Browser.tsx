@@ -114,7 +114,7 @@ export function Browser() {
   };
 
   return (
-    <div className="space-y-4 pb-6">
+    <div className="space-y-4">
       <PageHeader
         title="Browser"
         subtitle="The Hopilo extension saves Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It communicates 100% offline directly with this app."

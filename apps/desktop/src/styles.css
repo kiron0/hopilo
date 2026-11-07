@@ -155,7 +155,7 @@
   }
 
   body.quick-surface #root {
-    padding: 10px;
+    padding: 0 10px 10px 10px;
   }
 
   body.welcome-surface {
@@ -563,14 +563,14 @@
   .cleanly-main {
     flex: 1;
     min-width: 0;
-    padding: 12px 24px 32px 12px;
+    padding: 12px 24px 24px 12px;
     display: flex;
     flex-direction: column;
     gap: 16px;
     overflow-y: auto;
   }
   .cleanly-main > .screen {
-    padding-bottom: 32px;
+    padding-bottom: 24px;
   }
   .cleanly-main:has(.page-fill) {
     padding-bottom: 24px;
@@ -1722,7 +1722,7 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     margin: -8px -14px 0 -6px;
-    padding: 8px 14px 32px 6px;
+    padding: 8px 14px 24px 6px;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
     mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
   }

@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { isMac } from "../lib/platform";
 import { api } from "../lib/api";
 import { captureClipboard, copySessions } from "../lib/actions";
 import { basename, provider, relativeTime } from "../lib/format";
@@ -7,10 +9,41 @@ import { useBootstrap, useDebouncedValue, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Toasts } from "../components/Toasts";
-import { IconButton, Kbd, ProviderBadge, Skeleton } from "../components/ui";
-import { CaptureIcon, OverviewIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
+import { IconButton, Kbd, ProviderBadge, Skeleton, cx } from "../components/ui";
+import { CaptureIcon, OverviewIcon, Paperclip, Pin, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
 import { BackgroundLayer } from "../components/Flow";
 import { prettyShortcut } from "../components/HandoffSettings";
+
+function buildPopoverPath(w: number, h: number, anchorX: number | null, mac: boolean): string {
+  const r = 18;
+  if (!mac) {
+    return `M ${r} 0 L ${w - r} 0 Q ${w} 0 ${w} ${r} L ${w} ${h - r} Q ${w} ${h} ${w - r} ${h} L ${r} ${h} Q 0 ${h} 0 ${h - r} L 0 ${r} Q 0 0 ${r} 0 Z`;
+  }
+
+  const top = 12;
+  const halfW = 16;
+  const targetX = anchorX != null ? anchorX : Math.round(w - 60);
+  const ax = Math.max(r + halfW, Math.min(targetX, w - r - halfW));
+
+  return [
+    `M ${r} ${top}`,
+    `L ${ax - halfW} ${top}`,
+    `C ${ax - 14.0} ${top}, ${ax - 12.0} ${top - 0.9}, ${ax - 10.4} ${top - 2.4}`,
+    `L ${ax - 4.0} ${top - 9.2}`,
+    `C ${ax - 1.8} ${top - 11.8}, ${ax + 1.8} ${top - 11.8}, ${ax + 4.0} ${top - 9.2}`,
+    `L ${ax + 10.4} ${top - 2.4}`,
+    `C ${ax + 12.0} ${top - 0.9}, ${ax + 14.0} ${top}, ${ax + halfW} ${top}`,
+    `L ${w - r} ${top}`,
+    `Q ${w} ${top} ${w} ${top + r}`,
+    `L ${w} ${h - r}`,
+    `Q ${w} ${h} ${w - r} ${h}`,
+    `L ${r} ${h}`,
+    `Q 0 ${h} 0 ${h - r}`,
+    `L 0 ${top + r}`,
+    `Q 0 ${top} ${r} ${top}`,
+    `Z`,
+  ].join(" ");
+}
 
 export function QuickPanel() {
   const ready = useBootstrap();
@@ -19,15 +52,61 @@ export function QuickPanel() {
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(q);
   const [busy, setBusy] = useState<string | null>(null);
+  const [anchorX, setAnchorX] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 448, h: 610 });
 
   useEffect(() => {
-    const un = getCurrentWindow().onFocusChanged(({ payload }) => {
-      if (payload) sessions.reload();
-    });
-    return () => {
-      un.then((f) => f());
+    if (!containerRef.current) return;
+    const updateSize = () => {
+      if (containerRef.current) {
+        const { clientWidth, clientHeight } = containerRef.current;
+        if (clientWidth > 0 && clientHeight > 0) {
+          setSize({ w: clientWidth, h: clientHeight });
+        }
+      }
     };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
+  const popoverPath = useMemo(
+    () => buildPopoverPath(size.w, size.h, anchorX, isMac),
+    [size.w, size.h, anchorX]
+  );
+
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    let disposed = false;
+    const updateAnchor = async () => {
+      try {
+        const val = await api.getQuickAnchor();
+        if (!disposed && typeof val === "number") setAnchorX(val - 10);
+      } catch {}
+    };
+    updateAnchor();
+
+    listen<number>("hopilo://quick-anchor", ({ payload }) => {
+      setAnchorX(payload - 10);
+    }).then((f) => {
+      if (disposed) f();
+      else un = f;
+    });
+
+    const unFocus = getCurrentWindow().onFocusChanged(({ payload }) => {
+      if (payload) {
+        sessions.reload();
+        updateAnchor();
+      }
+    });
+
+    return () => {
+      disposed = true;
+      un?.();
+      unFocus.then((f) => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -53,28 +132,55 @@ export function QuickPanel() {
 
   return (
     <div
-      className="quick-shell app relative isolate flex h-full flex-col overflow-hidden rounded-[18px] border border-line text-[13px]"
-      data-bg={bg}
-      onKeyDown={(e) => {
-        if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-        const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-row]:not(:disabled)"));
-        const i = rows.indexOf(document.activeElement as HTMLElement);
-        const next = e.key === "ArrowDown" ? rows[Math.min(rows.length - 1, i + 1)] : rows[Math.max(0, i - 1)];
-        if (next) {
-          e.preventDefault();
-          next.focus();
-        }
-      }}
+      ref={containerRef}
+      className="relative h-full w-full"
     >
-      <BackgroundLayer />
+      <svg
+        className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+        style={{ filter: "drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15))" }}
+        aria-hidden
+      >
+        <path d={popoverPath} fill="var(--canvas, #000)" />
+      </svg>
+      <svg width="0" height="0" className="absolute pointer-events-none" aria-hidden>
+        <defs>
+          <clipPath id="quick-panel-clip" clipPathUnits="userSpaceOnUse">
+            <path d={popoverPath} />
+          </clipPath>
+        </defs>
+      </svg>
 
-      <header className="relative z-10 flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-3">
-        <img src="/hopilo-mark.svg" alt="" className="h-7 w-7 drop-shadow-[0_3px_6px_rgb(40_30_120/0.25)]" draggable={false} />
-        <span className="font-display flex-1 text-[16px] font-semibold">Hopilo</span>
-        <IconButton label="Settings" onClick={() => api.showMainWindow("settings")}>
-          <SettingsIcon size={17} />
-        </IconButton>
-      </header>
+      <svg className="pointer-events-none absolute inset-0 z-30 h-full w-full overflow-visible" aria-hidden>
+        <path d={popoverPath} fill="none" stroke="var(--border)" strokeWidth="1" />
+      </svg>
+
+      <div
+        className="quick-shell app relative isolate flex h-full flex-col text-[13px]"
+        data-bg={bg}
+        style={{
+          clipPath: "url(#quick-panel-clip)",
+          WebkitClipPath: "url(#quick-panel-clip)",
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-row]:not(:disabled)"));
+          const i = rows.indexOf(document.activeElement as HTMLElement);
+          const next = e.key === "ArrowDown" ? rows[Math.min(rows.length - 1, i + 1)] : rows[Math.max(0, i - 1)];
+          if (next) {
+            e.preventDefault();
+            next.focus();
+          }
+        }}
+      >
+        <BackgroundLayer />
+
+        <header className={cx("relative z-10 flex shrink-0 items-center gap-2.5 px-4 pb-3", isMac ? "pt-5" : "pt-3.5")}>
+          <img src="/hopilo-mark.svg" alt="" className="h-7 w-7 drop-shadow-[0_3px_6px_rgb(40_30_120/0.25)]" draggable={false} />
+          <span className="font-display flex-1 text-[16px] font-semibold">Hopilo</span>
+          <IconButton label="Settings" onClick={() => api.showMainWindow("settings")}>
+            <SettingsIcon size={17} />
+          </IconButton>
+        </header>
 
       <div className="relative z-10 shrink-0 px-3 pb-2.5">
         <label className="flex h-8.5 items-center gap-2 rounded-full border border-line bg-card px-3 text-faint shadow-item focus-within:border-accent">
@@ -115,7 +221,10 @@ export function QuickPanel() {
             <button key={s.id} type="button" data-row className={row} disabled={!!busy} onClick={() => copy(s.id)} title={`Copy for ${target(settings.defaultTarget).label}`}>
               <ProviderBadge id={s.provider} size={22} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-ink">{s.title}</span>
+                <span className="flex items-center gap-1.5 truncate font-medium text-ink">
+                  <span className="truncate">{s.title}</span>
+                  {s.pinned && <Pin size={10} filled className="shrink-0 text-accent fill-current" />}
+                </span>
                 <span className="flex items-center gap-1.5 truncate font-mono text-[10.5px] text-faint">
                   {basename(s.project) || provider(s.provider).label} · {relativeTime(s.updatedAt)}
                   {s.fileCount > 0 && (
@@ -128,7 +237,11 @@ export function QuickPanel() {
               {busy === s.id ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
             </button>
           ))}
-          {sessions.data && recent.length === 0 && <div className="px-3 py-1.5 text-faint">{needle ? "No matching sessions." : "No sessions yet."}</div>}
+          {sessions.data && recent.length === 0 && (
+            <div className="flex min-h-[120px] flex-col items-center justify-center px-4 py-6 text-center text-faint">
+              {needle ? "No matching sessions." : "No sessions yet."}
+            </div>
+          )}
 
           <div className="label-mono px-3 pt-3 pb-1.5 text-faint">Add</div>
           <button type="button" data-row className={row} onClick={() => captureClipboard()}>
@@ -161,6 +274,7 @@ export function QuickPanel() {
       </div>
 
       <Toasts />
+      </div>
     </div>
   );
 }

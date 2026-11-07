@@ -104,17 +104,20 @@ export function installMockIpc() {
           commonPrompts: 2, divergeAt: 2, aPromptAtDiverge: "Use cursors, not offsets.", bPromptAtDiverge: "Keep it simple, offsets are fine.",
         };
       }
-      case "get_session":
+      case "get_session": {
+        const row = SESSIONS.find((s) => s.id === a.id) ?? SESSIONS[0];
+        const isPinned = pins.get(row.id) ?? row.pinned;
         return {
-          row: SESSIONS[0],
-          source: { sourceId: "s1", kind: "local-agent", provider: "claude-code", title: "DevDock architecture review", origin: "/mock/s1.jsonl", project: "/work/devdock", model: "claude-opus-4-5", capturedAt: ago(2), captureStatus: "complete", missingItems: [], omitted: [{ what: "hidden reasoning (thinking) blocks", count: 37 }] },
-          messages: [...MESSAGES, { id: "m4", sourceId: "s1", role: "user", createdAt: ago(20), blocks: [{ type: "file", name: "diagram.png", mediaType: "image/png", sha256: "f1", size: 182_000 }] }],
+          row: { ...row, pinned: isPinned },
+          source: { sourceId: row.id, kind: row.kind, provider: row.provider, title: row.title, origin: row.origin, project: row.project, model: row.model, capturedAt: ago(2), captureStatus: "complete", missingItems: [], omitted: [{ what: "hidden reasoning (thinking) blocks", count: 37 }] },
+          messages: [...MESSAGES, { id: "m4", sourceId: row.id, role: "user", createdAt: ago(20), blocks: [{ type: "file", name: "diagram.png", mediaType: "image/png", sha256: "f1", size: 182_000 }] }],
           files: [
             { id: "a1", fileName: "diagram.png", mediaType: "image/png", size: 182_000, sha256: "f1", originPath: null, text: null },
             { id: "a2", fileName: "requirements.md", mediaType: "text/markdown", size: 4200, sha256: "f2", originPath: null, text: "# Req" },
           ],
           tokenEstimate: 18_400,
         };
+      }
       case "copy_sessions":
         return { ids: ["s1"], title: "DevDock architecture review", target: "claude", tokenEstimate: 18_400, missing: 0, findings: 1, attach: ["diagram.png"] };
       case "capture_clipboard":
@@ -140,6 +143,8 @@ export function installMockIpc() {
         };
       case "app_info":
         return { version: "0.1.0", dataDir: "~/Library/Application Support/io.coreify.hopilo", platform: "macos", adapters: [{ id: "antigravity", displayName: "Antigravity", roots: ["~/.gemini/antigravity/brain"], available: true }, { id: "claude-code", displayName: "Claude Code", roots: ["~/.claude/projects"], available: true }, { id: "codex", displayName: "Codex CLI", roots: ["~/.codex/sessions"], available: true }, { id: "gemini-cli", displayName: "Gemini CLI", roots: ["~/.gemini/tmp"], available: true }, { id: "opencode", displayName: "OpenCode", roots: ["~/.local/share/opencode"], available: true }] };
+      case "get_quick_anchor":
+        return 380;
       case "plugin:event|listen":
         return 1;
       default:

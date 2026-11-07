@@ -21,7 +21,7 @@ function Row({ label, hint, children }: { label: string; hint?: React.ReactNode;
   );
 }
 
-const SUGGESTED_SHORTCUT = "Control+Alt+H";
+const SUGGESTED_SHORTCUT = isMac ? "Control+Alt+H" : "Control+Shift+H";
 
 const KEY_NAMES: Record<string, string> = {
   Command: "⌘",
@@ -204,7 +204,7 @@ export function TemplateSettings() {
           {drafts.map((t) => (
             <div key={t.id} className="rounded-xl border border-line bg-surface p-3">
               <div className="flex items-center gap-2">
-                <TextInput aria-label="Template name" value={t.name} onChange={(e) => edit(t.id, { name: e.target.value })} onBlur={() => commit(drafts)} className="h-8 text-[12.5px] font-medium" />
+                <TextInput aria-label="Template name" value={t.name} onChange={(e) => edit(t.id, { name: e.target.value })} onBlur={() => commit(draftsRef.current)} className="h-8 text-[12.5px] font-medium" />
                 <Button size="sm" variant="ghost" icon={<Trash2 size={13} />} onClick={() => commit(drafts.filter((x) => x.id !== t.id))} aria-label={`Delete ${t.name}`}>
                   Delete
                 </Button>
@@ -214,7 +214,7 @@ export function TemplateSettings() {
                 rows={3}
                 value={t.text}
                 onChange={(e) => edit(t.id, { text: e.target.value })}
-                onBlur={() => commit(drafts)}
+                onBlur={() => commit(draftsRef.current)}
                 placeholder="What should the next AI do with the session?"
                 className="mt-2 text-[12.5px]"
               />

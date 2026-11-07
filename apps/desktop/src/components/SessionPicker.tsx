@@ -81,18 +81,21 @@ export function SessionPickerModal({
 
   const rows = useMemo(
     () =>
-      all.filter(
-        (r) =>
-          kindMatch(r, kind) &&
-          (tool === "all" || r.provider === tool) &&
-          (folder === "all" || r.project?.trim() === folder) &&
-          (!needle ||
-            r.title.toLowerCase().includes(needle) ||
-            (r.project ?? "").toLowerCase().includes(needle) ||
-            (r.model ?? "").toLowerCase().includes(needle) ||
-            provider(r.provider).label.toLowerCase().includes(needle) ||
-            r.tags.some((t) => t.includes(needle))),
-      ),
+      all
+        .filter(
+          (r) =>
+            kindMatch(r, kind) &&
+            (tool === "all" || r.provider === tool) &&
+            (folder === "all" || r.project?.trim() === folder) &&
+            (!needle ||
+              r.title.toLowerCase().includes(needle) ||
+              (r.project ?? "").toLowerCase().includes(needle) ||
+              (r.model ?? "").toLowerCase().includes(needle) ||
+              provider(r.provider).label.toLowerCase().includes(needle) ||
+              r.tags.some((t) => t.includes(needle))),
+        )
+        .slice()
+        .sort((a, b) => Number(b.pinned) - Number(a.pinned)),
     [all, kind, tool, folder, needle],
   );
   const pages = Math.max(1, Math.ceil(rows.length / limit));
@@ -166,7 +169,9 @@ export function SessionPickerModal({
               ))}
             </div>
           ) : shown.length === 0 ? (
-            <EmptyState icon={<MessagesSquare size={20} />} title="No matching sessions" body="Try a different search or clear the filters." />
+            <div className="flex h-full min-h-[300px] flex-col items-center justify-center p-6">
+              <EmptyState icon={<MessagesSquare size={20} />} title="No matching sessions" body="Try a different search or clear the filters." />
+            </div>
           ) : (
             <ul role="listbox" aria-label="Sessions" className="divide-y divide-line">
               {shown.map((r, i) => {
