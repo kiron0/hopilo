@@ -44,7 +44,9 @@ export function installMockIpc() {
   mockWindows("main");
 
   const delay = Number(new URLSearchParams(location.search).get("mockDelay") ?? 0);
-  mockIPC(async (cmd) => {
+  const pins = new Map<string, boolean>();
+  mockIPC(async (cmd, args) => {
+    const a = (args ?? {}) as Record<string, any>;
     if (delay && cmd !== "get_settings" && !cmd.startsWith("plugin:")) await new Promise((r) => setTimeout(r, delay));
     switch (cmd) {
       case "get_settings":
@@ -54,7 +56,54 @@ export function installMockIpc() {
       case "sync_sessions":
         return { added: 0, updated: 0, failed: 0, found: SESSIONS.length, busy: false };
       case "list_sessions":
-        return SESSIONS;
+        return SESSIONS.map((r) => ({ ...r, pinned: pins.get(r.id) ?? r.pinned })).sort((x, y) => Number(y.pinned) - Number(x.pinned));
+      case "update_session":
+        if (typeof a.patch?.pinned === "boolean") pins.set(a.id, a.patch.pinned);
+        return null;
+      case "preflight_handoff":
+        return {
+          title: "DevDock architecture review",
+          totalMessages: 42,
+          totalTokens: 182_400,
+          findings: [
+            { kind: "Anthropic API key", preview: "sk-a••••••••", location: "m2", fingerprint: "aa11", count: 2, custom: false },
+            { kind: "Email address", preview: "kiro••••••••", location: "m3", fingerprint: "bb22", count: 1, custom: false },
+            { kind: "Internal token", preview: "acme••••••••", location: "m3", fingerprint: "cc33", count: 1, custom: true },
+          ],
+          ruleErrors: [],
+          excludedFiles: ["server.pem"],
+          sourceCount: (a.ids ?? []).length || 1,
+          full: { messageCount: 42, tokenEstimate: 182_400 },
+          balanced: { messageCount: 18, tokenEstimate: 61_200 },
+          minimal: { messageCount: 3, tokenEstimate: 4_900 },
+        };
+      case "builtin_redaction_kinds":
+        return ["Private key", "Anthropic API key", "OpenAI-style API key", "GitHub token", "AWS access key", "Google API key", "Slack token", "JWT", "Connection string", "Secret assignment", "Email address"];
+      case "test_redaction_rule": {
+        try {
+          const re = new RegExp(a.pattern, "g");
+          return { matches: String(a.sample ?? "").match(re) ?? [], error: null };
+        } catch (e) {
+          return { matches: [], error: String(e) };
+        }
+      }
+      case "set_global_shortcut":
+      case "copy_latest":
+        return null;
+      case "compare_sessions": {
+        const side = (id: string, title: string, provider: string, extra: Record<string, unknown>) => ({
+          id, title, provider, model: provider === "codex" ? "gpt-5.5-codex" : "claude-opus-4-5", project: "/work/devdock",
+          messageCount: 42, userTurns: 6, assistantTurns: 14, toolCalls: 31, toolErrors: 2, tokenEstimate: 18_400,
+          startedAt: ago(180), endedAt: ago(90), editedFiles: ["src/api/orders.ts", "src/db/query.ts"], mentionedFiles: ["src/api/orders.ts", "package.json"],
+          commands: ["pnpm test", "pnpm lint"], errors: ["TypeError: cursor is undefined"], firstRequest: "Add cursor pagination to GET /v1/orders.", finalReply: "Done. Cursor pagination is in place and tests pass.", ...extra,
+        });
+        return {
+          a: side(a.a, "Add pagination to GET /v1/orders", "claude-code", {}),
+          b: side(a.b, "Pagination attempt (Codex)", "codex", { toolCalls: 18, toolErrors: 0, editedFiles: ["src/api/orders.ts", "src/api/paginate.ts"], commands: ["pnpm test", "pnpm vitest run orders"], errors: [], finalReply: "Implemented offset pagination with a helper." }),
+          sameProject: true, sharedEdits: ["src/api/orders.ts"], onlyAEdits: ["src/db/query.ts"], onlyBEdits: ["src/api/paginate.ts"], sharedCommands: ["pnpm test"],
+          commonPrompts: 2, divergeAt: 2, aPromptAtDiverge: "Use cursors, not offsets.", bPromptAtDiverge: "Keep it simple, offsets are fine.",
+        };
+      }
       case "get_session":
         return {
           row: SESSIONS[0],

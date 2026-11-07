@@ -117,6 +117,44 @@ pub fn key_references(messages: &[&Message]) -> KeyReferences {
     refs
 }
 
+const EDIT_HINTS: &[&str] = &["edit", "write", "patch", "create", "replace", "insert", "multiedit", "str_replace"];
+
+pub fn edited_files(messages: &[&Message]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for m in messages {
+        for b in &m.blocks {
+            let Block::ToolCall { name, input } = b else { continue };
+            let lower = name.to_lowercase();
+            if !EDIT_HINTS.iter().any(|h| lower.contains(h)) {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+                for key in ["file_path", "filePath", "path", "target_file", "targetFile", "filename", "file"] {
+                    if let Some(p) = v.get(key).and_then(|p| p.as_str()) {
+                        push_unique(&mut out, &mut seen, p.trim().to_string(), 200);
+                    }
+                }
+                if let Some(arr) = v.get("edits").and_then(|e| e.as_array()) {
+                    for e in arr {
+                        if let Some(p) = e.get("file_path").or_else(|| e.get("path")).and_then(|p| p.as_str()) {
+                            push_unique(&mut out, &mut seen, p.trim().to_string(), 200);
+                        }
+                    }
+                }
+            }
+            for line in input.lines() {
+                for prefix in ["*** Update File: ", "*** Add File: ", "*** Delete File: "] {
+                    if let Some(p) = line.trim().strip_prefix(prefix) {
+                        push_unique(&mut out, &mut seen, p.trim().to_string(), 200);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn write_key_references(out: &mut String, refs: &KeyReferences) {
     if refs.files.is_empty() && refs.commands.is_empty() && refs.errors.is_empty() {
         return;
@@ -198,6 +236,14 @@ mod tests {
         assert_eq!(refs.commands, vec!["npm test -- login", "cargo build"]);
         assert!(refs.errors.contains(&"TypeError: x is undefined".to_string()));
         assert!(refs.errors.contains(&"ok".to_string()));
+    }
+
+    #[test]
+    fn finds_edited_files_from_tool_calls() {
+        let a = msg(Role::Assistant, vec![Block::ToolCall { name: "Edit".into(), input: r#"{"file_path":"/r/src/a.rs","old_string":"x"}"#.into() }]);
+        let b = msg(Role::Assistant, vec![Block::ToolCall { name: "apply_patch".into(), input: "*** Begin Patch\n*** Update File: src/b.rs\n*** End Patch".into() }]);
+        let c = msg(Role::Assistant, vec![Block::ToolCall { name: "Read".into(), input: r#"{"file_path":"/r/src/c.rs"}"#.into() }]);
+        assert_eq!(edited_files(&[&a, &b, &c]), vec!["/r/src/a.rs", "src/b.rs"]);
     }
 
     #[test]

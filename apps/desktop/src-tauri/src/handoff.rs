@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use hopilo_core::brief::ContextLevel;
+use hopilo_core::framing::{arrange_sources, render_framed, Framing, Intent, PromptStyle, SessionOrder};
 use hopilo_core::render::{estimate_tokens, render_handoff_prompt, render_markdown, RenderOptions, ToolDetail};
-use hopilo_core::scan::scan_pack;
+use hopilo_core::scan::{RedactionRules, Redactor, RuleError};
 use hopilo_core::model::Role;
 use hopilo_core::Pack;
 use hopilo_database::ImportOutcome;
@@ -37,14 +38,53 @@ struct Defaults {
     target: String,
     tool_detail: ToolDetailOpt,
     level: ContextLevel,
+    intent: Intent,
+    instructions: Option<String>,
+    style: Option<PromptStyle>,
+}
+
+#[derive(Deserialize)]
+struct Template {
+    id: String,
+    text: String,
 }
 
 fn defaults(state: &State<AppState>) -> Defaults {
     let get = |k: &str| state.setting(k);
+    let intent_key = get("defaultIntent").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    let (intent, instructions) = match serde_json::from_value::<Intent>(serde_json::Value::String(intent_key.clone())) {
+        Ok(i) if i != Intent::Custom => (i, None),
+        _ => {
+            let templates: Vec<Template> = get("handoffTemplates").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+            match templates.into_iter().find(|t| t.id == intent_key) {
+                Some(t) => (Intent::Custom, Some(t.text)),
+                None => (Intent::Continue, None),
+            }
+        }
+    };
     Defaults {
         target: get("defaultTarget").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "claude".into()),
         tool_detail: get("toolDetail").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         level: get("level").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        intent,
+        instructions,
+        style: get("promptStyle").and_then(|v| serde_json::from_value(v).ok()),
+    }
+}
+
+pub(crate) fn redaction_rules(state: &State<AppState>) -> RedactionRules {
+    state.setting("redaction").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+}
+
+fn redactor(state: &State<AppState>, ignore: &[String]) -> (Redactor, Vec<RuleError>) {
+    Redactor::new(&redaction_rules(state), ignore.iter().cloned())
+}
+
+pub(crate) fn style_for_target(target: &str) -> PromptStyle {
+    match target {
+        "claude" | "claude-code" => PromptStyle::Xml,
+        "gemini" | "gemini-cli" | "antigravity" => PromptStyle::ContextFirst,
+        _ => PromptStyle::Markdown,
     }
 }
 
@@ -58,6 +98,29 @@ pub struct CopyOptions {
     pub level: Option<ContextLevel>,
     #[serde(default)]
     pub exclude_secrets: bool,
+    pub intent: Option<Intent>,
+    pub instructions: Option<String>,
+    pub note: Option<String>,
+    pub style: Option<PromptStyle>,
+    pub order: Option<SessionOrder>,
+    #[serde(default)]
+    pub ignore: Vec<String>,
+}
+
+impl CopyOptions {
+    fn framing(&self, d: &Defaults, target: &str) -> Framing {
+        let (intent, instructions) = match self.intent {
+            Some(Intent::Custom) => (Intent::Custom, self.instructions.clone()),
+            Some(i) => (i, None),
+            None => (d.intent, d.instructions.clone()),
+        };
+        Framing {
+            intent,
+            instructions,
+            note: self.note.clone(),
+            style: self.style.or(d.style).unwrap_or_else(|| style_for_target(target)),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -75,14 +138,14 @@ pub struct CopyOutcome {
     attach: Vec<String>,
 }
 
-fn outcome(pack: &Pack, ids: &[String], target: String, text: &str) -> CopyOutcome {
+fn outcome(pack: &Pack, ids: &[String], target: String, text: &str, findings: usize) -> CopyOutcome {
     CopyOutcome {
         ids: ids.to_vec(),
         title: pack.title.clone(),
         target,
         token_estimate: estimate_tokens(text),
         missing: pack.sources.iter().map(|s| s.missing_items.len()).sum(),
-        findings: scan_pack(pack, None).len(),
+        findings,
         attach: pack.attachments.iter().filter(|a| a.text.is_none()).map(|a| a.file_name.clone()).collect(),
     }
 }
@@ -93,19 +156,25 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
     }
     let state = app.state::<AppState>();
     let d = defaults(&state);
-    let target = opts.target.as_ref().filter(|t| !t.is_empty()).cloned().unwrap_or(d.target);
+    let target = opts.target.as_ref().filter(|t| !t.is_empty()).cloned().unwrap_or_else(|| d.target.clone());
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
+    let framing = opts.framing(&d, &target);
+    let (red, _) = redactor(&state, &opts.ignore);
     let mut pack = with_store(&state, |s| s.compose(ids).map_err(err))?;
+    arrange_sources(&mut pack, opts.order.unwrap_or_default());
+    red.drop_excluded(&mut pack);
+    let findings = red.scan_pack(&pack, None).len();
     if opts.exclude_secrets {
-        hopilo_core::scan::redact_pack(&mut pack);
+        red.redact_pack(&mut pack);
     }
-    let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_handoff_prompt(&pack, &ropts) };
-    let text = if opts.exclude_secrets { hopilo_core::scan::redact_text(&text) } else { text };
+    let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_framed(&pack, &ropts, &framing) };
+    let text = if opts.exclude_secrets { red.redact_text(&text) } else { text };
     app.clipboard().write_text(text.clone()).map_err(|e| format!("Couldn't write to the clipboard: {e}"))?;
     let (rec_target, method) = if opts.markdown { ("other", "clipboard-markdown") } else { (target.as_str(), "clipboard") };
     with_store(&state, |s| s.record_copy(ids, rec_target, method, "copied").map_err(err))?;
     notify(app);
-    Ok(outcome(&pack, ids, target, &text))
+    let remaining = if opts.exclude_secrets { 0 } else { findings };
+    Ok(outcome(&pack, ids, target, &text, remaining))
 }
 
 #[derive(Serialize)]
@@ -122,6 +191,9 @@ pub struct HandoffPreflight {
     pub total_messages: usize,
     pub total_tokens: usize,
     pub findings: Vec<hopilo_core::scan::Finding>,
+    pub rule_errors: Vec<RuleError>,
+    pub excluded_files: Vec<String>,
+    pub source_count: usize,
     pub full: LevelStats,
     pub balanced: LevelStats,
     pub minimal: LevelStats,
@@ -135,8 +207,10 @@ pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<Ha
         }
         let state = app.state::<AppState>();
         let d = defaults(&state);
-        let pack = with_store(&state, |s| s.compose(&ids).map_err(err))?;
-        let findings = hopilo_core::scan::scan_pack(&pack, None);
+        let mut pack = with_store(&state, |s| s.compose(&ids).map_err(err))?;
+        let (red, rule_errors) = redactor(&state, &[]);
+        let excluded_files = red.drop_excluded(&mut pack);
+        let findings = red.scan_pack(&pack, None);
         let total_messages = pack.messages.len();
         let level_stats = |level: ContextLevel| {
             let ropts = render_opts(d.tool_detail, level);
@@ -168,6 +242,9 @@ pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<Ha
             total_messages,
             total_tokens: full.token_estimate,
             findings,
+            rule_errors,
+            excluded_files,
+            source_count: pack.sources.len(),
             full,
             balanced,
             minimal,
@@ -186,7 +263,7 @@ pub async fn suggest_export_name(app: AppHandle, ids: Vec<String>, ext: String) 
     blocking(app, move |_, state| {
         with_store(&state, |s| {
             let title = s.composed_title(&ids).map_err(err)?;
-            Ok(hopilo_pack_format::export_filename_for(&title, 0, &ext))
+            Ok(hopilo_pack_format::export_filename_for(&title, 0, export_ext(&ext)))
         })
     })
     .await
@@ -202,13 +279,22 @@ pub async fn export_sessions_zip(app: AppHandle, ids: Vec<String>, formats: Vec<
     blocking(app, move |app, state| export_zip_blocking(app, &state, &ids, &formats, &path, opts)).await
 }
 
-const EXPORT_FORMATS: [&str; 4] = ["md", "txt", "json", "handoff"];
+const EXPORT_FORMATS: [&str; 5] = ["md", "txt", "html", "json", "handoff"];
+
+pub(crate) fn export_ext(format: &str) -> &str {
+    match format {
+        "handoff" => "hopilo",
+        other => other,
+    }
+}
 
 struct Prepared {
     pack: Pack,
     blobs: std::collections::HashMap<String, Vec<u8>>,
     ropts: RenderOptions,
     exclude_secrets: bool,
+    redactor: Redactor,
+    framing: Framing,
 }
 
 fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opts: Option<CopyOptions>) -> CmdResult<Prepared> {
@@ -218,12 +304,17 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
     let opts = opts.unwrap_or_default();
     let d = defaults(state);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
+    let target = opts.target.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| d.target.clone());
+    let framing = opts.framing(&d, &target);
+    let (red, _) = redactor(state, &opts.ignore);
     let want_blobs = formats.contains(&"handoff");
     with_store(state, |s| {
         let mut pack = s.compose(ids).map_err(err)?;
+        arrange_sources(&mut pack, opts.order.unwrap_or_default());
+        red.drop_excluded(&mut pack);
         strip_local_paths(&mut pack);
         if opts.exclude_secrets {
-            hopilo_core::scan::redact_pack(&mut pack);
+            red.redact_pack(&mut pack);
         }
         let mut blobs = std::collections::HashMap::new();
         if want_blobs {
@@ -233,7 +324,7 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
                 }
             }
         }
-        Ok(Prepared { pack, blobs, ropts, exclude_secrets: opts.exclude_secrets })
+        Ok(Prepared { pack, blobs, ropts, exclude_secrets: opts.exclude_secrets, redactor: red, framing })
     })
 }
 
@@ -256,11 +347,15 @@ fn render_export(p: &Prepared, format: &str) -> CmdResult<Vec<u8>> {
     Ok(match format {
         "md" => {
             let s = render_markdown(&p.pack, &p.ropts);
-            if p.exclude_secrets { hopilo_core::scan::redact_text(&s).into_bytes() } else { s.into_bytes() }
+            if p.exclude_secrets { p.redactor.redact_text(&s).into_bytes() } else { s.into_bytes() }
         }
         "txt" => {
-            let s = render_handoff_prompt(&p.pack, &p.ropts);
-            if p.exclude_secrets { hopilo_core::scan::redact_text(&s).into_bytes() } else { s.into_bytes() }
+            let s = render_framed(&p.pack, &p.ropts, &p.framing);
+            if p.exclude_secrets { p.redactor.redact_text(&s).into_bytes() } else { s.into_bytes() }
+        }
+        "html" => {
+            let s = hopilo_core::html::render_html(&p.pack, &p.ropts);
+            if p.exclude_secrets { p.redactor.redact_text(&s).into_bytes() } else { s.into_bytes() }
         }
         "json" => hopilo_pack_format::to_json(&p.pack).map_err(err)?.into_bytes(),
         "handoff" => {
@@ -294,7 +389,7 @@ fn export_zip_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String],
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     for f in &formats {
-        zip.start_file(hopilo_pack_format::export_filename_for(&title, 0, f), o).map_err(err)?;
+        zip.start_file(hopilo_pack_format::export_filename_for(&title, 0, export_ext(f)), o).map_err(err)?;
         zip.write_all(&render_export(&prepared, f)?).map_err(err)?;
     }
     let bytes = zip.finish().map_err(err)?.into_inner();
@@ -330,14 +425,33 @@ pub async fn capture_clipboard(app: AppHandle) -> CmdResult<ClipboardCapture> {
 }
 
 static FLASH_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static LATEST_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub fn copy_latest_session(app: &AppHandle) {
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LatestCopied {
+    ok: bool,
+    title: Option<String>,
+    id: Option<String>,
+    findings: usize,
+    missing: usize,
+    error: Option<String>,
+    source: String,
+}
+
+pub fn copy_latest_session(app: &AppHandle, source: &str) {
     use std::sync::atomic::Ordering;
+    use tauri::Emitter;
+    if LATEST_BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
     let app = app.clone();
+    let source = source.to_string();
     tauri::async_runtime::spawn_blocking(move || {
         let flash = |text: &str| {
             if let Some(tray) = app.tray_by_id("hopilo") {
                 let _ = tray.set_title(Some(text));
+                let _ = tray.set_tooltip(Some(format!("Hopilo · {text}")));
                 let generation = FLASH_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
                 let app2 = app.clone();
                 std::thread::spawn(move || {
@@ -347,25 +461,56 @@ pub fn copy_latest_session(app: &AppHandle) {
                     }
                     if let Some(t) = app2.tray_by_id("hopilo") {
                         let _ = t.set_title(None::<&str>);
+                        let _ = t.set_tooltip(Some("Hopilo"));
                     }
                 });
             }
         };
         crate::commands::sync_blocking(&app, crate::commands::SyncMode::Wait);
         let state = app.state::<AppState>();
+        let agents_only = state.setting("shortcutScope").and_then(|v| v.as_str().map(|s| s == "agents")).unwrap_or(false);
+        let redact = state.setting("shortcutRedact").and_then(|v| v.as_bool()).unwrap_or(true);
         let latest = with_store(&state, |s| s.list_sessions().map_err(err)).ok().and_then(|rows| {
-            let mut rows = rows;
-            rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-            rows.into_iter().next()
+            rows.into_iter()
+                .filter(|r| !agents_only || r.kind == "local-agent")
+                .filter(|r| r.message_count > 0)
+                .max_by(|a, b| a.updated_at.cmp(&b.updated_at))
         });
-        let Some(row) = latest else {
-            flash("No sessions");
-            return;
+        let event = match latest {
+            None => {
+                flash("No sessions");
+                LatestCopied { ok: false, title: None, id: None, findings: 0, missing: 0, error: Some("No sessions to copy yet.".into()), source }
+            }
+            Some(row) => {
+                let opts = CopyOptions { exclude_secrets: redact, ..CopyOptions::default() };
+                match copy_blocking(&app, std::slice::from_ref(&row.id), opts) {
+                    Ok(out) => {
+                        flash(if out.findings > 0 || out.missing > 0 { "Copied · check it" } else { "Copied" });
+                        LatestCopied { ok: true, title: Some(out.title), id: Some(row.id), findings: out.findings, missing: out.missing, error: None, source }
+                    }
+                    Err(e) => {
+                        flash("Copy failed");
+                        LatestCopied { ok: false, title: Some(row.title), id: Some(row.id), findings: 0, missing: 0, error: Some(e), source }
+                    }
+                }
+            }
         };
-        match copy_blocking(&app, &[row.id], CopyOptions::default()) {
-            Ok(out) if out.findings > 0 || out.missing > 0 => flash("Copied · check it"),
-            Ok(_) => flash("Copied"),
-            Err(_) => flash("Failed"),
-        }
+        let _ = app.emit("hopilo://latest-copied", event);
+        LATEST_BUSY.store(false, Ordering::SeqCst);
     });
+}
+
+#[tauri::command]
+pub fn copy_latest(app: AppHandle) {
+    copy_latest_session(&app, "app");
+}
+
+#[tauri::command]
+pub fn test_redaction_rule(pattern: String, keyword: bool, sample: String) -> hopilo_core::scan::RuleTest {
+    hopilo_core::scan::test_rule(&pattern, keyword, &sample)
+}
+
+#[tauri::command]
+pub fn builtin_redaction_kinds() -> Vec<&'static str> {
+    hopilo_core::scan::BUILTIN_KINDS.to_vec()
 }

@@ -21,7 +21,7 @@ function Icon({ size = 18, active, children, duo, style, className, ...rest }: I
       {...rest}
     >
       {duo && (
-        <g fill="currentColor" stroke="none" opacity={active ? 0.24 : 0.12} style={{ transition: "opacity 160ms ease" }}>
+        <g fill="currentColor" stroke="none" opacity={active ? 0.34 : 0.2} style={{ transition: "opacity 160ms ease" }}>
           {duo}
         </g>
       )}

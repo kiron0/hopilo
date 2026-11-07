@@ -117,6 +117,16 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+pub(crate) fn save_setting_blocking(app: &AppHandle, key: &str, value: serde_json::Value) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    with_store(&state, |s| s.set_setting(key, &value).map_err(err))?;
+    if let Ok(mut mirror) = state.settings.write() {
+        mirror.insert(key.to_string(), value.clone());
+    }
+    let _ = app.emit("hopilo://settings-changed", (key, &value));
+    Ok(())
+}
+
 pub(crate) fn notify(app: &AppHandle) {
     let _ = app.emit("hopilo://library-changed", ());
 }
@@ -446,7 +456,7 @@ pub async fn import_handoff_file(app: AppHandle, path: String) -> CmdResult<Vec<
     blocking(app, move |app, state| import_handoff_blocking(app, &state, &path)).await
 }
 
-fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str) -> CmdResult<Vec<String>> {
+pub(crate) fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str) -> CmdResult<Vec<String>> {
     let p = Path::new(path);
     let is_json = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
     let (pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, Vec<u8>>) = if is_json {

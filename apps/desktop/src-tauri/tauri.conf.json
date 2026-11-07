@@ -69,6 +69,18 @@
       "icons/512x512.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "hopilo",
+          "handoff"
+        ],
+        "name": "Hopilo bundle",
+        "description": "Hopilo session bundle",
+        "role": "Editor",
+        "mimeType": "application/x-hopilo"
+      }
     ]
   },
   "plugins": {

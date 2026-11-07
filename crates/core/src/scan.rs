@@ -1,21 +1,43 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-use regex::Regex;
-use serde::Serialize;
+use regex::{Regex, RegexBuilder};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
-use crate::model::Pack;
+use crate::model::{Attachment, Pack};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
-    pub kind: &'static str,
+    pub kind: String,
 
     pub preview: String,
 
     pub location: String,
+
+    pub fingerprint: String,
+
+    pub count: usize,
+
+    pub custom: bool,
 }
 
-fn patterns() -> &'static [(&'static str, Regex)] {
+pub const BUILTIN_KINDS: &[&str] = &[
+    "Private key",
+    "Anthropic API key",
+    "OpenAI-style API key",
+    "GitHub token",
+    "AWS access key",
+    "Google API key",
+    "Slack token",
+    "JWT",
+    "Connection string",
+    "Secret assignment",
+    "Email address",
+];
+
+fn builtin_patterns() -> &'static [(&'static str, Regex)] {
     static P: OnceLock<Vec<(&'static str, Regex)>> = OnceLock::new();
     P.get_or_init(|| {
         [
@@ -28,6 +50,10 @@ fn patterns() -> &'static [(&'static str, Regex)] {
             ("Slack token", r"\bxox[abprs]-[A-Za-z0-9\-]{10,}"),
             ("JWT", r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
             (
+                "Connection string",
+                r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqps?|mssql|sqlserver)://[^\s:/@]+:[^\s@/]+@[^\s'`]+",
+            ),
+            (
                 "Secret assignment",
                 r#"(?i)\b(?:password|passwd|secret|api_key|apikey|token)\s*[:=]\s*["']?[^\s"']{8,}"#,
             ),
@@ -39,6 +65,72 @@ fn patterns() -> &'static [(&'static str, Regex)] {
     })
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomPattern {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    pub pattern: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionRules {
+    #[serde(default)]
+    pub patterns: Vec<CustomPattern>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub exclude_paths: Vec<String>,
+    #[serde(default)]
+    pub disabled_builtins: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleError {
+    pub name: String,
+    pub error: String,
+}
+
+pub fn compile_pattern(pattern: &str) -> Result<Regex, String> {
+    if pattern.trim().is_empty() {
+        return Err("The pattern is empty".into());
+    }
+    let re = RegexBuilder::new(pattern)
+        .size_limit(1 << 20)
+        .dfa_size_limit(1 << 20)
+        .build()
+        .map_err(|e| e.to_string().lines().last().unwrap_or("Invalid pattern").trim().to_string())?;
+    if re.is_match("") {
+        return Err("The pattern matches empty text, so it would match everywhere".into());
+    }
+    Ok(re)
+}
+
+fn keyword_regex(word: &str) -> Option<Regex> {
+    let w = word.trim();
+    if w.chars().count() < 2 {
+        return None;
+    }
+    let escaped = regex::escape(w);
+    let starts = w.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let ends = w.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let pat = format!("(?i){}{}{}", if starts { r"\b" } else { "" }, escaped, if ends { r"\b" } else { "" });
+    Regex::new(&pat).ok()
+}
+
+pub fn fingerprint(matched: &str) -> String {
+    hex::encode(&Sha256::digest(matched.as_bytes())[..8])
+}
+
 fn mask(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= 8 {
@@ -48,71 +140,239 @@ fn mask(s: &str) -> String {
     format!("{head}{}", "•".repeat(8))
 }
 
-pub fn scan_text(text: &str, location: &str, out: &mut Vec<Finding>) {
-    for (kind, re) in patterns() {
-        for m in re.find_iter(text).take(5) {
-            out.push(Finding { kind, preview: mask(m.as_str()), location: location.to_string() });
-        }
+struct Rule {
+    kind: String,
+    re: Regex,
+    custom: bool,
+}
+
+pub struct Redactor {
+    rules: Vec<Rule>,
+    ignore: HashSet<String>,
+    excludes: Vec<String>,
+}
+
+impl Default for Redactor {
+    fn default() -> Self {
+        Self::builtin()
     }
 }
 
-pub fn scan_pack(pack: &Pack, only: Option<&std::collections::HashSet<String>>) -> Vec<Finding> {
-    const LIMIT: usize = 100;
-    let mut out = Vec::new();
-    'messages: for m in &pack.messages {
-        if only.is_some_and(|sel| !sel.contains(&m.id)) {
-            continue;
-        }
-        for b in &m.blocks {
-            if out.len() >= LIMIT {
-                break 'messages;
+impl Redactor {
+    pub fn builtin() -> Self {
+        Self::new(&RedactionRules::default(), std::iter::empty()).0
+    }
+
+    pub fn new(rules: &RedactionRules, ignore: impl IntoIterator<Item = String>) -> (Self, Vec<RuleError>) {
+        let disabled: HashSet<&str> = rules.disabled_builtins.iter().map(String::as_str).collect();
+        let mut out: Vec<Rule> = builtin_patterns()
+            .iter()
+            .filter(|(k, _)| !disabled.contains(k))
+            .map(|(k, re)| Rule { kind: (*k).to_string(), re: re.clone(), custom: false })
+            .collect();
+        let mut errors = Vec::new();
+        for p in rules.patterns.iter().filter(|p| p.enabled) {
+            let name = if p.name.trim().is_empty() { "Custom pattern".to_string() } else { p.name.trim().to_string() };
+            match compile_pattern(&p.pattern) {
+                Ok(re) => out.push(Rule { kind: name, re, custom: true }),
+                Err(error) => errors.push(RuleError { name, error }),
             }
-            scan_text(b.plain_text(), &m.id, &mut out);
+        }
+        for w in &rules.keywords {
+            if let Some(re) = keyword_regex(w) {
+                out.push(Rule { kind: "Blocked keyword".into(), re, custom: true });
+            }
+        }
+        let excludes = rules.exclude_paths.iter().map(|g| g.trim().to_string()).filter(|g| !g.is_empty()).collect();
+        (Self { rules: out, ignore: ignore.into_iter().collect(), excludes }, errors)
+    }
+
+    pub fn scan_text(&self, text: &str, location: &str, out: &mut Vec<Finding>) {
+        for rule in &self.rules {
+            for m in rule.re.find_iter(text).take(20) {
+                let fp = fingerprint(m.as_str());
+                if let Some(f) = out.iter_mut().find(|f| f.fingerprint == fp && f.kind == rule.kind) {
+                    f.count += 1;
+                    continue;
+                }
+                out.push(Finding {
+                    kind: rule.kind.clone(),
+                    preview: mask(m.as_str()),
+                    location: location.to_string(),
+                    fingerprint: fp,
+                    count: 1,
+                    custom: rule.custom,
+                });
+            }
         }
     }
-    if out.len() < LIMIT {
-        if let Some(n) = &pack.context.note {
-            scan_text(n, "note", &mut out);
+
+    pub fn scan_pack(&self, pack: &Pack, only: Option<&HashSet<String>>) -> Vec<Finding> {
+        const LIMIT: usize = 200;
+        let mut out = Vec::new();
+        'messages: for m in &pack.messages {
+            if only.is_some_and(|sel| !sel.contains(&m.id)) {
+                continue;
+            }
+            for b in &m.blocks {
+                if out.len() >= LIMIT {
+                    break 'messages;
+                }
+                self.scan_text(b.plain_text(), &m.id, &mut out);
+            }
+        }
+        if out.len() < LIMIT {
+            if let Some(n) = &pack.context.note {
+                self.scan_text(n, "note", &mut out);
+            }
+        }
+        for a in &pack.attachments {
+            if out.len() >= LIMIT {
+                break;
+            }
+            if let Some(t) = &a.text {
+                self.scan_text(t, &format!("attachment:{}", a.id), &mut out);
+            }
+        }
+        out.truncate(LIMIT);
+        out
+    }
+
+    pub fn redact_text(&self, text: &str) -> String {
+        let mut out = text.to_string();
+        for rule in &self.rules {
+            if !rule.re.is_match(&out) {
+                continue;
+            }
+            out = rule
+                .re
+                .replace_all(&out, |c: &regex::Captures| {
+                    let m = &c[0];
+                    if self.ignore.contains(&fingerprint(m)) {
+                        m.to_string()
+                    } else {
+                        format!("[REDACTED: {}]", rule.kind)
+                    }
+                })
+                .into_owned();
+        }
+        out
+    }
+
+    pub fn redact_pack(&self, pack: &mut Pack) {
+        for m in &mut pack.messages {
+            for b in &mut m.blocks {
+                match b {
+                    crate::model::Block::Text { text } => *text = self.redact_text(text),
+                    crate::model::Block::ToolCall { input, .. } => *input = self.redact_text(input),
+                    crate::model::Block::ToolResult { output, .. } => *output = self.redact_text(output),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(note) = &mut pack.context.note {
+            *note = self.redact_text(note);
+        }
+        for a in &mut pack.attachments {
+            if let Some(t) = &mut a.text {
+                *t = self.redact_text(t);
+            }
         }
     }
-    for a in &pack.attachments {
-        if out.len() >= LIMIT {
-            break;
-        }
-        if let Some(t) = &a.text {
-            scan_text(t, &format!("attachment:{}", a.id), &mut out);
-        }
+
+    pub fn is_excluded(&self, a: &Attachment) -> bool {
+        self.excludes.iter().any(|g| {
+            glob_match(g, &a.file_name) || a.origin_path.as_deref().is_some_and(|p| path_matches(g, p))
+        })
     }
-    out.truncate(LIMIT);
-    out
+
+    pub fn drop_excluded(&self, pack: &mut Pack) -> Vec<String> {
+        if self.excludes.is_empty() {
+            return Vec::new();
+        }
+        let (dropped, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut pack.attachments).into_iter().partition(|a| self.is_excluded(a));
+        pack.attachments = kept;
+        let gone: HashSet<&str> = dropped.iter().map(|a| a.sha256.as_str()).collect();
+        for m in &mut pack.messages {
+            for b in &mut m.blocks {
+                if let crate::model::Block::File { name, sha256, .. } = b {
+                    if gone.contains(sha256.as_str()) {
+                        *b = crate::model::Block::Missing { description: format!("{name} (left out by your exclusion rules)") };
+                    }
+                }
+            }
+        }
+        dropped.into_iter().map(|a| a.file_name).collect()
+    }
+}
+
+fn path_matches(glob: &str, path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    if glob_match(glob, &path) {
+        return true;
+    }
+    let parts: Vec<&str> = path.split('/').collect();
+    (1..parts.len()).any(|i| glob_match(glob, &parts[i..].join("/")))
+}
+
+pub fn glob_match(glob: &str, text: &str) -> bool {
+    let g: Vec<char> = glob.to_lowercase().replace('\\', "/").chars().collect();
+    let t: Vec<char> = text.to_lowercase().replace('\\', "/").chars().collect();
+    let mut memo: HashMap<(usize, usize), bool> = HashMap::new();
+    fn go(g: &[char], t: &[char], gi: usize, ti: usize, memo: &mut HashMap<(usize, usize), bool>) -> bool {
+        if let Some(v) = memo.get(&(gi, ti)) {
+            return *v;
+        }
+        let r = if gi == g.len() {
+            ti == t.len()
+        } else if g[gi] == '*' {
+            let double = g.get(gi + 1) == Some(&'*');
+            let next = if double { gi + 2 } else { gi + 1 };
+            let next = if double && g.get(next) == Some(&'/') { next + 1 } else { next };
+            (ti..=t.len()).take_while(|&k| double || k == ti || t[k - 1] != '/').any(|k| go(g, t, next, k, memo))
+        } else if ti < t.len() && (g[gi] == '?' && t[ti] != '/' || g[gi] == t[ti]) {
+            go(g, t, gi + 1, ti + 1, memo)
+        } else {
+            false
+        };
+        memo.insert((gi, ti), r);
+        r
+    }
+    go(&g, &t, 0, 0, &mut memo)
+}
+
+pub fn scan_text(text: &str, location: &str, out: &mut Vec<Finding>) {
+    Redactor::builtin().scan_text(text, location, out)
+}
+
+pub fn scan_pack(pack: &Pack, only: Option<&HashSet<String>>) -> Vec<Finding> {
+    Redactor::builtin().scan_pack(pack, only)
 }
 
 pub fn redact_text(text: &str) -> String {
-    let mut out = text.to_string();
-    for (kind, re) in patterns() {
-        out = re.replace_all(&out, |_: &regex::Captures| format!("[REDACTED: {kind}]")).to_string();
-    }
-    out
+    Redactor::builtin().redact_text(text)
 }
 
 pub fn redact_pack(pack: &mut Pack) {
-    for m in &mut pack.messages {
-        for b in &mut m.blocks {
-            match b {
-                crate::model::Block::Text { text } => *text = redact_text(text),
-                crate::model::Block::ToolCall { input, .. } => *input = redact_text(input),
-                crate::model::Block::ToolResult { output, .. } => *output = redact_text(output),
-                _ => {}
-            }
-        }
-    }
-    if let Some(note) = &mut pack.context.note {
-        *note = redact_text(note);
-    }
-    for a in &mut pack.attachments {
-        if let Some(t) = &mut a.text {
-            *t = redact_text(t);
-        }
+    Redactor::builtin().redact_pack(pack)
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleTest {
+    pub matches: Vec<String>,
+    pub error: Option<String>,
+}
+
+pub fn test_rule(pattern: &str, keyword: bool, sample: &str) -> RuleTest {
+    let re = if keyword {
+        keyword_regex(pattern).ok_or_else(|| "Keywords need at least 2 characters".to_string())
+    } else {
+        compile_pattern(pattern)
+    };
+    match re {
+        Ok(re) => RuleTest { matches: re.find_iter(sample).take(20).map(|m| m.as_str().to_string()).collect(), error: None },
+        Err(e) => RuleTest { matches: vec![], error: Some(e) },
     }
 }
 
@@ -143,5 +403,59 @@ mod tests {
         assert!(!cleaned.contains("admin@example.com"));
         assert!(cleaned.contains("[REDACTED: Anthropic API key]"));
         assert!(cleaned.contains("[REDACTED: Email address]"));
+    }
+
+    #[test]
+    fn repeated_values_collapse_into_one_finding() {
+        let mut f = Vec::new();
+        let r = Redactor::builtin();
+        r.scan_text("a@b.io and a@b.io and c@d.io", "m1", &mut f);
+        assert_eq!(f.len(), 2);
+        assert_eq!(f[0].count, 2);
+    }
+
+    #[test]
+    fn custom_rules_keywords_and_ignore() {
+        let rules = RedactionRules {
+            patterns: vec![
+                CustomPattern { id: "1".into(), name: "Internal token".into(), pattern: r"acme_[a-z0-9]{8}".into(), enabled: true },
+                CustomPattern { id: "2".into(), name: "Broken".into(), pattern: "(".into(), enabled: true },
+            ],
+            keywords: vec!["Project Falcon".into()],
+            exclude_paths: vec![],
+            disabled_builtins: vec!["Email address".into()],
+        };
+        let keep = fingerprint("acme_zzzz9999");
+        let (r, errors) = Redactor::new(&rules, [keep]);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].name, "Broken");
+        let out = r.redact_text("project falcon uses acme_abcd1234 and acme_zzzz9999, mail me@x.io");
+        assert!(out.contains("[REDACTED: Blocked keyword]"));
+        assert!(out.contains("[REDACTED: Internal token]"));
+        assert!(out.contains("acme_zzzz9999"), "ignored value kept");
+        assert!(out.contains("me@x.io"), "disabled builtin skipped");
+    }
+
+    #[test]
+    fn connection_strings_are_caught() {
+        assert!(redact_text("DATABASE_URL=postgres://app:hunter22@db.internal:5432/app").contains("[REDACTED: Connection string]"));
+    }
+
+    #[test]
+    fn empty_matching_patterns_are_rejected() {
+        assert!(compile_pattern("a*").is_err());
+        assert!(compile_pattern("").is_err());
+        assert!(compile_pattern("x+").is_ok());
+    }
+
+    #[test]
+    fn globs() {
+        assert!(glob_match("*.pem", "server.pem"));
+        assert!(glob_match("*.env*", ".env.local"));
+        assert!(!glob_match("*.pem", "keys/server.pem"));
+        assert!(path_matches("*.pem", "/home/u/keys/server.pem"));
+        assert!(path_matches("deploy/config.json", "/repo/deploy/config.json"));
+        assert!(glob_match("**/secrets/*", "a/b/secrets/x.txt"));
+        assert!(!glob_match("deploy/*.json", "deploy/x/config.json"));
     }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isMac, modKey } from "../lib/platform";
 import { createPortal } from "react-dom";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +14,8 @@ import {
   FilePlus2,
   FileText,
   FolderOpen,
+  GitBranch,
+  GitMerge,
   Globe,
   LayoutGrid,
   List,
@@ -81,6 +84,44 @@ const FILTERS: SelectOption[] = [
 ];
 
 export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
+
+async function setPinned(id: string, pinned: boolean, title: string) {
+  const { toast, bump } = useApp.getState();
+  try {
+    await api.updateSession(id, { pinned });
+    bump();
+    return true;
+  } catch (e) {
+    toast({ kind: "error", text: `Couldn't ${pinned ? "pin" : "unpin"} “${title}”: ${errorText(e)}` });
+    return false;
+  }
+}
+
+function PinButton({ pinned, onToggle, compact }: { pinned: boolean; onToggle: () => void; compact?: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pinned}
+      aria-label={pinned ? "Unpin" : "Pin to top"}
+      title={pinned ? "Pinned to top · Click to unpin" : "Pin to the top"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={cx(
+        "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl text-[12px] font-medium transition-all active:scale-[0.96]",
+        compact ? "h-8 w-8" : "h-8 px-2.5",
+        pinned
+          ? "border border-accent/40 bg-accent-soft text-accent shadow-xs hover:bg-accent-soft/80"
+          : "border border-line bg-surface text-muted hover:border-line-strong hover:text-ink",
+        compact && !pinned && "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+      )}
+    >
+      <Pin size={13} filled={pinned} className={pinned ? "fill-current" : "-rotate-45"} />
+      {!compact && <span>{pinned ? "Pinned" : "Pin"}</span>}
+    </button>
+  );
+}
 
 function matches(r: SessionRow, f: Filter) {
   switch (f) {
@@ -157,6 +198,14 @@ function SessionList() {
   const limitChoice = useApp((s) => s.listView.limit);
   const hideUnanswered = useApp((s) => s.listView.hideUnanswered);
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
+  const [pinOverrides, setPinOverrides] = useState<Record<string, boolean>>({});
+  useEffect(() => setPinOverrides({}), [data]);
+  const isPinned = (r: SessionRow) => pinOverrides[r.id] ?? r.pinned;
+  const togglePin = async (r: SessionRow) => {
+    const next = !isPinned(r);
+    setPinOverrides((o) => ({ ...o, [r.id]: next }));
+    if (!(await setPinned(r.id, next, r.title))) setPinOverrides((o) => ({ ...o, [r.id]: !next }));
+  };
   const automaticPageSize = settings.sessionLayout === "thumbnails" ? 12 : settings.sessionGroup === "none" ? autoPageSize : 10;
   const pageSize = Math.max(10, limitChoice === "auto" ? automaticPageSize : limitChoice);
 
@@ -191,14 +240,14 @@ function SessionList() {
     const needle = debouncedQ.trim().toLowerCase();
     return (data ?? []).filter(
       (r) =>
-        matches(r, filter) &&
+        (filter === "pinned" ? isPinned(r) : matches(r, filter)) &&
         (providerFilter === "all" || r.provider === providerFilter) &&
         (modelFilter === "all" || (r.model?.trim() || "__unknown") === modelFilter) &&
         (resourceFilter === "all" || (resourceFilter === "with-files" ? r.fileCount > 0 : r.fileCount === 0)) &&
         !(hideUnanswered && isUnanswered(r)) &&
         (!needle || r.title.toLowerCase().includes(needle) || (r.project ?? "").toLowerCase().includes(needle) || (r.model ?? "").toLowerCase().includes(needle) || provider(r.provider).label.toLowerCase().includes(needle) || r.tags.some((t) => t.includes(needle))),
     );
-  }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
+  }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered, pinOverrides]);
   const providerOptions = useMemo<SelectOption[]>(() => {
     const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
     const targets = TARGETS.filter((t) => t.id !== "other")
@@ -289,7 +338,7 @@ function SessionList() {
   const titleLine = (r: SessionRow) => (
     <span className="flex min-w-0 items-center gap-2">
       <span className="truncate font-medium">{r.title}</span>
-      {r.pinned && (
+      {isPinned(r) && (
         <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs">
           <Pin size={10} filled className="shrink-0 fill-current" />
           <span>Pinned</span>
@@ -318,6 +367,7 @@ function SessionList() {
           <span className="mt-0.5 block truncate font-mono text-[11px] text-faint" title={r.origin ?? undefined}>{meta(r)}</span>
         </button>
         {r.fileCount > 0 && <span className="hidden items-center gap-1 font-mono text-[11px] text-faint sm:flex" title={plural(r.fileCount, "file")}><Paperclip size={12} /> {r.fileCount}</span>}
+        {filter !== "hidden" && <PinButton compact pinned={isPinned(r)} onToggle={() => togglePin(r)} />}
         {sessionAction(r, on)}
       </div>
     );
@@ -325,7 +375,7 @@ function SessionList() {
   const thumbnail = (r: SessionRow) => {
     const on = selected.has(r.id);
     return (
-      <article key={r.id} className={cx("flex min-h-44 flex-col rounded-2xl border p-3.5 shadow-item transition-colors", on ? "border-accent bg-accent-soft/60" : "border-line bg-card hover:border-line-strong hover:bg-surface-2/50")}>
+      <article key={r.id} className={cx("group flex min-h-44 flex-col rounded-2xl border p-3.5 shadow-item transition-colors", on ? "border-accent bg-accent-soft/60" : "border-line bg-card hover:border-line-strong hover:bg-surface-2/50")}>
         <div className="flex items-start gap-3">
           <Checkbox label={`Select ${r.title}`} checked={on} onChange={() => toggle(r.id)} />
           <ProviderBadge id={r.provider} size={34} />
@@ -343,7 +393,8 @@ function SessionList() {
           </span>
         </button>
         <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
-          <span className="truncate text-[11.5px] text-faint">{provider(r.provider).label}</span>
+          <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">{provider(r.provider).label}</span>
+          {filter !== "hidden" && <PinButton compact pinned={isPinned(r)} onToggle={() => togglePin(r)} />}
           {sessionAction(r, on)}
         </div>
       </article>
@@ -497,6 +548,7 @@ function SessionList() {
             {groups.map((group) => {
               const isFolder = settings.sessionGroup === "folder";
               const groupRowIds = group.rows.map((r) => r.id);
+              const folderIds = isFolder && group.key !== "__none" ? rows.filter((r) => r.project?.trim() === group.key).map((r) => r.id) : [];
               const allSelected = groupRowIds.length > 0 && groupRowIds.every((id) => selected.has(id));
               const toggleGroup = () => {
                 const next = new Set(selected);
@@ -523,6 +575,17 @@ function SessionList() {
                         {group.label}
                       </h2>
                       <span className="font-mono text-[10.5px] text-faint">{group.rows.length}</span>
+                      {folderIds.length > 1 && filter !== "hidden" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={<GitMerge size={13} />}
+                          onClick={() => setHandoff({ ids: folderIds, action: "copy" })}
+                          title={`Combine all ${folderIds.length} sessions in this folder into one pack`}
+                        >
+                          Copy all {folderIds.length}
+                        </Button>
+                      )}
                       {isFolder && group.key !== "__none" && (
                         <Button
                           size="sm"
@@ -562,11 +625,16 @@ function SessionList() {
                   </Button>
                 ) : (
                   <>
+                    {ids.length === 2 && (
+                      <Button size="sm" icon={<GitBranch size={13} />} onClick={() => navigate({ page: "compare", a: ids[0], b: ids[1] })} title="Compare these two sessions side by side">
+                        Compare
+                      </Button>
+                    )}
                     <Button size="sm" icon={<Download size={13} />} onClick={() => setHandoff({ ids, action: "export" })}>
                       Export
                     </Button>
-                    <Button size="sm" variant="primary" icon={<Copy size={13} />} onClick={() => setHandoff({ ids, action: "copy" })}>
-                      {ids.length > 1 ? "Copy together" : "Copy"}
+                    <Button size="sm" variant="primary" icon={ids.length > 1 ? <GitMerge size={13} /> : <Copy size={13} />} onClick={() => setHandoff({ ids, action: "copy" })}>
+                      {ids.length > 1 ? "Copy combined" : "Copy"}
                     </Button>
                   </>
                 )}
@@ -781,8 +849,9 @@ function FilesTab({ files }: { files: Attachment[] }) {
                   type="button"
                   className="flex items-center gap-1 text-[11px] text-accent hover:underline"
                   onClick={() => {
-                    navigator.clipboard.writeText(infoFile.sha256);
-                    toast({ kind: "success", text: "Copied SHA-256" });
+                    writeText(infoFile.sha256)
+                      .then(() => toast({ kind: "success", text: "Copied SHA-256" }))
+                      .catch((e) => toast({ kind: "error", text: `Copy failed: ${errorText(e)}` }));
                   }}
                 >
                   <Copy size={11} /> Copy
@@ -910,6 +979,7 @@ function SessionPage({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [paths, setPaths] = useState<string[] | null>(null);
+  const [pinned, setPinnedLocal] = useState<boolean | null>(null);
   const back = () => navigate({ page: "sessions" });
 
   const messages = data?.messages;
@@ -1022,11 +1092,21 @@ function SessionPage({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  useEffect(() => setPinnedLocal(null), [data?.row.pinned]);
+
   if (error) return <ErrorNote text={error} />;
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
   const { row, source, files, tokenEstimate } = data;
   const agent = row.kind === "local-agent";
+  const isPinnedNow = pinned ?? row.pinned;
+  const togglePin = async () => {
+    const next = !isPinnedNow;
+    setPinnedLocal(next);
+    const ok = await setPinned(id, next, row.title);
+    if (!ok) setPinnedLocal(!next);
+    else toast({ kind: "success", text: next ? `Pinned “${row.title}” to the top` : `Unpinned “${row.title}”` });
+  };
 
   const remove = async () => {
     try {
@@ -1068,20 +1148,12 @@ function SessionPage({ id }: { id: string }) {
         actions={
           <>
             <StatusBadge status={source.captureStatus} />
-            <button
-              type="button"
-              onClick={() => api.updateSession(id, { pinned: !row.pinned })}
-              className={cx(
-                "inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-[12px] font-medium transition-all cursor-pointer",
-                row.pinned
-                  ? "border border-accent/40 bg-accent-soft text-accent shadow-xs hover:bg-accent-soft/80 active:scale-[0.98]"
-                  : "border border-line bg-surface text-muted hover:border-line-strong hover:text-ink active:scale-[0.98]"
-              )}
-              title={row.pinned ? "Pinned to top · Click to unpin" : "Pin to the top"}
-            >
-              <Pin size={13} filled={row.pinned} className={row.pinned ? "fill-current" : "-rotate-45 text-muted"} />
-              <span>{row.pinned ? "Pinned" : "Pin"}</span>
-            </button>
+            {!row.hidden && <PinButton pinned={isPinnedNow} onToggle={togglePin} />}
+            {!row.hidden && (
+              <IconButton label="Compare with another session" onClick={() => navigate({ page: "compare", a: id })}>
+                <GitBranch size={15} />
+              </IconButton>
+            )}
             {row.hidden ? (
               <Button size="sm" icon={<RotateCcw size={13} />} onClick={() => setConfirmRestore(true)}>
                 Restore

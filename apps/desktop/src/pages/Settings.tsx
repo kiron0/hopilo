@@ -39,6 +39,8 @@ import {
   type UpdateCheckResult,
 } from "../lib/updates";
 import { UpdateModal } from "../components/UpdateModal";
+import { RedactionSettings, ShortcutSettings, TemplateSettings } from "../components/HandoffSettings";
+import { SettingsRowsSkeleton } from "../components/Skeletons";
 import { AlertDialog, Badge, Button, Card, PageHeader, SectionLabel, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
 
 const BACKGROUNDS: { value: "mist" | "grid" | "dots" | "grain"; label: string }[] = [
@@ -182,6 +184,11 @@ export function Settings() {
           )}
         </Group>
         )}
+        {tab === "general" && (
+          <Group id="shortcut" title="Global shortcut">
+            <ShortcutSettings />
+          </Group>
+        )}
 
         {tab === "customize" && (
         <>
@@ -242,12 +249,25 @@ export function Settings() {
           <Row label="How much to include" hint="Full is everything; Balanced keeps every request and recent messages; Minimal is goal, latest exchange and key references. No AI is used: the levels are fixed rules.">
             <Segmented label="Default level" value={s.level} onChange={(v) => saveSetting("level", v)} options={[{ value: "full", label: "Full" }, { value: "balanced", label: "Balanced" }, { value: "minimal", label: "Minimal" }]} />
           </Row>
+          <Row label="Prompt layout" hint="Auto picks the layout each destination model reads best.">
+            <Segmented
+              label="Prompt layout"
+              value={s.promptStyle ?? "auto"}
+              onChange={(v) => saveSetting("promptStyle", v === "auto" ? null : v)}
+              options={[{ value: "auto", label: "Auto" }, { value: "xml", label: "XML tags" }, { value: "markdown", label: "Markdown" }, { value: "contextFirst", label: "Context first" }]}
+            />
+          </Row>
+        </Group>
+
+        <Group id="templates" title="Handoff intents">
+          <TemplateSettings />
         </Group>
         </>
         )}
 
         {tab === "sources" && (
         <Group id="sources">
+          {!info.data && <SettingsRowsSkeleton rows={6} />}
           {info.data?.adapters.map((a) => (
             <Row key={a.id} label={a.displayName} hint={a.roots.join(" · ")}>
               {a.available ? <Badge tone="success">Found</Badge> : <span className="text-[12.5px] text-faint">Not installed</span>}
@@ -268,9 +288,13 @@ export function Settings() {
           <Row label="Clipboard" hint="Read only when you save the clipboard as a session. Hopilo never submits a message: copies are drafts you paste yourself.">
             <span className="text-[12.5px] text-muted">On request</span>
           </Row>
-          <Row label="Sensitive-data check" hint="Warns about keys, tokens and emails when you copy.">
+          <Row label="Sensitive-data check" hint="Warns about keys, tokens, emails and your own rules when you copy or export.">
             <span className="text-[12.5px] text-muted">Always on</span>
           </Row>
+        </Group>
+
+        <Group id="redaction" title="Redaction rules">
+          <RedactionSettings />
         </Group>
 
         <Group id="storage" title="Storage">
@@ -427,7 +451,7 @@ export function Settings() {
               <div className="rounded-xl border border-line bg-card p-3 shadow-item">
                 <div className="font-semibold text-[12.5px]">Open & Documented</div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
-                  Open source with standard Markdown & .handoff files.
+                  Open source with standard Markdown, HTML & .hopilo files.
                 </div>
               </div>
             </div>

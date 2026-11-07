@@ -98,6 +98,89 @@ export interface Finding {
   kind: string;
   preview: string;
   location: string;
+  fingerprint: string;
+  count: number;
+  custom: boolean;
+}
+
+export interface RuleError {
+  name: string;
+  error: string;
+}
+
+export type Intent = "continue" | "review" | "summary" | "debug" | "custom";
+export type PromptStyle = "xml" | "markdown" | "contextFirst";
+export type SessionOrder = "selected" | "chronological" | "researchFirst";
+
+export interface CustomPattern {
+  id: string;
+  name: string;
+  pattern: string;
+  enabled: boolean;
+}
+
+export interface RedactionRules {
+  patterns: CustomPattern[];
+  keywords: string[];
+  excludePaths: string[];
+  disabledBuiltins: string[];
+}
+
+export interface RuleTest {
+  matches: string[];
+  error: string | null;
+}
+
+export interface CompareSide {
+  id: string;
+  title: string;
+  provider: string;
+  model: string | null;
+  project: string | null;
+  messageCount: number;
+  userTurns: number;
+  assistantTurns: number;
+  toolCalls: number;
+  toolErrors: number;
+  tokenEstimate: number;
+  startedAt: string | null;
+  endedAt: string | null;
+  editedFiles: string[];
+  mentionedFiles: string[];
+  commands: string[];
+  errors: string[];
+  firstRequest: string | null;
+  finalReply: string | null;
+}
+
+export interface Comparison {
+  a: CompareSide;
+  b: CompareSide;
+  sameProject: boolean;
+  sharedEdits: string[];
+  onlyAEdits: string[];
+  onlyBEdits: string[];
+  sharedCommands: string[];
+  commonPrompts: number;
+  divergeAt: number | null;
+  aPromptAtDiverge: string | null;
+  bPromptAtDiverge: string | null;
+}
+
+export interface LatestCopied {
+  ok: boolean;
+  title: string | null;
+  id: string | null;
+  findings: number;
+  missing: number;
+  error: string | null;
+  source: "shortcut" | "tray" | "app";
+}
+
+export interface BundleImport {
+  ids: string[];
+  files: number;
+  errors: string[];
 }
 
 export interface LevelStats {
@@ -110,6 +193,9 @@ export interface HandoffPreflight {
   totalMessages: number;
   totalTokens: number;
   findings: Finding[];
+  ruleErrors: RuleError[];
+  excludedFiles: string[];
+  sourceCount: number;
   full: LevelStats;
   balanced: LevelStats;
   minimal: LevelStats;
@@ -121,6 +207,12 @@ export interface CopyOptions {
   toolDetail?: ToolDetail;
   level?: Level;
   excludeSecrets?: boolean;
+  intent?: Intent;
+  instructions?: string;
+  note?: string;
+  style?: PromptStyle;
+  order?: SessionOrder;
+  ignore?: string[];
 }
 
 export interface CopyOutcome {
@@ -282,6 +374,12 @@ export const api = {
   integrityCheck: () => invoke<string>("integrity_check"),
   auditLibrary: () => invoke<AuditReport>("audit_library"),
   wipeLibrary: () => invoke<void>("wipe_library"),
+
+  compareSessions: (a: string, b: string) => invoke<Comparison>("compare_sessions", { a, b }),
+  copyLatest: () => invoke<void>("copy_latest"),
+  setGlobalShortcut: (accelerator: string | null) => invoke<void>("set_global_shortcut", { accelerator }),
+  testRedactionRule: (pattern: string, keyword: boolean, sample: string) => invoke<RuleTest>("test_redaction_rule", { pattern, keyword, sample }),
+  builtinRedactionKinds: () => invoke<string[]>("builtin_redaction_kinds"),
 
   browserStatus: () => invoke<BrowserStatus>("browser_status"),
   registerBrowserHost: (ids: string[]) => invoke<string[]>("register_browser_host", { ids }),

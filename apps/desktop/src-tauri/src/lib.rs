@@ -1,5 +1,6 @@
 mod browser;
 mod commands;
+mod compare;
 mod files;
 mod handoff;
 
@@ -184,6 +185,66 @@ fn hide_main(window: &tauri::Window) {
     refresh_dock(window.app_handle(), Some("main"));
 }
 
+const SHORTCUT_KEY: &str = "globalShortcut";
+
+fn apply_shortcut(app: &AppHandle, accelerator: Option<&str>) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let gs = app.global_shortcut();
+    let _ = gs.unregister_all();
+    match accelerator.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(a) => gs.register(a).map_err(|e| format!("Couldn't use {a} as a shortcut: {e}")),
+        None => Ok(()),
+    }
+}
+
+#[tauri::command]
+fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Result<(), String> {
+    let previous = setting_str(&app, SHORTCUT_KEY);
+    if let Err(e) = apply_shortcut(&app, accelerator.as_deref()) {
+        let _ = apply_shortcut(&app, previous.as_deref());
+        return Err(e);
+    }
+    let value = accelerator.filter(|a| !a.trim().is_empty()).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
+    commands::save_setting_blocking(&app, SHORTCUT_KEY, value)
+}
+
+fn is_bundle_path(p: &std::path::Path) -> bool {
+    p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("hopilo") || e.eq_ignore_ascii_case("handoff"))
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BundleImport {
+    ids: Vec<String>,
+    files: usize,
+    errors: Vec<String>,
+}
+
+fn open_bundles(app: &AppHandle, paths: Vec<std::path::PathBuf>) {
+    let paths: Vec<_> = paths.into_iter().filter(|p| is_bundle_path(p) && p.is_file()).collect();
+    if paths.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let mut out = BundleImport { ids: vec![], files: paths.len(), errors: vec![] };
+        for p in &paths {
+            match commands::import_handoff_blocking(&app, &state, &p.to_string_lossy()) {
+                Ok(ids) => out.ids.extend(ids),
+                Err(e) => out.errors.push(format!("{}: {e}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+            }
+        }
+        show_main(&app);
+        std::thread::sleep(Duration::from_millis(400));
+        let _ = app.emit_to("main", "hopilo://bundle-imported", out);
+    });
+}
+
+fn bundle_args(args: &[String]) -> Vec<std::path::PathBuf> {
+    args.iter().skip(1).filter(|a| !a.starts_with('-')).map(std::path::PathBuf::from).collect()
+}
+
 #[allow(dead_code)]
 fn answer_relaunch(app: &AppHandle) {
     let visible = |label: &str| app.get_webview_window(label).and_then(|w| w.is_visible().ok()).unwrap_or(false);
@@ -258,7 +319,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
-            "latest" => handoff::copy_latest_session(app),
+            "latest" => handoff::copy_latest_session(app, "tray"),
             "open" => show_main(app),
             "settings" => {
                 let _ = commands::show_main_window(app.clone(), Some("settings".into()));
@@ -284,13 +345,29 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(not(debug_assertions))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| answer_relaunch(app)));
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        let bundles = bundle_args(&args);
+        if bundles.iter().any(|p| is_bundle_path(p)) {
+            open_bundles(app, bundles);
+        } else {
+            answer_relaunch(app);
+        }
+    }));
     #[allow(unused_mut)]
     let mut app = builder
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["quick", "welcome"])
                 .with_state_flags(tauri_plugin_window_state::StateFlags::SIZE)
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        handoff::copy_latest_session(app, "shortcut");
+                    }
+                })
                 .build(),
         )
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -324,6 +401,15 @@ pub fn run() {
             }
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
+            if let Some(accel) = settings.get(SHORTCUT_KEY).and_then(|v| v.as_str()) {
+                if let Err(e) = apply_shortcut(app.handle(), Some(accel)) {
+                    eprintln!("hopilo: {e}");
+                }
+            }
+            let launch_bundles = bundle_args(&std::env::args().collect::<Vec<_>>());
+            if !launch_bundles.is_empty() {
+                open_bundles(app.handle(), launch_bundles);
+            }
 
             if let Some(w) = app.get_webview_window("main") {
                 fit_main_to_display(&w);
@@ -368,6 +454,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_ready,
             finish_welcome,
+            set_global_shortcut,
+            compare::compare_sessions,
+            handoff::copy_latest,
+            handoff::test_redaction_rule,
+            handoff::builtin_redaction_kinds,
             commands::app_info,
             commands::show_main_window,
             commands::quit_app,
@@ -419,6 +510,10 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
             answer_relaunch(app);
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if let tauri::RunEvent::Opened { urls } = &event {
+            open_bundles(app, urls.iter().filter_map(|u| u.to_file_path().ok()).collect());
         }
         let _ = (app, event);
     });

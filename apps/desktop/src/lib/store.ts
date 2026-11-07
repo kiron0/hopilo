@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api } from "./api";
+import { api, type PromptStyle, type RedactionRules } from "./api";
 
 export type SessionFilter = "all" | "agents" | "web" | "added" | "pinned" | "hidden";
 
@@ -8,6 +8,7 @@ export type Route =
   | { page: "home" }
   | { page: "sessions"; id?: string; filter?: SessionFilter }
   | { page: "browser" }
+  | { page: "compare"; a?: string; b?: string }
   | { page: "settings"; section?: string };
 
 export function routeFrom(name: string): Route {
@@ -133,6 +134,19 @@ export interface Settings {
   defaultTarget: string;
   onboarded: boolean;
   bannerDismissedAt?: number;
+  defaultIntent: string;
+  handoffTemplates: HandoffTemplate[];
+  promptStyle: PromptStyle | null;
+  redaction: RedactionRules;
+  globalShortcut: string | null;
+  shortcutScope: "any" | "agents";
+  shortcutRedact: boolean;
+}
+
+export interface HandoffTemplate {
+  id: string;
+  name: string;
+  text: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -146,6 +160,13 @@ export const DEFAULT_SETTINGS: Settings = {
   level: "full",
   defaultTarget: "claude",
   onboarded: false,
+  defaultIntent: "continue",
+  handoffTemplates: [],
+  promptStyle: null,
+  redaction: { patterns: [], keywords: [], excludePaths: [], disabledBuiltins: [] },
+  globalShortcut: null,
+  shortcutScope: "any",
+  shortcutRedact: true,
 };
 
 interface State {

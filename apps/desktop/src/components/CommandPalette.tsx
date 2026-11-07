@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
-import { Globe, ClipboardPaste, OverviewIcon, MessagesSquare, Search, Settings, X } from "./Icons";
+import { Globe, ClipboardPaste, Copy, FileUp, GitBranch, OverviewIcon, MessagesSquare, Search, Settings, ShieldCheck, X } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
-import { captureClipboard } from "../lib/actions";
+import { captureClipboard, importHandoffFile } from "../lib/actions";
 import { useDebouncedValue } from "../lib/hooks";
 import { type Route, useApp } from "../lib/store";
 import { cx, IconButton, Kbd } from "./ui";
@@ -11,7 +11,9 @@ import { cx, IconButton, Kbd } from "./ui";
 const PAGES: { route: Route; label: string; icon: React.ReactNode }[] = [
   { route: { page: "overview" }, label: "Overview", icon: <OverviewIcon size={15} /> },
   { route: { page: "sessions" }, label: "Sessions", icon: <MessagesSquare size={15} /> },
+  { route: { page: "compare" }, label: "Compare sessions", icon: <GitBranch size={15} /> },
   { route: { page: "browser" }, label: "Browser extension", icon: <Globe size={15} /> },
+  { route: { page: "settings", section: "redaction" }, label: "Redaction rules", icon: <ShieldCheck size={15} /> },
   { route: { page: "settings" }, label: "Settings", icon: <Settings size={15} /> },
 ];
 
@@ -158,6 +160,29 @@ export function CommandPalette() {
             >
               <ClipboardPaste size={16} className="shrink-0 text-accent" />
               <span className="font-medium">Save clipboard as a session</span>
+            </Command.Item>
+            <Command.Item
+              value="copy latest session handoff quick"
+              onSelect={() => {
+                setOpen(false);
+                api.copyLatest().catch(() => undefined);
+              }}
+              className={item}
+            >
+              <Copy size={16} className="shrink-0 text-accent" />
+              <span className="font-medium">Copy latest session</span>
+            </Command.Item>
+            <Command.Item
+              value="import hopilo bundle open handoff file"
+              onSelect={async () => {
+                setOpen(false);
+                const ids = await importHandoffFile();
+                if (ids?.[0]) navigate({ page: "sessions", id: ids[0] });
+              }}
+              className={item}
+            >
+              <FileUp size={16} className="shrink-0 text-accent" />
+              <span className="font-medium">Import a .hopilo bundle</span>
             </Command.Item>
           </Command.Group>
           <Command.Group

@@ -3,6 +3,32 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText } from "./api";
 import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type Settings, useApp } from "./store";
+import { normalizeRedaction, normalizeTemplates } from "./handoff";
+
+export function ownWindowLabel(): string | undefined {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return undefined;
+  }
+}
+
+export function normalizeSettings(raw: Record<string, unknown>): Settings {
+  const merged = { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
+  return {
+    ...merged,
+    redaction: normalizeRedaction(merged.redaction),
+    handoffTemplates: normalizeTemplates(merged.handoffTemplates),
+    defaultIntent: typeof merged.defaultIntent === "string" && merged.defaultIntent ? merged.defaultIntent : "continue",
+    globalShortcut: typeof merged.globalShortcut === "string" && merged.globalShortcut ? merged.globalShortcut : null,
+  };
+}
+
+function normalizeSetting(key: string, value: unknown): Partial<Settings> {
+  if (key === "redaction") return { redaction: normalizeRedaction(value) };
+  if (key === "handoffTemplates") return { handoffTemplates: normalizeTemplates(value) };
+  return { [key]: value } as Partial<Settings>;
+}
 
 const queryCache = new Map<string, unknown>();
 const MAX_CACHED_QUERIES = 24;
@@ -122,7 +148,7 @@ export function useBootstrap() {
       api
         .getSettings()
         .then((raw) => {
-          setSettings({ ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) });
+          setSettings(normalizeSettings(raw));
           const savedList = raw[LIST_VIEW_KEY];
           if (savedList && typeof savedList === "object") {
             hydrateListView(savedList as Partial<ListView>);
@@ -153,17 +179,22 @@ export function useBootstrap() {
         .catch(() => undefined);
     }
     const un1 = listen("hopilo://library-changed", schedule);
-    const un3 = listen<boolean>("hopilo://visibility", ({ payload }) => {
-      windowShown = payload !== false;
-      if (windowShown) schedule();
-    });
+    const label = ownWindowLabel();
+    const un3 = listen<boolean>(
+      "hopilo://visibility",
+      ({ payload }) => {
+        windowShown = payload !== false;
+        if (windowShown) schedule();
+      },
+      label ? { target: label } : undefined,
+    );
     const un2 = listen<[string, unknown]>("hopilo://settings-changed", ({ payload }) => {
       if (!Array.isArray(payload) || typeof payload[0] !== "string") return;
       const [key, value] = payload;
       if (key === LIST_VIEW_KEY && value && typeof value === "object") {
         if (!isOwnListViewEcho(value)) hydrateListView(value as Partial<ListView>);
       } else if (key in DEFAULT_SETTINGS) {
-        setSettings({ [key]: value } as Partial<Settings>);
+        setSettings(normalizeSetting(key, value));
       } else {
         load();
       }
@@ -188,6 +219,12 @@ export function useBootstrap() {
 }
 
 export async function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
+  const prev = useApp.getState().settings[key];
   useApp.getState().setSettings({ [key]: value } as Partial<Settings>);
-  await api.setSetting(key, value);
+  try {
+    await api.setSetting(key, value);
+  } catch (e) {
+    useApp.getState().setSettings({ [key]: prev } as Partial<Settings>);
+    useApp.getState().toast({ kind: "error", text: `Couldn't save that setting: ${errorText(e)}` });
+  }
 }

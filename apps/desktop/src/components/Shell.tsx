@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, OverviewIcon, SearchIcon, SessionsIcon, SettingsIcon, BrowserIcon } from "./Icons";
+import { Archive, ArrowLeft, Bot, BrowserIcon, Copy, FileUp, GitBranch, Globe, OverviewIcon, Pin, SearchIcon, SessionsIcon, SettingsIcon } from "./Icons";
+import { importHandoffFile } from "../lib/actions";
 import { SETTINGS_GROUPS, settingsGroupFor } from "./settingsNav";
 import { api } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useLoad } from "../lib/hooks";
-import { type Route, useApp } from "../lib/store";
+import { type Route, type SessionFilter, useApp } from "../lib/store";
 import { deviceNoun, modKey } from "../lib/platform";
 import { Kbd, Skeleton } from "./ui";
 import { CommandPalette } from "./CommandPalette";
@@ -18,8 +19,9 @@ type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string
 const NAV: NavItem[] = [
   { page: "overview", label: "Overview", icon: OverviewIcon, hint: "Overview and quick actions" },
   { page: "sessions", label: "Sessions", icon: SessionsIcon, hint: "Every conversation, with its files" },
-  { page: "browser", label: "Browser", icon: BrowserIcon, hint: "Extension for Claude, Gemini and more" },
 ];
+
+const SHORTCUT_FILTERS = new Set<SessionFilter>(["pinned", "agents", "web", "hidden"]);
 
 function LibraryCard() {
   const stats = useLoad(() => api.stats());
@@ -49,6 +51,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
+  const listFilter = useApp((s) => s.listView.filter);
+  const rows = useLoad(() => api.listSessions());
+  const counts = useMemo(() => {
+    const r = rows.data ?? [];
+    return {
+      pinned: r.filter((x) => x.pinned).length,
+      agents: r.filter((x) => x.kind === "local-agent").length,
+      web: r.filter((x) => x.kind === "browser-chat").length,
+    };
+  }, [rows.data]);
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => ({ header: headerSlot, footer: footerSlot }), [headerSlot, footerSlot]);
@@ -77,13 +89,14 @@ export function Shell({ children }: { children: ReactNode }) {
   }, [navigate, setPaletteOpen]);
 
   const link = (it: NavItem) => {
-    const active = route.page === it.page;
+    const active = route.page === it.page && !(route.page === "sessions" && !route.id && SHORTCUT_FILTERS.has(listFilter));
     return (
       <li key={it.page}>
         <button
           type="button"
           aria-current={active ? "page" : undefined}
-          onClick={() => navigate({ page: it.page } as Route)}
+          title={it.hint}
+          onClick={() => navigate(it.page === "sessions" && SHORTCUT_FILTERS.has(listFilter) ? { page: "sessions", filter: "all" } : ({ page: it.page } as Route))}
           className={`nav-item h-10 w-full text-left cursor-pointer ${active ? "on" : ""}`}
         >
           <it.icon size={20} active={active} className="ic" />
@@ -92,6 +105,24 @@ export function Shell({ children }: { children: ReactNode }) {
       </li>
     );
   };
+
+  const small = (key: string, label: string, Icon: NavIcon, onClick: () => void, active = false, count?: number, hint?: string) => (
+    <li key={key}>
+      <button
+        type="button"
+        aria-current={active ? "page" : undefined}
+        title={hint ?? label}
+        onClick={onClick}
+        className={`nav-item h-9 w-full text-left cursor-pointer ${active ? "on" : ""}`}
+      >
+        <Icon size={18} active={active} className="ic" />
+        <span className="flex-1 truncate text-[13px] font-medium">{label}</span>
+        {count != null && count > 0 && <span className="font-mono text-[10.5px] text-faint">{count}</span>}
+      </button>
+    </li>
+  );
+  const filterLink = (filter: SessionFilter, label: string, Icon: NavIcon, count?: number) =>
+    small(filter, label, Icon, () => navigate({ page: "sessions", filter }), route.page === "sessions" && !route.id && listFilter === filter, count);
 
   const bg = settings.background ?? "mist";
 
@@ -151,6 +182,31 @@ export function Shell({ children }: { children: ReactNode }) {
           ) : (
             <nav key="main" aria-label="Main" className="flex-1 overflow-auto">
               <ul className="space-y-1">{NAV.map(link)}</ul>
+              <div className="nav-heading">Library</div>
+              <ul className="space-y-0.5">
+                {filterLink("pinned", "Pinned", Pin as NavIcon, counts.pinned)}
+                {filterLink("agents", "Coding agents", Bot as NavIcon, counts.agents)}
+                {filterLink("web", "Web chats", Globe as NavIcon, counts.web)}
+                {filterLink("hidden", "Hidden", Archive as NavIcon)}
+              </ul>
+              <div className="nav-heading">Tools</div>
+              <ul className="space-y-0.5">
+                {small("compare", "Compare sessions", GitBranch as NavIcon, () => navigate({ page: "compare" }), route.page === "compare", undefined, "Compare two sessions side by side")}
+                {small("latest", "Copy latest session", Copy as NavIcon, () => void api.copyLatest().catch(() => undefined), false, undefined, "Copy your most recent session with your defaults")}
+                {small(
+                  "import",
+                  "Import bundle",
+                  FileUp as NavIcon,
+                  async () => {
+                    const ids = await importHandoffFile();
+                    if (ids?.[0]) navigate({ page: "sessions", id: ids[0] });
+                  },
+                  false,
+                  undefined,
+                  "Open a .hopilo, .handoff or .json file",
+                )}
+                {small("browser", "Browser extension", BrowserIcon, () => navigate({ page: "browser" }), route.page === "browser")}
+              </ul>
             </nav>
           )}
           <div className="space-y-2 pt-2">

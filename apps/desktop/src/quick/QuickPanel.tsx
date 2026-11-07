@@ -10,6 +10,7 @@ import { Toasts } from "../components/Toasts";
 import { IconButton, Kbd, ProviderBadge, Skeleton } from "../components/ui";
 import { CaptureIcon, OverviewIcon, Paperclip, Plus, SearchIcon, SettingsIcon, Copy, Loader2, Power } from "../components/Icons";
 import { BackgroundLayer } from "../components/Flow";
+import { prettyShortcut } from "../components/HandoffSettings";
 
 export function QuickPanel() {
   const ready = useBootstrap();
@@ -46,7 +47,7 @@ export function QuickPanel() {
   const bg = settings.background ?? "mist";
   const copy = async (id: string) => {
     setBusy(id);
-    await copySessions([id]);
+    await copySessions([id], { excludeSecrets: settings.shortcutRedact });
     setBusy(null);
   };
 
@@ -92,7 +93,14 @@ export function QuickPanel() {
 
       <div className="relative z-10 mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-[16px] border border-line bg-canvas shadow-card">
         <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-          <div className="label-mono px-3 pt-1 pb-1.5 text-faint">Tap to copy for {target(settings.defaultTarget).label}</div>
+          <div className="label-mono flex items-center justify-between gap-2 px-3 pt-1 pb-1.5 text-faint">
+            <span className="truncate">Tap to copy for {target(settings.defaultTarget).label}</span>
+            {settings.globalShortcut && (
+              <span className="flex shrink-0 items-center gap-0.5 normal-case" title="Copies the latest session from any app">
+                {prettyShortcut(settings.globalShortcut).map((k) => <Kbd key={k}>{k}</Kbd>)}
+              </span>
+            )}
+          </div>
           {sessions.loading && !sessions.data &&
             [0, 1, 2].map((i) => (
               <div key={i} aria-hidden className="flex items-center gap-2.5 px-3 py-2">

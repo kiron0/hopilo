@@ -273,7 +273,7 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
     <textarea
       {...props}
       className={cx(
-        "w-full rounded-xl border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink shadow-item placeholder:text-faint focus:border-accent focus:outline-none",
+        "max-h-80 min-h-18 w-full resize-y rounded-xl border border-line bg-card px-3 py-2.5 text-[13.5px] text-ink shadow-item placeholder:text-faint focus:border-accent focus:outline-none",
         props.className,
       )}
     />

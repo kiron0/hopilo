@@ -1,4 +1,5 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, errorText, type CopyOptions, type CopyOutcome } from "./api";
 import { useApp } from "./store";
 import { target } from "./targets";
@@ -35,8 +36,9 @@ function checkNudge(out: CopyOutcome) {
 export const FORMATS = {
   md: { name: "Markdown", ext: "md", hint: "Readable transcript" },
   txt: { name: "Prompt text", ext: "txt", hint: "Same as Copy" },
+  html: { name: "Web page", ext: "html", hint: "Offline, shareable viewer" },
   json: { name: "JSON", ext: "json", hint: "Structured data" },
-  handoff: { name: "Hopilo archive", ext: "handoff", hint: "Includes the files" },
+  handoff: { name: "Hopilo bundle", ext: "hopilo", hint: "Opens in Hopilo, with files" },
 } as const;
 export type Format = keyof typeof FORMATS;
 
@@ -47,7 +49,7 @@ export async function exportSessions(ids: string[], format: Format, opts: CopyOp
     const path = await save({ defaultPath: suggested, filters: [{ name: f.name, extensions: [f.ext] }] });
     if (!path) return null;
     const written = await api.exportSessions(ids, format, path, opts);
-    toast({ kind: "success", text: `Saved ${f.name} to ${written}` });
+    toast({ kind: "success", text: `Saved ${f.name} to ${written}`, action: { label: "Show", run: () => revealItemInDir(written).catch(() => undefined) } });
     return written;
   } catch (e) {
     toast({ kind: "error", text: `Export failed: ${errorText(e)}` });
@@ -62,7 +64,7 @@ export async function exportSessionsAs(ids: string[], formats: Format[], opts: C
     const path = await save({ defaultPath: suggested, filters: [{ name: "Zip archive", extensions: ["zip"] }] });
     if (!path) return null;
     const written = await api.exportSessionsZip(ids, formats, path, opts);
-    toast({ kind: "success", text: `Saved ${formats.length} formats to ${written}` });
+    toast({ kind: "success", text: `Saved ${formats.length} formats to ${written}`, action: { label: "Show", run: () => revealItemInDir(written).catch(() => undefined) } });
     return written;
   } catch (e) {
     toast({ kind: "error", text: `Export failed: ${errorText(e)}` });
@@ -92,11 +94,16 @@ export async function pickFiles(directory = false): Promise<string[]> {
 }
 
 export async function importHandoffFile() {
-  const res = await open({ multiple: false, filters: [{ name: "Hopilo export", extensions: ["handoff", "json"] }] });
+  const res = await open({ multiple: false, filters: [{ name: "Hopilo bundle or export", extensions: ["hopilo", "handoff", "json"] }] });
   if (!res || Array.isArray(res)) return null;
   try {
     const ids = await api.importHandoffFile(res);
-    toast({ kind: "success", text: `Imported ${ids.length} session${ids.length === 1 ? "" : "s"}.` });
+    const first = ids[0];
+    toast({
+      kind: "success",
+      text: `Imported ${ids.length} session${ids.length === 1 ? "" : "s"}.`,
+      action: first ? { label: "Open", run: () => useApp.getState().navigate({ page: "sessions", id: first }) } : undefined,
+    });
     return ids;
   } catch (e) {
     toast({ kind: "error", text: `Import failed: ${errorText(e)}` });

@@ -102,6 +102,66 @@ export function SessionPageSkeleton() {
   );
 }
 
+export function CompareSkeleton({ withHeader = false }: { withHeader?: boolean }) {
+  return (
+    <div className="space-y-4" role="status" aria-label="Loading comparison">
+      {withHeader && <Header actions={2} />}
+      {withHeader && (
+        <Card className="grid grid-cols-1 items-center gap-2 p-3.5 md:grid-cols-[1fr_auto_1fr]">
+          <Skeleton className="h-10 rounded-xl" />
+          <Skeleton className="h-8 w-16 rounded-full" />
+          <Skeleton className="h-10 rounded-xl" />
+        </Card>
+      )}
+      <Card className="space-y-3 p-4">
+        <div className="flex gap-2">
+          {[28, 32, 36].map((w) => (
+            <Skeleton key={w} className="h-6 rounded-full" style={{ width: `${w * 4}px` }} />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-16 rounded-xl" />
+          <Skeleton className="h-16 rounded-xl" />
+        </div>
+      </Card>
+      <Card className="space-y-2.5 p-4">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className="grid grid-cols-[1fr_110px_1fr] items-center gap-3">
+            <Skeleton className="h-1.5 rounded-full" style={{ marginLeft: `${20 + (i % 3) * 15}%` }} />
+            <Skeleton className="mx-auto h-3 w-16" />
+            <Skeleton className="h-1.5 rounded-full" style={{ marginRight: `${10 + (i % 4) * 12}%` }} />
+          </div>
+        ))}
+      </Card>
+      <Card className="grid grid-cols-1 gap-3 p-4 md:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="space-y-2 rounded-xl border border-line p-3">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-2.5 w-11/12" />
+            <Skeleton className="h-2.5 w-3/4" />
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+export function SettingsRowsSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} role="status" aria-label="Loading" className="flex min-h-14 items-center justify-between gap-6 py-3">
+          <div className="space-y-1.5">
+            <Skeleton className="h-3.5" style={{ width: `${110 + (i % 3) * 22}px` }} />
+            <Skeleton className="h-2.5 w-52" />
+          </div>
+          <Skeleton className="h-6 w-16 rounded-full" />
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function RouteSkeleton({ page }: { page: Route["page"] }) {
   switch (page) {
     case "sessions":
@@ -158,6 +218,8 @@ export function RouteSkeleton({ page }: { page: Route["page"] }) {
           </div>
         </div>
       );
+    case "compare":
+      return <CompareSkeleton withHeader />;
     default:
       return <Header />;
   }

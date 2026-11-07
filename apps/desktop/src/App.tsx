@@ -3,7 +3,9 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type Route, routeFrom, useApp } from "./lib/store";
-import { useBootstrap } from "./lib/hooks";
+import { ownWindowLabel, useBootstrap } from "./lib/hooks";
+import { api, errorText, type BundleImport, type LatestCopied } from "./lib/api";
+import { plural } from "./lib/format";
 import { useFileDrop } from "./lib/useFileDrop";
 import { Shell } from "./components/Shell";
 import { FileImportModal } from "./components/FileImport";
@@ -14,6 +16,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 
 const Browser = lazy(() => import("./pages/Browser").then((m) => ({ default: m.Browser })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
+const Compare = lazy(() => import("./pages/Compare").then((m) => ({ default: m.Compare })));
 import { FileDown } from "./components/Icons";
 
 function Page({ route }: { route: Route }) {
@@ -27,6 +30,8 @@ function Page({ route }: { route: Route }) {
       return <Browser />;
     case "settings":
       return <Settings />;
+    case "compare":
+      return <Compare />;
   }
 }
 
@@ -35,7 +40,13 @@ export function App() {
   const route = useApp((s) => s.route);
   const navigate = useApp((s) => s.navigate);
   const [dropped, setDropped] = useState<string[] | null>(null);
-  const hovering = useFileDrop((paths) => setDropped(paths));
+  const hovering = useFileDrop((paths) => {
+    const isBundle = (p: string) => /\.(hopilo|handoff)$/i.test(p);
+    const bundles = paths.filter(isBundle);
+    const rest = paths.filter((p) => !isBundle(p));
+    if (bundles.length) void importBundles(bundles);
+    if (rest.length) setDropped(rest);
+  });
   const [hasBeenVisible, setHasBeenVisible] = useState(false);
   const [minDelayPassed, setMinDelayPassed] = useState(false);
   const [splashVisible, setSplashVisible] = useState(true);
@@ -51,9 +62,14 @@ export function App() {
       })
       .catch(() => undefined);
 
-    const unVis = listen<boolean>("hopilo://visibility", ({ payload }) => {
-      if (payload) markVisible();
-    });
+    const label = ownWindowLabel();
+    const unVis = listen<boolean>(
+      "hopilo://visibility",
+      ({ payload }) => {
+        if (payload) markVisible();
+      },
+      label ? { target: label } : undefined,
+    );
 
     const unFocus = getCurrentWindow().onFocusChanged(({ payload }) => {
       if (payload) markVisible();
@@ -87,11 +103,62 @@ export function App() {
   }, [ready, minDelayPassed]);
 
   useEffect(() => {
-    const un = listen<string>("hopilo://navigate", (e) => navigate(routeFrom(e.payload)));
+    const label = ownWindowLabel();
+    const un = listen<string>("hopilo://navigate", (e) => navigate(routeFrom(e.payload)), label ? { target: label } : undefined);
+    const toast = useApp.getState().toast;
+    const unLatest = listen<LatestCopied>("hopilo://latest-copied", ({ payload: p }) => {
+      if (p.source === "tray" && !document.hasFocus()) return;
+      if (!p.ok) {
+        toast({ kind: p.title ? "error" : "info", text: p.error ?? "Couldn't copy the latest session." });
+        return;
+      }
+      const extra = [p.findings ? plural(p.findings, "possible secret") + " left in" : "", p.missing ? `${p.missing} part(s) not captured` : ""].filter(Boolean).join(", ");
+      toast({
+        kind: extra ? "warning" : "success",
+        text: `Copied latest session: ${p.title}${extra ? ` · ${extra}` : ""}`,
+        action: p.id ? { label: "Open", run: () => useApp.getState().navigate({ page: "sessions", id: p.id! }) } : undefined,
+      });
+    });
+    const unBundle = listen<BundleImport>("hopilo://bundle-imported", ({ payload: p }) => {
+      if (p.errors.length && !p.ids.length) {
+        toast({ kind: "error", text: `Couldn't import: ${p.errors[0]}` });
+        return;
+      }
+      const first = p.ids[0];
+      toast({
+        kind: p.errors.length ? "warning" : "success",
+        text: `Imported ${plural(p.ids.length, "session")} from ${plural(p.files, "bundle")}${p.errors.length ? ` · ${p.errors.length} failed` : ""}.`,
+        action: first ? { label: "Open", run: () => useApp.getState().navigate({ page: "sessions", id: first }) } : undefined,
+      });
+    });
     return () => {
       un.then((f) => f());
+      unLatest.then((f) => f());
+      unBundle.then((f) => f());
     };
   }, [navigate]);
+
+  const importBundles = async (paths: string[]) => {
+    const toast = useApp.getState().toast;
+    const ids: string[] = [];
+    const errors: string[] = [];
+    for (const p of paths) {
+      try {
+        ids.push(...(await api.importHandoffFile(p)));
+      } catch (e) {
+        errors.push(errorText(e));
+      }
+    }
+    if (ids.length) {
+      toast({
+        kind: errors.length ? "warning" : "success",
+        text: `Imported ${plural(ids.length, "session")}${errors.length ? ` · ${errors.length} failed` : ""}.`,
+        action: { label: "Open", run: () => useApp.getState().navigate({ page: "sessions", id: ids[0] }) },
+      });
+    } else if (errors.length) {
+      toast({ kind: "error", text: `Import failed: ${errors[0]}` });
+    }
+  };
 
   useEffect(() => {
     if (!ready) return;
