@@ -42,12 +42,13 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
 
   const savePaste = async () => {
     setBusy(true);
+    toast({ key: "paste", kind: "loading", text: "Saving the conversation…" });
     try {
       const out = await api.importText(text, "manual", title, from || undefined);
-      toast({ kind: "success", text: "Saved." });
+      toast({ key: "paste", kind: "success", text: out.duplicateOf ? "That conversation is already saved." : "Conversation saved as a session." });
       done(out.sourceId);
     } catch (e) {
-      toast({ kind: "error", text: errorText(e) });
+      toast({ key: "paste", kind: "error", text: `Couldn't save: ${errorText(e)}` });
     } finally {
       setBusy(false);
     }
@@ -56,10 +57,13 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
   const pickAider = async () => {
     const res = await open({ multiple: false, filters: [{ name: "Aider history", extensions: ["md"] }] });
     if (!res || Array.isArray(res)) return;
+    toast({ key: "aider", kind: "loading", text: "Importing Aider history…" });
     try {
-      done((await api.importAiderHistory(res)).sourceId);
+      const out = await api.importAiderHistory(res);
+      toast({ key: "aider", kind: "success", text: out.duplicateOf ? "That history is already saved." : "Aider history imported." });
+      done(out.sourceId);
     } catch (e) {
-      toast({ kind: "error", text: `Import failed: ${errorText(e)}` });
+      toast({ key: "aider", kind: "error", text: `Import failed: ${errorText(e)}` });
     }
   };
 

@@ -116,10 +116,13 @@ function saveListView(v: ListView) {
 
 export interface Toast {
   id: number;
-  kind: "success" | "info" | "warning" | "error";
+  kind: "success" | "info" | "warning" | "error" | "loading";
   text: string;
+  key?: string;
   action?: { label: string; run: () => void };
 }
+
+export type ToastInput = Omit<Toast, "id">;
 
 export interface Settings {
   theme: "system" | "light" | "dark";
@@ -174,7 +177,8 @@ interface State {
   lastAppRoute: Route;
   navigate: (r: Route) => void;
   toasts: Toast[];
-  toast: (t: Omit<Toast, "id">) => void;
+  toast: (t: ToastInput) => number;
+  updateToast: (id: number, t: Partial<ToastInput>) => void;
   dismiss: (id: number) => void;
   settings: Settings;
   setSettings: (s: Partial<Settings>) => void;
@@ -189,6 +193,14 @@ interface State {
 }
 
 let toastId = 0;
+const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function armToast(id: number, kind: Toast["kind"], dismiss: (id: number) => void) {
+  clearTimeout(toastTimers.get(id));
+  toastTimers.delete(id);
+  if (kind === "loading") return;
+  toastTimers.set(id, setTimeout(() => dismiss(id), kind === "error" ? 8000 : kind === "warning" ? 6500 : 3500));
+}
 
 export const useApp = create<State>((set, get) => ({
   route: { page: "overview" },
@@ -202,11 +214,33 @@ export const useApp = create<State>((set, get) => ({
   },
   toasts: [],
   toast: (t) => {
+    const same = t.key ? get().toasts.find((x) => x.key === t.key) : undefined;
+    if (same) {
+      get().updateToast(same.id, t);
+      return same.id;
+    }
     const id = ++toastId;
-    set({ toasts: [...get().toasts, { ...t, id }] });
-    setTimeout(() => get().dismiss(id), t.kind === "error" ? 8000 : 4500);
+    set({ toasts: [...get().toasts, { ...t, id }].slice(-5) });
+    armToast(id, t.kind, get().dismiss);
+    return id;
   },
-  dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+  updateToast: (id, patch) => {
+    let kind: Toast["kind"] | undefined;
+    set({
+      toasts: get().toasts.map((x) => {
+        if (x.id !== id) return x;
+        const next = { ...x, ...patch, action: "action" in patch ? patch.action : x.action };
+        kind = next.kind;
+        return next;
+      }),
+    });
+    if (kind) armToast(id, kind, get().dismiss);
+  },
+  dismiss: (id) => {
+    clearTimeout(toastTimers.get(id));
+    toastTimers.delete(id);
+    set({ toasts: get().toasts.filter((t) => t.id !== id) });
+  },
   settings: DEFAULT_SETTINGS,
   setSettings: (s) => set({ settings: { ...get().settings, ...s } }),
   tick: 0,
@@ -221,3 +255,46 @@ export const useApp = create<State>((set, get) => ({
   },
   hydrateListView: (v) => set({ listView: normalizeListView(v, get().listView) }),
 }));
+
+export interface TrackMessages<T> {
+  pending: string;
+  success?: string | ((result: T) => string | ToastInput | null);
+  error?: string;
+  key?: string;
+}
+
+function errorMessage(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e instanceof Error) return e.message;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+export async function track<T>(work: Promise<T> | (() => Promise<T>), msg: TrackMessages<T>): Promise<T | null> {
+  const { toast, updateToast } = useApp.getState();
+  let id: number | null = null;
+  const timer = setTimeout(() => {
+    id = toast({ kind: "loading", text: msg.pending, key: msg.key });
+  }, 150);
+  const finish = (t: ToastInput | null) => {
+    clearTimeout(timer);
+    if (t === null) {
+      if (id !== null) useApp.getState().dismiss(id);
+      return;
+    }
+    if (id !== null) updateToast(id, { action: undefined, ...t });
+    else toast({ key: msg.key, ...t });
+  };
+  try {
+    const result = await (typeof work === "function" ? work() : work);
+    const s = typeof msg.success === "function" ? msg.success(result) : msg.success;
+    finish(s == null ? null : typeof s === "string" ? { kind: "success", text: s } : s);
+    return result;
+  } catch (e) {
+    finish({ kind: "error", text: `${msg.error ?? "Something went wrong"}: ${errorMessage(e)}` });
+    return null;
+  }
+}

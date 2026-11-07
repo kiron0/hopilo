@@ -121,7 +121,7 @@ export function Settings() {
     requestAnimationFrame(() => {
       const target = section && document.getElementById(`settings-${section}`);
       if (target) target.scrollIntoView({ block: "start" });
-      else document.querySelector(".cleanly-main")?.scrollTo({ top: 0 });
+      else document.querySelector(".cleanly-main > .screen")?.scrollTo({ top: 0 });
     });
   }, [section]);
 
@@ -159,6 +159,7 @@ export function Settings() {
                 setAutostart(v);
                 try {
                   await (v ? enable() : disable());
+                  toast({ key: "autostart", kind: "success", text: v ? `Hopilo will start when you log in.` : "Hopilo won't start at login." });
                 } catch (e) {
                   toast({ kind: "error", text: errorText(e) });
                   setAutostart(await isEnabled().catch(() => !v));
@@ -313,17 +314,19 @@ export function Settings() {
               icon={verifying ? <Loader2 size={13} className="animate-spin" /> : undefined}
               onClick={async () => {
                 setVerifying(true);
+                toast({ key: "verify", kind: "loading", text: "Verifying your library…" });
                 try {
                   const r = await api.auditLibrary();
                   const problems = [...r.versionProblems, ...r.attachmentProblems];
                   toast({
+                    key: "verify",
                     kind: problems.length || r.database !== "ok" ? "warning" : "success",
                     text: problems.length || r.database !== "ok"
                       ? `Found ${problems.length} problem(s): ${problems.slice(0, 3).join("; ")}${r.database !== "ok" ? `; status: ${r.database}` : ""}`
                       : `All good: library intact, all ${r.attachmentsChecked} saved files verified.`,
                   });
                 } catch (e) {
-                  toast({ kind: "error", text: `Could not verify the library: ${errorText(e)}` });
+                  toast({ key: "verify", kind: "error", text: `Could not verify the library: ${errorText(e)}` });
                 } finally {
                   setVerifying(false);
                 }
@@ -570,12 +573,13 @@ export function Settings() {
           destructive
           onClose={() => setConfirmErase(false)}
           onConfirm={async () => {
+            toast({ key: "wipe", kind: "loading", text: "Erasing your library…" });
             try {
               await api.wipeLibrary();
               setConfirmErase(false);
-              toast({ kind: "success", text: "Library erased." });
+              toast({ key: "wipe", kind: "success", text: "Library erased." });
             } catch (e) {
-              toast({ kind: "error", text: errorText(e) });
+              toast({ key: "wipe", kind: "error", text: `Couldn't erase the library: ${errorText(e)}` });
             }
           }}
         />

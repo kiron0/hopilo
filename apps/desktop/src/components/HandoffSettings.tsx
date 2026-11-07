@@ -65,12 +65,13 @@ export function ShortcutSettings() {
 
   const apply = async (accel: string | null) => {
     setBusy(true);
+    toast({ key: "shortcut", kind: "loading", text: accel ? "Registering the shortcut…" : "Turning the shortcut off…" });
     try {
       await api.setGlobalShortcut(accel);
       useApp.getState().setSettings({ globalShortcut: accel });
-      toast({ kind: "success", text: accel ? `Shortcut set: ${prettyShortcut(accel).join(isMac ? "" : "+")}` : "Shortcut turned off." });
+      toast({ key: "shortcut", kind: "success", text: accel ? `Shortcut set: ${prettyShortcut(accel).join(isMac ? "" : "+")}` : "Shortcut turned off." });
     } catch (e) {
-      toast({ kind: "error", text: `${errorText(e)}. Another app may already use it; try a different combination.` });
+      toast({ key: "shortcut", kind: "error", text: `${errorText(e)}. Another app may already use it; try a different combination.` });
     } finally {
       setBusy(false);
     }

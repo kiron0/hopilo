@@ -31,14 +31,17 @@ export function FileImportModal({ paths, session, onClose }: { paths: string[]; 
 
   const run = async () => {
     setBusy(true);
+    toast({ key: "add-files", kind: "loading", text: `Adding ${accepted.length} file${accepted.length === 1 ? "" : "s"}…` });
     try {
       const r = await api.addFiles(session, accepted.map((f) => f.path));
       if (r.errors.length) toast({ kind: "warning", text: `Some files were skipped: ${r.errors.join("; ")}` });
-      if (r.added) toast({ kind: "success", text: `Added ${r.added} file${r.added === 1 ? "" : "s"}${session ? " to this session" : ""}.` });
+      if (r.added) toast({ key: "add-files", kind: "success", text: `Added ${r.added} file${r.added === 1 ? "" : "s"}${session ? " to this session" : ""}.` });
+      else useApp.getState().toast({ key: "add-files", kind: "warning", text: "No files were added." });
       if (r.sessionId && r.sessionId !== session) navigate({ page: "sessions", id: r.sessionId });
       onClose();
     } catch (e) {
       setError(errorText(e));
+      toast({ key: "add-files", kind: "error", text: `Couldn't add files: ${errorText(e)}` });
     } finally {
       setBusy(false);
     }

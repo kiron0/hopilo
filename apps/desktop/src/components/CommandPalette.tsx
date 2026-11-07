@@ -165,7 +165,8 @@ export function CommandPalette() {
               value="copy latest session handoff quick"
               onSelect={() => {
                 setOpen(false);
-                api.copyLatest().catch(() => undefined);
+                useApp.getState().toast({ kind: "loading", text: "Copying your latest session…", key: "latest" });
+                api.copyLatest().catch((e) => useApp.getState().toast({ kind: "error", text: `Copy failed: ${String(e)}`, key: "latest" }));
               }}
               className={item}
             >

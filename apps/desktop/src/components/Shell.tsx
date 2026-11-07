@@ -1,6 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Archive, ArrowLeft, Bot, BrowserIcon, Copy, FileUp, GitBranch, Globe, OverviewIcon, Pin, SearchIcon, SessionsIcon, SettingsIcon } from "./Icons";
-import { importHandoffFile } from "../lib/actions";
+import { Archive, ArrowLeft, Bot, BrowserIcon, GitBranch, Globe, OverviewIcon, Pin, SearchIcon, SessionsIcon, SettingsIcon } from "./Icons";
 import { SETTINGS_GROUPS, settingsGroupFor } from "./settingsNav";
 import { api } from "../lib/api";
 import { bytes } from "../lib/format";
@@ -192,19 +191,6 @@ export function Shell({ children }: { children: ReactNode }) {
               <div className="nav-heading">Tools</div>
               <ul className="space-y-0.5">
                 {small("compare", "Compare sessions", GitBranch as NavIcon, () => navigate({ page: "compare" }), route.page === "compare", undefined, "Compare two sessions side by side")}
-                {small("latest", "Copy latest session", Copy as NavIcon, () => void api.copyLatest().catch(() => undefined), false, undefined, "Copy your most recent session with your defaults")}
-                {small(
-                  "import",
-                  "Import bundle",
-                  FileUp as NavIcon,
-                  async () => {
-                    const ids = await importHandoffFile();
-                    if (ids?.[0]) navigate({ page: "sessions", id: ids[0] });
-                  },
-                  false,
-                  undefined,
-                  "Open a .hopilo, .handoff or .json file",
-                )}
                 {small("browser", "Browser extension", BrowserIcon, () => navigate({ page: "browser" }), route.page === "browser")}
               </ul>
             </nav>

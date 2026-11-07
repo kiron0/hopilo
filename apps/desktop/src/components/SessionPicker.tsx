@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type SessionRow } from "../lib/api";
 import { basename, plural, provider, relativeTime } from "../lib/format";
 import { useDebouncedValue, useLoad } from "../lib/hooks";
@@ -32,7 +32,7 @@ function kindMatch(r: SessionRow, k: Kind) {
   }
 }
 
-const PAGE = 8;
+const LIMITS = [10, 25, 50, 100] as const;
 
 export function SessionPickerModal({
   title = "Pick a session",
@@ -56,6 +56,7 @@ export function SessionPickerModal({
   const [tool, setTool] = useState("all");
   const [folder, setFolder] = useState(preferProject?.trim() || "all");
   const [page, setPage] = useState(0);
+  const [limit, setLimit] = useState<number>(25);
   const [active, setActive] = useState(0);
 
   const all = useMemo(() => (data ?? []).filter((r) => !exclude.includes(r.id)), [data, exclude.join()]);
@@ -94,14 +95,21 @@ export function SessionPickerModal({
       ),
     [all, kind, tool, folder, needle],
   );
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const pages = Math.max(1, Math.ceil(rows.length / limit));
   const pg = Math.min(page, pages - 1);
-  const shown = rows.slice(pg * PAGE, pg * PAGE + PAGE);
+  const shown = rows.slice(pg * limit, pg * limit + limit);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [pg, limit]);
 
   useEffect(() => {
     setPage(0);
     setActive(0);
-  }, [kind, tool, folder, needle]);
+  }, [kind, tool, folder, needle, limit]);
 
   const pick = (r: SessionRow | undefined) => {
     if (!r) return;
@@ -150,10 +158,10 @@ export function SessionPickerModal({
           <span className="ml-auto font-mono text-[11px] text-faint">{plural(rows.length, "session")}</span>
         </div>
 
-        <div className="min-h-[392px] overflow-hidden rounded-xl border border-line bg-card">
+        <div ref={listRef} className="h-[min(52vh,460px)] overflow-y-auto overscroll-contain rounded-xl border border-line bg-card">
           {loading && !data ? (
             <div className="divide-y divide-line">
-              {Array.from({ length: PAGE }, (_, i) => (
+              {Array.from({ length: 8 }, (_, i) => (
                 <RowSkeleton key={i} i={i} buttons={0} badge={28} />
               ))}
             </div>
@@ -164,7 +172,7 @@ export function SessionPickerModal({
               {shown.map((r, i) => {
                 const on = r.id === selected;
                 return (
-                  <li key={r.id} role="option" aria-selected={on}>
+                  <li key={r.id} role="option" aria-selected={on} data-index={i}>
                     <button
                       type="button"
                       onMouseEnter={() => setActive(i)}
@@ -189,7 +197,7 @@ export function SessionPickerModal({
             </ul>
           )}
         </div>
-        <Pagination page={pg} pageSize={PAGE} total={rows.length} onPage={setPage} noun="session" />
+        <Pagination page={pg} pageSize={limit} total={rows.length} onPage={setPage} noun="session" limitOptions={LIMITS} currentLimit={limit} onLimitChange={(l) => setLimit(typeof l === "number" ? l : 25)} />
         <p className="text-[11px] text-faint">↑ ↓ to move, Enter to pick.</p>
       </div>
     </Modal>

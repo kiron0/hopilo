@@ -189,8 +189,28 @@ export function Segmented<T extends string>({
   label: string;
   className?: string;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+  const [ready, setReady] = useState(false);
+  useLayoutEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const measure = () => {
+      const el = root.querySelector<HTMLElement>("button[aria-checked='true']");
+      setThumb(el ? { x: el.offsetLeft, w: el.offsetWidth } : null);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(root);
+    const t = requestAnimationFrame(() => setReady(true));
+    return () => {
+      ro?.disconnect();
+      cancelAnimationFrame(t);
+    };
+  }, [value, options.length]);
   return (
-    <div role="radiogroup" aria-label={label} className={cx("seg", className)}>
+    <div ref={ref} role="radiogroup" aria-label={label} className={cx("seg", thumb && "has-thumb", className)}>
+      {thumb && <span aria-hidden className={cx("seg-thumb", ready && "is-ready")} style={{ transform: `translateX(${thumb.x}px)`, width: thumb.w }} />}
       {options.map((o) => (
         <button
           key={o.value}
@@ -198,7 +218,7 @@ export function Segmented<T extends string>({
           role="radio"
           aria-checked={value === o.value}
           aria-pressed={value === o.value}
-          onClick={() => onChange(o.value)}
+          onClick={() => value !== o.value && onChange(o.value)}
         >
           {o.label}
         </button>

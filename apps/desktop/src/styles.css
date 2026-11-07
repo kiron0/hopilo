@@ -1076,6 +1076,34 @@
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
     border-color: rgba(255, 255, 255, 0.08);
   }
+  .seg {
+    position: relative;
+    isolation: isolate;
+  }
+  .seg-thumb {
+    position: absolute;
+    top: 4px;
+    left: 0;
+    bottom: 4px;
+    z-index: -1;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 18, 24, 0.08), 0 4px 12px rgba(15, 18, 24, 0.08);
+  }
+  .seg-thumb.is-ready {
+    transition: transform 0.28s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.28s cubic-bezier(0.3, 1.2, 0.5, 1);
+  }
+  :root[data-theme='dark'] .seg-thumb {
+    background: var(--surface-3);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+  .seg.has-thumb button[aria-pressed='true'],
+  .seg.has-thumb button[aria-checked='true'],
+  :root[data-theme='dark'] .seg.has-thumb button[aria-pressed='true'],
+  :root[data-theme='dark'] .seg.has-thumb button[aria-checked='true'] {
+    background: transparent;
+    box-shadow: none;
+  }
   .seg button {
     height: 32px;
     padding: 0 14px;
@@ -1115,7 +1143,23 @@
     padding: 0;
     cursor: pointer;
     background: #d5d9e2;
-    transition: background 0.25s var(--ease);
+    isolation: isolate;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.22s var(--ease), box-shadow 0.22s var(--ease);
+  }
+  .toggle::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #6d7bff, #a77bff);
+    opacity: 0;
+    transition: opacity 0.22s var(--ease);
+  }
+  .toggle:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
   }
   :root[data-theme='dark'] .toggle {
     background: #3a3a40;
@@ -1131,13 +1175,20 @@
     border-radius: 50%;
     background: #fff;
     box-shadow: 0 2px 6px rgba(15, 18, 24, 0.2);
-    transition: transform 0.25s var(--ease);
+    transition: transform 0.28s cubic-bezier(0.34, 1.4, 0.5, 1), width 0.18s var(--ease);
+    will-change: transform;
   }
-  .toggle[aria-checked='true'] {
-    background: linear-gradient(135deg, #6d7bff, #a77bff);
+  .toggle:active::after {
+    width: 24px;
+  }
+  .toggle[aria-checked='true']::before {
+    opacity: 1;
   }
   .toggle[aria-checked='true']::after {
     transform: translateX(18px);
+  }
+  .toggle[aria-checked='true']:active::after {
+    transform: translateX(14px);
   }
 
   .sy-swatches {
@@ -1661,17 +1712,19 @@
     filter: brightness(1.08);
   }
 
-  .cleanly-main:not(:has(.page-fill)) > .page-header-slot:not(:empty) {
-    position: sticky;
-    top: -12px;
-    z-index: 30;
-    margin: -12px -24px 0 -12px;
-    padding: 12px 24px 0 12px;
-    background: color-mix(in oklab, var(--canvas) 78%, transparent);
-    backdrop-filter: blur(16px) saturate(1.3);
-    -webkit-backdrop-filter: blur(16px) saturate(1.3);
-    border-bottom: 1px solid var(--border);
-    box-shadow: 0 10px 24px -18px rgb(0 0 0 / 0.35);
+  .cleanly-main:not(:has(.page-fill)) {
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+  .cleanly-main:not(:has(.page-fill)) > .screen {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin: -8px -14px 0 -6px;
+    padding: 8px 14px 32px 6px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
   }
 
   .nav-heading {
@@ -1684,12 +1737,26 @@
   }
 
   .cleanly-main section[id^='settings-'] {
-    scroll-margin-top: 120px;
+    scroll-margin-top: 16px;
   }
 
   textarea {
     min-height: 4.5rem;
     max-height: 20rem;
     resize: vertical;
+  }
+}
+
+.theme-fade,
+.theme-fade *,
+.theme-fade *::before,
+.theme-fade *::after {
+  transition: background-color 0.26s ease, color 0.26s ease, border-color 0.26s ease, fill 0.26s ease, stroke 0.26s ease, box-shadow 0.26s ease !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle::after,
+  .toggle::before,
+  .seg-thumb.is-ready {
+    transition: none;
   }
 }

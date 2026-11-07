@@ -43,10 +43,12 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
             disabled={picked.size === 0}
             onClick={async () => {
               setBusy(true);
+              toast({ key: "chat-import", kind: "loading", text: `Importing ${picked.size} conversation(s)…` });
               try {
                 const out = await api.importChatExport(path, [...picked]);
                 const dup = out.filter((o) => o.duplicateOf).length;
                 toast({
+                  key: "chat-import",
                   kind: "success",
                   text: `Imported ${out.length - dup} conversation(s)${dup ? `, ${dup} already saved` : ""}.`,
                   action: out[0] ? { label: "Open", run: () => navigate({ page: "sessions", id: out[0].sourceId }) } : undefined,
@@ -54,6 +56,7 @@ export function ExportImportModal({ path, onClose }: { path: string; onClose: ()
                 onClose();
               } catch (e) {
                 setError(errorText(e));
+                toast({ key: "chat-import", kind: "error", text: `Import failed: ${errorText(e)}` });
               } finally {
                 setBusy(false);
               }

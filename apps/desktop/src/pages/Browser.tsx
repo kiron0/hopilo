@@ -101,12 +101,13 @@ export function Browser() {
 
   const connect = async () => {
     setBusy(true);
+    toast({ key: "browser", kind: "loading", text: "Connecting browsers…" });
     try {
       const names = await api.registerBrowserHost([...chosen]);
-      toast({ kind: "success", text: names.length ? `Connected ${names.join(", ")}. Reopen the extension panel to use it.` : "No browsers selected." });
+      toast({ key: "browser", kind: "success", text: names.length ? `Connected ${names.join(", ")}. Reopen the extension panel to use it.` : "No browsers selected." });
       reload();
     } catch (e) {
-      toast({ kind: "error", text: errorText(e) });
+      toast({ key: "browser", kind: "error", text: `Couldn't connect: ${errorText(e)}` });
     } finally {
       setBusy(false);
     }
@@ -257,12 +258,13 @@ export function Browser() {
           destructive
           onClose={() => setConfirmDisconnect(false)}
           onConfirm={async () => {
+            toast({ key: "browser", kind: "loading", text: "Disconnecting browsers…" });
             try {
               await api.unregisterBrowserHost(data.browsers.filter((b) => b.registered).map((b) => b.id));
-              toast({ kind: "success", text: "Disconnected all browsers." });
+              toast({ key: "browser", kind: "success", text: "Disconnected all browsers." });
               setConfirmDisconnect(false);
             } catch (e) {
-              toast({ kind: "error", text: `Could not disconnect: ${errorText(e)}` });
+              toast({ key: "browser", kind: "error", text: `Could not disconnect: ${errorText(e)}` });
             }
             reload();
           }}

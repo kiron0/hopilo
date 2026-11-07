@@ -1,9 +1,9 @@
-import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "./Icons";
+import { AlertTriangle, CheckCircle2, Info, Loader2, X, XCircle } from "./Icons";
 import { useApp } from "../lib/store";
 import { cx } from "./ui";
 
-const ICONS = { success: CheckCircle2, info: Info, warning: AlertTriangle, error: XCircle };
-const TONES = { success: "text-success", info: "text-accent", warning: "text-warning", error: "text-danger" };
+const ICONS = { success: CheckCircle2, info: Info, warning: AlertTriangle, error: XCircle, loading: Loader2 };
+const TONES = { success: "text-success", info: "text-accent", warning: "text-warning", error: "text-danger", loading: "text-accent animate-spin" };
 
 export function Toasts() {
   const toasts = useApp((s) => s.toasts);
@@ -13,7 +13,7 @@ export function Toasts() {
       {toasts.map((t) => {
         const Icon = ICONS[t.kind];
         return (
-          <div key={t.id} role={t.kind === "error" ? "alert" : "status"} className="animate-pop pointer-events-auto flex items-start gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-3 shadow-pop">
+          <div key={t.id} role={t.kind === "error" ? "alert" : "status"} aria-busy={t.kind === "loading" || undefined} className="animate-pop pointer-events-auto flex items-start transition-colors gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-3 shadow-pop">
             <Icon size={16} className={cx("mt-0.5 shrink-0", TONES[t.kind])} />
             <div className="min-w-0 flex-1 text-[12.5px] break-words" data-selectable>
               {t.text}

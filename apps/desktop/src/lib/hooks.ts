@@ -136,6 +136,27 @@ function applyAppearance(s: Settings) {
   if (native) getCurrentWindow().setTheme(s.theme === "system" ? null : s.theme).catch(() => undefined);
 }
 
+let appliedOnce = false;
+let lastLook = "";
+
+let fadeTimer: number | undefined;
+
+function applySmoothly(s: Settings) {
+  const root = document.documentElement;
+  const look = `${s.theme}|${s.background}|${s.motion}`;
+  const changed = appliedOnce && look !== lastLook;
+  lastLook = look;
+  appliedOnce = true;
+  const reduced = s.motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.clearTimeout(fadeTimer);
+  root.classList.remove("theme-fade");
+  if (changed && !reduced) {
+    root.classList.add("theme-fade");
+    fadeTimer = window.setTimeout(() => root.classList.remove("theme-fade"), 320);
+  }
+  applyAppearance(s);
+}
+
 export function useBootstrap() {
   const setSettings = useApp((s) => s.setSettings);
   const hydrateListView = useApp((s) => s.hydrateListView);
@@ -208,7 +229,7 @@ export function useBootstrap() {
   }, [setSettings, hydrateListView, bump]);
 
   useEffect(() => {
-    applyAppearance(settings);
+    applySmoothly(settings);
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => applyAppearance(useApp.getState().settings);
     mq.addEventListener("change", onChange);
@@ -218,13 +239,31 @@ export function useBootstrap() {
   return ready;
 }
 
+const SETTING_LABELS: Partial<Record<keyof Settings, string>> = {
+  theme: "Theme",
+  background: "Background",
+  motion: "Motion",
+  trayClick: "Tray click",
+  toolDetail: "Tool activity",
+  level: "Default level",
+  defaultTarget: "Default destination",
+  promptStyle: "Prompt layout",
+  defaultIntent: "Default intent",
+  handoffTemplates: "Templates",
+  redaction: "Redaction rules",
+  shortcutScope: "Shortcut scope",
+  shortcutRedact: "Shortcut redaction",
+};
+
 export async function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
   const prev = useApp.getState().settings[key];
   useApp.getState().setSettings({ [key]: value } as Partial<Settings>);
+  const label = SETTING_LABELS[key];
   try {
     await api.setSetting(key, value);
+    if (label) useApp.getState().toast({ key: "setting-saved", kind: "success", text: `${label} saved.` });
   } catch (e) {
     useApp.getState().setSettings({ [key]: prev } as Partial<Settings>);
-    useApp.getState().toast({ kind: "error", text: `Couldn't save that setting: ${errorText(e)}` });
+    useApp.getState().toast({ key: "setting-saved", kind: "error", text: `Couldn't save ${label?.toLowerCase() ?? "that setting"}: ${errorText(e)}` });
   }
 }

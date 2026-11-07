@@ -90,6 +90,7 @@ async function setPinned(id: string, pinned: boolean, title: string) {
   try {
     await api.updateSession(id, { pinned });
     bump();
+    toast({ key: `pin-${id}`, kind: "success", text: pinned ? `Pinned “${title}” to the top` : `Unpinned “${title}”` });
     return true;
   } catch (e) {
     toast({ kind: "error", text: `Couldn't ${pinned ? "pin" : "unpin"} “${title}”: ${errorText(e)}` });
@@ -215,6 +216,7 @@ function SessionList() {
     if (syncing) return;
     lastSync = Date.now();
     setSyncing(true);
+    if (manual) toast({ key: "sync", kind: "loading", text: "Checking agent folders…" });
     try {
       const r = await api.syncSessions();
       reload();
@@ -222,12 +224,13 @@ function SessionList() {
         const changed = r.added + r.updated;
         const parts = [r.added && `${r.added} new`, r.updated && `${r.updated} updated`, r.failed && `${r.failed} unreadable`].filter(Boolean);
         toast({
+          key: "sync",
           kind: r.failed && !changed ? "warning" : "success",
           text: parts.length ? `Sessions synced: ${parts.join(", ")}` : `Up to date · ${plural(r.found, "session")} in agent folders`,
         });
       }
     } catch (e) {
-      if (manual) toast({ kind: "error", text: `Could not check agent folders: ${errorText(e)}` });
+      if (manual) toast({ key: "sync", kind: "error", text: `Could not check agent folders: ${errorText(e)}` });
     } finally {
       setSyncing(false);
     }
@@ -591,7 +594,7 @@ function SessionList() {
                           size="sm"
                           variant="ghost"
                           icon={<FolderOpen size={13} />}
-                          onClick={() => api.openFolder(group.key).catch((e) => toast({ kind: "error", text: errorText(e) }))}
+                          onClick={() => api.openFolder(group.key).then(() => toast({ kind: "success", text: `Opened ${group.label}` })).catch((e) => toast({ kind: "error", text: `Couldn't open the folder: ${errorText(e)}` }))}
                           title={`Open folder: ${group.key}`}
                         >
                           Open folder
@@ -676,7 +679,7 @@ function SessionList() {
               toast({ kind: "success", text: `Restored “${confirmRestore.title}” to Sessions` });
               setConfirmRestore(null);
             } catch (err) {
-              toast({ kind: "error", text: errorText(err) });
+              toast({ key: "restore", kind: "error", text: `Restore failed: ${errorText(err)}` });
             }
           }}
         />
@@ -690,16 +693,17 @@ function SessionList() {
           icon={<RotateCcw size={15} />}
           onClose={() => setConfirmRestoreBulk(null)}
           onConfirm={async () => {
+            toast({ key: "restore", kind: "loading", text: `Restoring ${plural(confirmRestoreBulk.length, "session")}…` });
             try {
               for (const sid of confirmRestoreBulk) {
                 await api.restoreSession(sid);
               }
               reload();
               setSelected(new Set());
-              toast({ kind: "success", text: `Restored ${plural(confirmRestoreBulk.length, "session")} to Sessions` });
+              toast({ key: "restore", kind: "success", text: `Restored ${plural(confirmRestoreBulk.length, "session")} to Sessions` });
               setConfirmRestoreBulk(null);
             } catch (err) {
-              toast({ kind: "error", text: errorText(err) });
+              toast({ key: "restore", kind: "error", text: `Restore failed: ${errorText(err)}` });
             }
           }}
         />
@@ -776,7 +780,7 @@ function FilesTab({ files }: { files: Attachment[] }) {
                   {bytes(f.size)} · {f.mediaType || "file"} · {f.text != null ? "included as text when copied" : "attach it yourself when you paste"}
                 </div>
               </div>
-              <Button size="sm" variant="ghost" icon={<FolderOpen size={13} />} onClick={() => api.openFile(f.sha256).catch((e) => toast({ kind: "error", text: errorText(e) }))}>
+              <Button size="sm" variant="ghost" icon={<FolderOpen size={13} />} onClick={() => api.openFile(f.sha256).then(() => toast({ kind: "success", text: `Opened ${f.fileName}` })).catch((e) => toast({ kind: "error", text: `Couldn't open ${f.fileName}: ${errorText(e)}` }))}>
                 Open
               </Button>
               <Button size="sm" icon={<Download size={13} />} onClick={() => saveFileAs(f.sha256, f.fileName)}>
@@ -1105,16 +1109,16 @@ function SessionPage({ id }: { id: string }) {
     setPinnedLocal(next);
     const ok = await setPinned(id, next, row.title);
     if (!ok) setPinnedLocal(!next);
-    else toast({ kind: "success", text: next ? `Pinned “${row.title}” to the top` : `Unpinned “${row.title}”` });
   };
 
   const remove = async () => {
     try {
       await api.removeSession(id);
       setConfirmDelete(false);
+      toast({ kind: "success", text: agent ? `Removed “${row.title}”. Restore it anytime from Hidden.` : `Deleted “${row.title}”.` });
       back();
     } catch (e) {
-      toast({ kind: "error", text: errorText(e) });
+      toast({ kind: "error", text: `Couldn't ${agent ? "remove" : "delete"} “${row.title}”: ${errorText(e)}` });
     }
   };
   const restore = async () => {

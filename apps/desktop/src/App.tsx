@@ -109,11 +109,12 @@ export function App() {
     const unLatest = listen<LatestCopied>("hopilo://latest-copied", ({ payload: p }) => {
       if (p.source === "tray" && !document.hasFocus()) return;
       if (!p.ok) {
-        toast({ kind: p.title ? "error" : "info", text: p.error ?? "Couldn't copy the latest session." });
+        toast({ key: "latest", kind: p.title ? "error" : "info", text: p.error ?? "Couldn't copy the latest session." });
         return;
       }
       const extra = [p.findings ? plural(p.findings, "possible secret") + " left in" : "", p.missing ? `${p.missing} part(s) not captured` : ""].filter(Boolean).join(", ");
       toast({
+        key: "latest",
         kind: extra ? "warning" : "success",
         text: `Copied latest session: ${p.title}${extra ? ` · ${extra}` : ""}`,
         action: p.id ? { label: "Open", run: () => useApp.getState().navigate({ page: "sessions", id: p.id! }) } : undefined,
@@ -140,6 +141,7 @@ export function App() {
 
   const importBundles = async (paths: string[]) => {
     const toast = useApp.getState().toast;
+    toast({ kind: "loading", text: `Importing ${paths.length === 1 ? "bundle" : `${paths.length} bundles`}…`, key: "bundle" });
     const ids: string[] = [];
     const errors: string[] = [];
     for (const p of paths) {
@@ -151,12 +153,13 @@ export function App() {
     }
     if (ids.length) {
       toast({
+        key: "bundle",
         kind: errors.length ? "warning" : "success",
         text: `Imported ${plural(ids.length, "session")}${errors.length ? ` · ${errors.length} failed` : ""}.`,
         action: { label: "Open", run: () => useApp.getState().navigate({ page: "sessions", id: ids[0] }) },
       });
     } else if (errors.length) {
-      toast({ kind: "error", text: `Import failed: ${errors[0]}` });
+      toast({ key: "bundle", kind: "error", text: `Import failed: ${errors[0]}` });
     }
   };
 
