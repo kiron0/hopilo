@@ -144,6 +144,14 @@
     caret-color: var(--accent);
   }
 
+  :where(button, [role="button"], [role="option"], [role="tab"], [role="switch"], [role="menuitem"], [role="radio"], [role="checkbox"], [cmdk-item], a[href], summary, label:has(> input:not([type="text"], [type="search"])), select, input[type="checkbox"], input[type="radio"], input[type="range"]):not(:disabled, [aria-disabled="true"], [data-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  :where(button, select, input):disabled {
+    cursor: default;
+  }
+
   ::selection {
     background: color-mix(in oklab, var(--accent) 28%, transparent);
     color: inherit;

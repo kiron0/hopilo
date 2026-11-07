@@ -60,7 +60,8 @@
       h2 { margin: 0 0 6px; font: 500 10.5px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
       p { margin: 0; color: var(--muted); font-size: 12.5px; }
       b { font-weight: 600; }
-      button { font: inherit; cursor: pointer; }
+      button, a[href], summary { font: inherit; cursor: pointer; }
+      button:disabled { cursor: default; }
       .primary { display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 12px; height: 36px; border: 0; border-radius: 99px;
         color: #fff; font-weight: 500; background: linear-gradient(160deg, var(--grad-a), var(--grad-b)); box-shadow: var(--elev-brand); transition: filter 160ms ease, transform 160ms ease; }
       .primary:hover { filter: brightness(1.1); }

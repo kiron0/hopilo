@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { Archive, ArrowLeft, Bot, BrowserIcon, GitBranch, Globe, OverviewIcon, Pin, SearchIcon, SessionsIcon, SettingsIcon } from "./Icons";
 import { SETTINGS_GROUPS, settingsGroupFor } from "./settingsNav";
 import { api } from "../lib/api";
@@ -7,10 +7,24 @@ import { useLoad } from "../lib/hooks";
 import { type Route, type SessionFilter, useApp } from "../lib/store";
 import { deviceNoun, modKey } from "../lib/platform";
 import { Kbd, Skeleton } from "./ui";
-import { CommandPalette } from "./CommandPalette";
 import { Toasts } from "./Toasts";
 import { PageSlotsContext } from "./PageSlots";
 import { BackgroundLayer } from "./Flow";
+
+const CommandPalette = lazy(() => import("./CommandPalette").then((m) => ({ default: m.CommandPalette })));
+
+function LazyPalette() {
+  const open = useApp((s) => s.paletteOpen);
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
+  return mounted ? (
+    <Suspense fallback={null}>
+      <CommandPalette />
+    </Suspense>
+  ) : null;
+}
 
 type NavIcon = (p: { size?: number; active?: boolean; className?: string }) => ReactNode;
 type NavItem = { page: Route["page"]; label: string; icon: NavIcon; hint: string };
@@ -210,7 +224,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      <CommandPalette />
+      <LazyPalette />
       <Toasts />
     </div>
   );
