@@ -22,7 +22,7 @@ function buildPopoverPath(w: number, h: number, anchorX: number | null, mac: boo
 
   const top = 12;
   const halfW = 16;
-  const targetX = anchorX != null ? anchorX : Math.round(w - 60);
+  const targetX = anchorX ?? w / 2;
   const ax = Math.max(r + halfW, Math.min(targetX, w - r - halfW));
 
   return [
@@ -80,26 +80,13 @@ export function QuickPanel() {
   useEffect(() => {
     let un: (() => void) | undefined;
     let disposed = false;
-    const updateAnchor = async () => {
-      try {
-        const val = await api.getQuickAnchor();
-        if (!disposed && typeof val === "number") setAnchorX(val - 10);
-      } catch {}
-    };
-    updateAnchor();
-
-    listen<number>("hopilo://quick-anchor", ({ payload }) => {
-      setAnchorX(payload - 10);
-    }).then((f) => {
+    listen<number>("hopilo://quick-anchor", ({ payload }) => setAnchorX(payload - 10)).then((f) => {
       if (disposed) f();
       else un = f;
     });
 
     const unFocus = getCurrentWindow().onFocusChanged(({ payload }) => {
-      if (payload) {
-        sessions.reload();
-        updateAnchor();
-      }
+      if (payload) sessions.reload();
     });
 
     return () => {

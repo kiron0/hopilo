@@ -92,14 +92,8 @@ export function patchCachedSession(id: string, patch: Partial<SessionRow>) {
   for (const fn of cacheListeners) fn();
 }
 
-export function invalidateQuery(matcher?: (key: string) => boolean) {
-  if (!matcher) {
-    queryCache.clear();
-    return;
-  }
-  for (const key of queryCache.keys()) {
-    if (matcher(key)) queryCache.delete(key);
-  }
+export function invalidateQuery() {
+  queryCache.clear();
 }
 
 function request<T>(key: string, loader: () => Promise<T>): Promise<T> {

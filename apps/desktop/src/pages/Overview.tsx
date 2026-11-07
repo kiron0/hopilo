@@ -265,15 +265,7 @@ function RecentRow({ row, onCopy }: { row: SessionRow; onCopy: (id: string) => v
         onMouseEnter={() => prefetch(sessionLoader(row.id), [row.id])}
         onClick={() => navigate({ page: "sessions", id: row.id })}
       >
-        <div className="flex items-center gap-1.5 truncate font-medium">
-          <span className="truncate">{row.title}</span>
-          {row.pinned && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent shadow-xs">
-              <Pin size={9} filled className="shrink-0 fill-current" />
-              <span>Pinned</span>
-            </span>
-          )}
-        </div>
+        <div className="truncate font-medium">{row.title}</div>
         <div className="truncate font-mono text-[11px] text-faint">
           {provider(row.provider).label} · {basename(row.project) || plural(row.messageCount, "message")} · {relativeTime(row.updatedAt)}
         </div>
@@ -339,14 +331,7 @@ export function Overview() {
     setNow(ts);
   };
 
-  const recent = useMemo(() => {
-    return [...all].sort((a, b) => {
-      const ap = Number(a.pinned);
-      const bp = Number(b.pinned);
-      if (ap !== bp) return bp - ap;
-      return b.updatedAt.localeCompare(a.updatedAt);
-    });
-  }, [all]);
+  const recent = useMemo(() => [...all].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)), [all]);
   const latest = recent[0];
   const agents = all.filter((r) => r.kind === "local-agent").length;
   const webRows = all.filter((r) => r.kind === "browser-chat");

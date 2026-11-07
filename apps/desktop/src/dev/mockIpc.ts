@@ -143,8 +143,6 @@ export function installMockIpc() {
         };
       case "app_info":
         return { version: "0.1.0", dataDir: "~/Library/Application Support/io.coreify.hopilo", platform: "macos", adapters: [{ id: "antigravity", displayName: "Antigravity", roots: ["~/.gemini/antigravity/brain"], available: true }, { id: "claude-code", displayName: "Claude Code", roots: ["~/.claude/projects"], available: true }, { id: "codex", displayName: "Codex CLI", roots: ["~/.codex/sessions"], available: true }, { id: "gemini-cli", displayName: "Gemini CLI", roots: ["~/.gemini/tmp"], available: true }, { id: "opencode", displayName: "OpenCode", roots: ["~/.local/share/opencode"], available: true }] };
-      case "get_quick_anchor":
-        return 380;
       case "plugin:event|listen":
         return 1;
       default:

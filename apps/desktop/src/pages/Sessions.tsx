@@ -92,11 +92,9 @@ export async function setPinned(id: string, pinned: boolean, title: string) {
     await api.updateSession(id, { pinned });
     bump();
     toast({ key: `pin-${id}`, kind: "success", text: pinned ? `Pinned “${title}” to the top` : `Unpinned “${title}”` });
-    return true;
   } catch (e) {
     patchCachedSession(id, { pinned: !pinned });
     toast({ key: `pin-${id}`, kind: "error", text: `Couldn't ${pinned ? "pin" : "unpin"} “${title}”: ${errorText(e)}` });
-    return false;
   }
 }
 
@@ -201,28 +199,7 @@ function SessionList() {
   const limitChoice = useApp((s) => s.listView.limit);
   const hideUnanswered = useApp((s) => s.listView.hideUnanswered);
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
-  const [pinOverrides, setPinOverrides] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    setPinOverrides((prev) => {
-      if (!data || Object.keys(prev).length === 0) return prev;
-      const next = { ...prev };
-      let changed = false;
-      for (const [id, pinned] of Object.entries(prev)) {
-        const row = data.find((r) => r.id === id);
-        if (row && row.pinned === pinned) {
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [data]);
-  const isPinned = (r: SessionRow) => pinOverrides[r.id] ?? r.pinned;
-  const togglePin = async (r: SessionRow) => {
-    const next = !isPinned(r);
-    setPinOverrides((o) => ({ ...o, [r.id]: next }));
-    if (!(await setPinned(r.id, next, r.title))) setPinOverrides((o) => ({ ...o, [r.id]: !next }));
-  };
+  const togglePin = (r: SessionRow) => void setPinned(r.id, !r.pinned, r.title);
   const automaticPageSize = settings.sessionLayout === "thumbnails" ? 12 : settings.sessionGroup === "none" ? autoPageSize : 10;
   const pageSize = Math.max(10, limitChoice === "auto" ? automaticPageSize : limitChoice);
 
@@ -259,7 +236,7 @@ function SessionList() {
     const needle = debouncedQ.trim().toLowerCase();
     const filtered = (data ?? []).filter(
       (r) =>
-        (filter === "pinned" ? isPinned(r) : matches(r, filter)) &&
+        (filter === "pinned" ? r.pinned : matches(r, filter)) &&
         (providerFilter === "all" || r.provider === providerFilter) &&
         (modelFilter === "all" || (r.model?.trim() || "__unknown") === modelFilter) &&
         (resourceFilter === "all" || (resourceFilter === "with-files" ? r.fileCount > 0 : r.fileCount === 0)) &&
@@ -273,12 +250,9 @@ function SessionList() {
     );
     if (filter === "hidden") return filtered;
     return filtered.slice().sort((a, b) => {
-      const ap = isPinned(a) ? 1 : 0;
-      const bp = isPinned(b) ? 1 : 0;
-      if (ap !== bp) return bp - ap;
-      return 0;
+      return Number(b.pinned) - Number(a.pinned);
     });
-  }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered, pinOverrides]);
+  }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
   const providerOptions = useMemo<SelectOption[]>(() => {
     const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
     const targets = TARGETS.filter((t) => t.id !== "other")
@@ -369,19 +343,11 @@ function SessionList() {
   const titleLine = (r: SessionRow) => (
     <span className="flex min-w-0 items-center gap-2">
       <span className="truncate font-medium">{r.title}</span>
-      {isPinned(r) && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePin(r);
-          }}
-          title="Pinned to top · Click to unpin"
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs transition-colors hover:bg-accent-soft/80"
-        >
+      {r.pinned && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/30 bg-accent-soft px-1.5 py-0.5 text-[10.5px] font-semibold text-accent shadow-xs">
           <Pin size={10} filled className="shrink-0 fill-current" />
           <span>Pinned</span>
-        </button>
+        </span>
       )}
       {r.missingCount > 0 && <AlertTriangle size={12} className="shrink-0 text-warning" aria-label="Partly captured" />}
       {r.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}
@@ -406,7 +372,7 @@ function SessionList() {
           <span className="mt-0.5 block truncate font-mono text-[11px] text-faint" title={r.origin ?? undefined}>{meta(r)}</span>
         </button>
         {r.fileCount > 0 && <span className="hidden items-center gap-1 font-mono text-[11px] text-faint sm:flex" title={plural(r.fileCount, "file")}><Paperclip size={12} /> {r.fileCount}</span>}
-        {filter !== "hidden" && <PinButton compact pinned={isPinned(r)} onToggle={() => togglePin(r)} />}
+        {filter !== "hidden" && <PinButton compact pinned={r.pinned} onToggle={() => togglePin(r)} />}
         {sessionAction(r, on)}
       </div>
     );
@@ -433,7 +399,7 @@ function SessionList() {
         </button>
         <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">{provider(r.provider).label}</span>
-          {filter !== "hidden" && <PinButton compact pinned={isPinned(r)} onToggle={() => togglePin(r)} />}
+          {filter !== "hidden" && <PinButton compact pinned={r.pinned} onToggle={() => togglePin(r)} />}
           {sessionAction(r, on)}
         </div>
       </article>
@@ -1019,7 +985,6 @@ function SessionPage({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [paths, setPaths] = useState<string[] | null>(null);
-  const [pinned, setPinnedLocal] = useState<boolean | null>(null);
   const back = () => navigate({ page: "sessions" });
 
   const messages = data?.messages;
@@ -1132,24 +1097,13 @@ function SessionPage({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    if (pinned !== null && data?.row && data.row.pinned === pinned) {
-      setPinnedLocal(null);
-    }
-  }, [data?.row.pinned, pinned]);
 
   if (error) return <ErrorNote text={error} />;
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
   const { row, source, files, tokenEstimate } = data;
   const agent = row.kind === "local-agent";
-  const isPinnedNow = pinned ?? row.pinned;
-  const togglePin = async () => {
-    const next = !isPinnedNow;
-    setPinnedLocal(next);
-    const ok = await setPinned(id, next, row.title);
-    if (!ok) setPinnedLocal(!next);
-  };
+  const togglePin = () => void setPinned(id, !row.pinned, row.title);
 
   const remove = async () => {
     try {
@@ -1192,7 +1146,7 @@ function SessionPage({ id }: { id: string }) {
         actions={
           <>
             <StatusBadge status={source.captureStatus} />
-            {!row.hidden && <PinButton pinned={isPinnedNow} onToggle={togglePin} />}
+            {!row.hidden && <PinButton pinned={row.pinned} onToggle={togglePin} />}
             {!row.hidden && (
               <IconButton label="Compare with another session" onClick={() => navigate({ page: "compare", a: id })}>
                 <GitBranch size={15} />
