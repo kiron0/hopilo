@@ -6,6 +6,12 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Added
 
+- **Session comparison view**: Compare two sessions side-by-side to inspect differing file edits, contrasting conclusions, and message/token statistics.
+- **Handoff intents & model-specific formatting**: Configurable handoff goals (continue execution, peer review, executive summary, custom templates) with tailored prompt structures for target models like Claude and ChatGPT.
+- **Custom privacy & secret redaction rules**: Add user-defined regex patterns, keyword blacklists, and file path exclusion rules with inline ignore controls in the preflight scan.
+- **Instant global handoff shortcut**: Configured global keyboard shortcut (`Cmd+Shift+H` / `Ctrl+Shift+H`) to capture and copy the latest session to clipboard with tray feedback.
+- **Standalone offline HTML export**: Export any session into a single-file, zero-dependency dark-themed HTML transcript with collapsible tool calls and syntax highlighting.
+- **Searchable session picker & pagination**: Fast session selector modal with keyboard navigation, search filtering, pagination controls, and key-based toast tracking.
 - **Animated splash screen and startup sequence**: Introduced a dedicated startup sequence and splash screen with animated brand mark, floating halo, glowing ambient pulse, and smooth fade-in reveal into the dashboard.
 - **Dark mode animated header background**: Added a rich dark palette (`DARK_PLUME`) with deep indigo, purple, and midnight tones to the `Flow` component, enabling the animated background plume on the Overview header card in dark mode.
 - **Automated signing build runner**: Added cross-platform build script `scripts/build.mjs` that automatically detects local updater signing keys, manages signing environment variables, and enables seamless local and CI builds.
