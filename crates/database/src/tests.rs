@@ -24,6 +24,35 @@ fn capture(origin: &str, text: &str) -> (Source, Vec<Message>) {
 }
 
 #[test]
+fn sync_origin_preserves_renamed_title_marker_and_failed_handoffs_do_not_mark_copied() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (source, messages) = capture("/renamed.jsonl", "hello");
+    let id = db.upsert_session(&source, &messages, None).unwrap().source_id;
+    db.update_session(&id, &SessionPatch { title: Some("My title".into()), ..Default::default() }).unwrap();
+    assert!(db.session_origins().unwrap()["/renamed.jsonl"].title_edited);
+    db.record_copy(std::slice::from_ref(&id), "claude", "extension", "failed").unwrap();
+    assert!(db.session_row(&id).unwrap().last_copied_at.is_none());
+    db.record_copy(std::slice::from_ref(&id), "claude", "extension", "drafted").unwrap();
+    assert!(db.session_row(&id).unwrap().last_copied_at.is_some());
+}
+
+#[test]
+fn sync_compares_instants_including_subsecond_changes_and_offsets() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (source, messages) = capture("/fast.jsonl", "hello");
+    db.upsert_session(&source, &messages, Some("2030-01-01T00:00:00Z")).unwrap();
+    let origin = db.session_origins().unwrap().remove("/fast.jsonl").unwrap();
+    assert!(!origin.unchanged_since("2030-01-01T00:00:00.000000001Z"));
+    assert!(origin.unchanged_since("2030-01-01T06:00:00+06:00"));
+    assert!(!origin.unchanged_since("invalid"));
+    db.upsert_session(&source, &messages, Some("2030-01-01T00:00:00.000000001Z")).unwrap();
+    let origin = db.session_origins().unwrap().remove("/fast.jsonl").unwrap();
+    assert!(origin.unchanged_since("2030-01-01T00:00:00.000000001Z"));
+}
+
+#[test]
 fn agent_sessions_without_a_reply_are_listed_and_flagged() {
     let dir = tempfile::tempdir().unwrap();
     let mut db = Store::open(dir.path()).unwrap();

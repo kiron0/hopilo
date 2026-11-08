@@ -106,12 +106,13 @@ impl LocalAgentAdapter for Antigravity {
             let dir = t
                 .ancestors()
                 .find(|a| a.parent() == Some(target.as_path()))?;
-            let mut s = quick_scan(t, dir)?;
-            if let Some(name) = db_titles.get(&s.session_id) {
-                s.title = name.clone();
-            }
-            Some(s)
+            quick_scan(t, dir)
         });
+        for session in &mut out {
+            if let Some(name) = db_titles.get(&session.session_id) {
+                session.title = name.clone();
+            }
+        }
         out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
         Ok(out)
     }
@@ -777,5 +778,10 @@ Other open documents:
 
         let cap = Antigravity.read(Path::new(&sessions[0].path)).unwrap();
         assert_eq!(cap.source.title, "Hopilo Specification Implementation");
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("UPDATE conversation_summaries SET title = 'Renamed externally'", []).unwrap();
+        let refreshed = Antigravity.discover(&brain).unwrap();
+        assert_eq!(refreshed[0].title, "Renamed externally", "cached transcript must use current database title");
     }
 }

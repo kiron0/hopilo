@@ -12,10 +12,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::files::{self, FilePreflight};
 
+type DiscoveryCache = HashMap<(String, PathBuf), (u64, Vec<DiscoveredSession>)>;
+
 pub struct AppState {
     pub store: Mutex<Store>,
 
-    pub discovery: Mutex<HashMap<PathBuf, (u64, Vec<DiscoveredSession>)>>,
+    pub discovery: Mutex<DiscoveryCache>,
 
     pub sync_lock: Mutex<()>,
     pub last_background_sync: Mutex<Option<Instant>>,
@@ -32,7 +34,9 @@ fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
     use std::hash::{Hash, Hasher};
     fn walk(dir: &Path, depth: usize, h: &mut std::collections::hash_map::DefaultHasher) {
         let Ok(rd) = std::fs::read_dir(dir) else { return };
-        for e in rd.flatten() {
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
             let Ok(ft) = e.file_type() else { continue };
             if ft.is_dir() && depth > 0 {
                 walk(&e.path(), depth - 1, h);
@@ -48,11 +52,13 @@ fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     if let Some(parent) = root.parent() {
         for name in ["conversation_summaries.db", "session_index.jsonl", "state_5.sqlite", "threads.db", "opencode.db"] {
-            let f = parent.join(name);
-            if let Ok(md) = f.metadata() {
-                name.hash(&mut h);
-                md.len().hash(&mut h);
-                md.modified().ok().hash(&mut h);
+            for suffix in ["", "-wal"] {
+                let f = parent.join(format!("{name}{suffix}"));
+                if let Ok(md) = f.metadata() {
+                    f.hash(&mut h);
+                    md.len().hash(&mut h);
+                    md.modified().ok().hash(&mut h);
+                }
             }
         }
     }
@@ -140,13 +146,14 @@ fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
                 continue;
             }
             let fp = folder_fingerprint(&root, a.scan_depth());
-            let cached = state.discovery.lock().ok().and_then(|c| c.get(&root).filter(|(f, _)| *f == fp).map(|(_, v)| v.clone()));
+            let key = (a.id().to_string(), root.clone());
+            let cached = state.discovery.lock().ok().and_then(|c| c.get(&key).filter(|(f, _)| *f == fp).map(|(_, v)| v.clone()));
             let sessions = match cached {
                 Some(v) => v,
                 None => {
-                    let v = a.discover(&root).unwrap_or_default();
+                    let Ok(v) = a.discover(&root) else { continue };
                     if let Ok(mut c) = state.discovery.lock() {
-                        c.insert(root.clone(), (fp, v.clone()));
+                        c.insert(key, (fp, v.clone()));
                     }
                     v
                 }
@@ -247,7 +254,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     for d in found {
         let prior = known.get(&d.path);
         let force_backfill = backfill_antigravity && d.adapter == "antigravity";
-        if prior.is_some_and(|p| p.hidden || (!force_backfill && p.updated_at >= d.modified_at && p.project == d.project && p.title == d.title)) {
+        if prior.is_some_and(|p| p.hidden || (!force_backfill && p.unchanged_since(&d.modified_at) && p.project == d.project && (p.title_edited || p.title == d.title))) {
             continue;
         }
         let saved = read_session(&d.adapter, &d.path).and_then(|(source, messages, files)| {
@@ -257,16 +264,14 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
             })
         });
         match saved {
-            Ok(out) if out.duplicate_of.is_some() => {}
-            Ok(_) if prior.is_some() => result.updated += 1,
-            Ok(_) => result.added += 1,
+            Ok(_) => {
+                if prior.is_some() { result.updated += 1; } else { result.added += 1; }
+                pending = true;
+            }
             Err(_) => {
                 result.failed += 1;
                 antigravity_backfill_failed |= force_backfill;
             }
-        }
-        if result.added + result.updated > 0 {
-            pending = true;
         }
         if pending && last_emit.elapsed() >= std::time::Duration::from_millis(1500) {
             notify(app);
@@ -665,9 +670,13 @@ fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> Cm
 }
 
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> CmdResult<()> {
-    let tmp = path.with_extension(format!("{}.part", path.extension().and_then(|e| e.to_str()).unwrap_or("tmp")));
-    std::fs::write(&tmp, bytes).map_err(err)?;
-    std::fs::rename(&tmp, path).map_err(err)
+    use std::io::Write;
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(err)?;
+    tmp.write_all(bytes).map_err(err)?;
+    tmp.as_file().sync_all().map_err(err)?;
+    tmp.persist(path).map_err(err)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -822,6 +831,35 @@ pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdRes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_exports_replace_destination_without_touching_part_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.md");
+        let unrelated = dir.path().join("export.md.part");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::write(&unrelated, "keep").unwrap();
+        write_atomic(&path, b"new complete export").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new complete export");
+        assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn discovery_fingerprint_tracks_parent_database_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("sessions");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(dir.path().join("state_5.sqlite"), "unchanged database").unwrap();
+        let before = folder_fingerprint(&root, 4);
+        let wal = dir.path().join("state_5.sqlite-wal");
+        std::fs::write(&wal, "new committed title").unwrap();
+        let after = folder_fingerprint(&root, 4);
+        assert_ne!(before, after);
+        assert_eq!(after, folder_fingerprint(&root, 4));
+        std::fs::write(&wal, "another committed title with a new size").unwrap();
+        assert_ne!(after, folder_fingerprint(&root, 4));
+    }
 
     fn found(adapter: &str, id: &str, modified: &str, path: &str) -> DiscoveredSession {
         DiscoveredSession {

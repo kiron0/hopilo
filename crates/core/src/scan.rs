@@ -41,7 +41,7 @@ fn builtin_patterns() -> &'static [(&'static str, Regex)] {
     static P: OnceLock<Vec<(&'static str, Regex)>> = OnceLock::new();
     P.get_or_init(|| {
         [
-            ("Private key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+            ("Private key", r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)"),
             ("Anthropic API key", r"sk-ant-[A-Za-z0-9_\-]{20,}"),
             ("OpenAI-style API key", r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}"),
             ("GitHub token", r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
@@ -221,10 +221,25 @@ impl Redactor {
                 self.scan_text(b.plain_text(), &m.id, &mut out);
             }
         }
-        if out.len() < LIMIT {
-            if let Some(n) = &pack.context.note {
-                self.scan_text(n, "note", &mut out);
-            }
+        let context = &pack.context;
+        for text in std::iter::once(pack.title.as_str())
+            .chain(context.note.as_deref())
+            .chain(context.goal.as_deref())
+            .chain(context.current_state.as_deref())
+            .chain(context.decisions.iter().map(String::as_str))
+            .chain(context.constraints.iter().map(String::as_str))
+            .chain(context.next_steps.iter().map(String::as_str))
+            .chain(pack.tags.iter().map(String::as_str))
+            .chain(pack.sources.iter().flat_map(|s| {
+                std::iter::once(s.title.as_str())
+                    .chain(s.origin.as_deref())
+                    .chain(s.project.as_deref())
+                    .chain(s.model.as_deref())
+                    .chain(s.missing_items.iter().map(String::as_str))
+            }))
+        {
+            if out.len() >= LIMIT { break; }
+            self.scan_text(text, "context", &mut out);
         }
         for a in &pack.attachments {
             if out.len() >= LIMIT {
@@ -233,6 +248,7 @@ impl Redactor {
             if let Some(t) = &a.text {
                 self.scan_text(t, &format!("attachment:{}", a.id), &mut out);
             }
+            self.scan_text(&a.file_name, &format!("attachment:{}", a.id), &mut out);
         }
         out.truncate(LIMIT);
         out
@@ -264,16 +280,44 @@ impl Redactor {
             for b in &mut m.blocks {
                 match b {
                     crate::model::Block::Text { text } => *text = self.redact_text(text),
-                    crate::model::Block::ToolCall { input, .. } => *input = self.redact_text(input),
-                    crate::model::Block::ToolResult { output, .. } => *output = self.redact_text(output),
-                    _ => {}
+                    crate::model::Block::ToolCall { name, input } => {
+                        *name = self.redact_text(name);
+                        *input = self.redact_text(input);
+                    }
+                    crate::model::Block::ToolResult { name, output, .. } => {
+                        if let Some(name) = name { *name = self.redact_text(name); }
+                        *output = self.redact_text(output);
+                    }
+                    crate::model::Block::Missing { description } => *description = self.redact_text(description),
+                    crate::model::Block::File { name, .. } => *name = self.redact_text(name),
                 }
             }
         }
-        if let Some(note) = &mut pack.context.note {
-            *note = self.redact_text(note);
+        pack.title = self.redact_text(&pack.title);
+        let context = &mut pack.context;
+        for text in context.note.iter_mut()
+            .chain(context.goal.iter_mut())
+            .chain(context.current_state.iter_mut())
+            .chain(context.decisions.iter_mut())
+            .chain(context.constraints.iter_mut())
+            .chain(context.next_steps.iter_mut())
+            .chain(pack.tags.iter_mut())
+        {
+            *text = self.redact_text(text);
+        }
+        for source in &mut pack.sources {
+            source.title = self.redact_text(&source.title);
+            for text in source.origin.iter_mut()
+                .chain(source.project.iter_mut())
+                .chain(source.model.iter_mut())
+                .chain(source.missing_items.iter_mut())
+            {
+                *text = self.redact_text(text);
+            }
         }
         for a in &mut pack.attachments {
+            a.file_name = self.redact_text(&a.file_name);
+            if let Some(path) = &mut a.origin_path { *path = self.redact_text(path); }
             if let Some(t) = &mut a.text {
                 *t = self.redact_text(t);
             }
@@ -379,6 +423,35 @@ pub fn test_rule(pattern: &str, keyword: bool, sample: &str) -> RuleTest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacts_private_key_body_including_truncated_pem() {
+        for kind in ["", "RSA ", "EC ", "OPENSSH ", "ENCRYPTED "] {
+            let header = format!("-----BEGIN {kind}PRIVATE KEY-----");
+            let complete = format!("before\n{header}\nSENSITIVE_BASE64\n-----END {kind}PRIVATE KEY-----\nafter");
+            assert_eq!(redact_text(&complete), "before\n[REDACTED: Private key]\nafter");
+            assert_eq!(redact_text(&format!("{header}\nSENSITIVE_BASE64")), "[REDACTED: Private key]");
+        }
+    }
+
+    #[test]
+    fn scans_and_redacts_metadata_missing_blocks_and_context() {
+        let mut pack: Pack = serde_json::from_value(serde_json::json!({
+            "schemaVersion": "1.0.0", "packId": "p", "title": "admin@example.com", "version": 0,
+            "createdAt": "", "mode": "full", "sources": [],
+            "messages": [{ "id": "m", "sourceId": "s", "role": "user", "blocks": [
+                { "type": "missing", "description": "admin@example.com" },
+                { "type": "file", "name": "admin@example.com", "mediaType": "text/plain", "size": 0, "sha256": "a".repeat(64) }
+            ] }],
+            "context": { "goal": "admin@example.com", "decisions": ["admin@example.com"], "nextSteps": ["admin@example.com"] },
+            "tags": ["admin@example.com"]
+        })).unwrap();
+        let redactor = Redactor::builtin();
+        assert!(!redactor.scan_pack(&pack, None).is_empty());
+        redactor.redact_pack(&mut pack);
+        assert!(!serde_json::to_string(&pack).unwrap().contains("admin@example.com"));
+        assert!(redactor.scan_pack(&pack, None).is_empty());
+    }
 
     #[test]
     fn finds_and_masks_keys() {

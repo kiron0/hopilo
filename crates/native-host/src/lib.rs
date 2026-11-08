@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use hopilo_core::brief::ContextLevel;
 use hopilo_core::render::{estimate_tokens, render_handoff_prompt, RenderOptions};
-use hopilo_core::scan::scan_pack;
+use hopilo_core::scan::{RedactionRules, Redactor};
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
 use hopilo_database::Store;
 use serde::Deserialize;
@@ -318,16 +318,22 @@ impl Host {
             Some("full") => ContextLevel::Full,
             _ => ContextLevel::Balanced,
         };
-        let pack = match self.store.compose(&ids) {
+        let mut pack = match self.store.compose(&ids) {
             Ok(p) => p,
             Err(e) => return err(id, "not_found", e.to_string()),
         };
+        let rules: RedactionRules = self.store.settings().ok()
+            .and_then(|s| s.get("redaction").cloned())
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+        let (redactor, _) = Redactor::new(&rules, []);
+        redactor.drop_excluded(&mut pack);
         let text = render_handoff_prompt(&pack, &RenderOptions { level, ..Default::default() });
 
         if text.len() > MAX_OUTGOING * 3 / 4 {
             return err(id, "too_large", "This session is too long to insert directly. Try the Balanced or Minimal level, or copy it from the Hopilo app.");
         }
-        let findings = scan_pack(&pack, None).len();
+        let findings = redactor.scan_pack(&pack, None).len();
         let missing: usize = pack.sources.iter().map(|s| s.missing_items.len()).sum();
         ok(
             id,

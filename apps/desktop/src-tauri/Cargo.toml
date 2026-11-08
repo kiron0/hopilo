@@ -26,6 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 zip.workspace = true
+tempfile.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
@@ -36,9 +37,6 @@ tauri-plugin-process = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"
-
-[dev-dependencies]
-tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.5"

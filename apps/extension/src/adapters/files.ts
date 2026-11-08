@@ -1,4 +1,5 @@
 import type { CapturedFile } from "../protocol";
+import { readCapped } from "../readCapped";
 
 export interface FileRef {
   name: string;
@@ -66,30 +67,37 @@ export function findFiles(message: Element): FileRef[] {
   return out;
 }
 
-function toBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
+function toBase64(bytes: Uint8Array): string {
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
 }
 
-async function readBytes(url: string): Promise<{ data: string; mediaType: string } | null> {
-  const local = url.startsWith("blob:") || url.startsWith("data:") || new URL(url, location.href).origin === location.origin;
+async function readBytes(url: string, limit: number): Promise<{ data: string; mediaType: string } | null> {
+  let local: boolean;
+  try {
+    local = url.startsWith("blob:") || url.startsWith("data:") || new URL(url, location.href).origin === location.origin;
+  } catch {
+    return null;
+  }
   if (local) {
     try {
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) return null;
       const len = Number(res.headers.get("content-length") ?? 0);
-      if (len > MAX_FILE_BYTES) return null;
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > MAX_FILE_BYTES) return null;
-      return { data: toBase64(buf), mediaType: res.headers.get("content-type")?.split(";")[0] ?? "" };
+      if (len > limit) {
+        await res.body?.cancel().catch(() => {});
+        return null;
+      }
+      const bytes = await readCapped(res, limit);
+      if (!bytes) return null;
+      return { data: toBase64(bytes), mediaType: res.headers.get("content-type")?.split(";")[0] ?? "" };
     } catch {
 
     }
   }
   try {
-    const r = await chrome.runtime.sendMessage({ kind: "fetch", url, maxBytes: MAX_FILE_BYTES });
+    const r = await chrome.runtime.sendMessage({ kind: "fetch", url, maxBytes: limit });
     return r?.ok ? { data: r.data, mediaType: r.mediaType ?? "" } : null;
   } catch {
     return null;
@@ -99,8 +107,8 @@ async function readBytes(url: string): Promise<{ data: string; mediaType: string
 export async function readFiles(refs: FileRef[], budget: { left: number }): Promise<CapturedFile[]> {
   const out: CapturedFile[] = [];
   for (const ref of refs) {
-    const got = ref.url && budget.left > 0 ? await readBytes(ref.url) : null;
-    const size = got ? Math.floor((got.data.length * 3) / 4) : 0;
+    const got = ref.url && budget.left > 0 ? await readBytes(ref.url, Math.min(MAX_FILE_BYTES, budget.left)) : null;
+    const size = got ? Math.floor((got.data.length * 3) / 4) - (got.data.endsWith("==") ? 2 : got.data.endsWith("=") ? 1 : 0) : 0;
     if (got && size <= budget.left) {
       budget.left -= size;
       out.push({ name: ref.name, mediaType: got.mediaType || ref.mediaType || "", data: got.data });

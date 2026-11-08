@@ -38,12 +38,21 @@ fn load_json(path: &Path) -> Result<Value> {
         if entry.size() > MAX_EXPORT_BYTES {
             return Err(io(path, "export is too large"));
         }
-        let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf).map_err(|e| io(path, e))?;
+        let mut buf = Vec::with_capacity(entry.size().min(8 * 1024 * 1024) as usize);
+        entry.by_ref().take(MAX_EXPORT_BYTES + 1).read_to_end(&mut buf).map_err(|e| io(path, e))?;
         buf
     } else {
-        std::fs::read(path).map_err(|e| io(path, e))?
+        let file = std::fs::File::open(path).map_err(|e| io(path, e))?;
+        if file.metadata().map_err(|e| io(path, e))?.len() > MAX_EXPORT_BYTES {
+            return Err(io(path, "export is too large"));
+        }
+        let mut buf = Vec::new();
+        file.take(MAX_EXPORT_BYTES + 1).read_to_end(&mut buf).map_err(|e| io(path, e))?;
+        buf
     };
+    if bytes.len() as u64 > MAX_EXPORT_BYTES {
+        return Err(io(path, "export is too large"));
+    }
     serde_json::from_slice(&bytes).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))
 }
 
@@ -303,6 +312,15 @@ fn claude(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_raw_export_is_rejected_before_allocation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.json");
+        std::fs::File::create(&path).unwrap().set_len(MAX_EXPORT_BYTES + 1).unwrap();
+        let error = load_json(&path).unwrap_err().to_string();
+        assert!(error.contains("export is too large"), "{error}");
+    }
     use std::path::PathBuf;
 
     fn fixture(name: &str) -> PathBuf {

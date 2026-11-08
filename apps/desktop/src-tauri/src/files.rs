@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::io::Read;
 
 use hopilo_core::{new_id, Attachment};
 use hopilo_pack_format::sha256_hex;
@@ -165,7 +166,7 @@ pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight 
         "binary" => pf.warnings.push("Unrecognized type — kept as a file only".into()),
         _ => {}
     }
-    match std::fs::read(path) {
+    match read_bounded(path) {
         Ok(bytes) => {
             if kind == "text" && std::str::from_utf8(&bytes).is_err() {
                 pf.warnings.push("Not valid UTF-8 text — kept as a file only".into());
@@ -190,14 +191,14 @@ pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
     if meta.len() > MAX_FILE_BYTES {
         return Err(format!("{pf_name}: larger than the size limit"));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{pf_name}: {e}"))?;
+    let bytes = read_bounded(path).map_err(|e| format!("{pf_name}: {e}"))?;
     let size = bytes.len() as u64;
     if size > MAX_FILE_BYTES {
         return Err(format!("{pf_name}: larger than the size limit"));
     }
     let (media_type, kind) = classify(path);
     let text = (kind == "text" && size <= MAX_TEXT_BYTES)
-        .then(|| String::from_utf8(bytes.clone()).ok())
+        .then(|| std::str::from_utf8(&bytes).ok().map(str::to_owned))
         .flatten();
     Ok((
         Attachment {
@@ -211,6 +212,15 @@ pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
         },
         bytes,
     ))
+}
+
+fn read_bounded(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err(std::io::Error::other("larger than the size limit"));
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]

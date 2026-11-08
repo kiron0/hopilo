@@ -48,6 +48,16 @@ pub struct OriginState {
     pub hidden: bool,
     pub project: Option<String>,
     pub title: String,
+    pub title_edited: bool,
+}
+
+impl OriginState {
+    pub fn unchanged_since(&self, modified_at: &str) -> bool {
+        match (chrono::DateTime::parse_from_rfc3339(&self.updated_at), chrono::DateTime::parse_from_rfc3339(modified_at)) {
+            (Ok(saved), Ok(modified)) => saved >= modified,
+            _ => false,
+        }
+    }
 }
 
 const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
@@ -121,7 +131,8 @@ impl Store {
                 tx.execute(
                     "UPDATE sources SET kind = ?2, provider = ?3, origin = ?4, project = ?5, model = ?6,
                         capture_status = ?7, source_json = ?8, missing_count = ?9, file_count = ?10,
-                        updated_at = MAX(COALESCE(updated_at, ''), ?11) WHERE id = ?1",
+                        updated_at = CASE WHEN updated_at IS NULL OR julianday(?11) >= julianday(updated_at)
+                            THEN ?11 ELSE updated_at END WHERE id = ?1",
                     params![
                         id,
                         kebab(&source.kind),
@@ -263,7 +274,7 @@ impl Store {
 
     pub fn session_origins(&self) -> Result<std::collections::HashMap<String, OriginState>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT origin, id, COALESCE(updated_at, captured_at), hidden, project, title FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
+            "SELECT origin, id, COALESCE(updated_at, captured_at), hidden, project, title, title_edited FROM sources WHERE origin IS NOT NULL ORDER BY captured_at ASC",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -274,6 +285,7 @@ impl Store {
                     hidden: r.get(3)?,
                     project: r.get(4)?,
                     title: r.get(5)?,
+                    title_edited: r.get(6)?,
                 },
             ))
         })?;
@@ -441,8 +453,10 @@ impl Store {
             "INSERT INTO handoffs (id, pack_id, version, target, method, status, created_at) VALUES (?1, ?2, 0, ?3, ?4, ?5, ?6)",
             params![new_id(), ids.join(","), target, method, status, now],
         )?;
-        for id in ids {
-            tx.execute("UPDATE sources SET last_copied_at = ?2 WHERE id = ?1", params![id, now])?;
+        if matches!(status, "copied" | "drafted" | "exported") {
+            for id in ids {
+                tx.execute("UPDATE sources SET last_copied_at = ?2 WHERE id = ?1", params![id, now])?;
+            }
         }
         event(&tx, "handoff", ids.first().map(String::as_str), &format!("{status} via {method} for {target}"))?;
         tx.commit()?;

@@ -297,6 +297,34 @@ struct Prepared {
     framing: Framing,
 }
 
+fn redact_export_pack(pack: &mut Pack, redactor: &Redactor, include_blobs: bool) -> std::collections::HashMap<String, Vec<u8>> {
+    redactor.redact_pack(pack);
+    let mut replacements = std::collections::HashMap::new();
+    let mut blobs = std::collections::HashMap::new();
+    for a in &mut pack.attachments {
+        if let Some(text) = &a.text {
+            let bytes = text.as_bytes();
+            let sha = hopilo_pack_format::sha256_hex(bytes);
+            let size = bytes.len() as u64;
+            replacements.insert(a.sha256.clone(), (sha.clone(), size));
+            a.sha256 = sha.clone();
+            a.size = size;
+            if include_blobs { blobs.insert(sha, bytes.to_vec()); }
+        }
+    }
+    for m in &mut pack.messages {
+        for b in &mut m.blocks {
+            if let hopilo_core::Block::File { sha256, size, .. } = b {
+                if let Some((sha, len)) = replacements.get(sha256) {
+                    *sha256 = sha.clone();
+                    *size = *len;
+                }
+            }
+        }
+    }
+    blobs
+}
+
 fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opts: Option<CopyOptions>) -> CmdResult<Prepared> {
     if let Some(bad) = formats.iter().find(|f| !EXPORT_FORMATS.contains(f)) {
         return Err(format!("unknown export format {bad}"));
@@ -313,13 +341,11 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
         arrange_sources(&mut pack, opts.order.unwrap_or_default());
         red.drop_excluded(&mut pack);
         strip_local_paths(&mut pack);
-        if opts.exclude_secrets {
-            red.redact_pack(&mut pack);
-        }
+        let redacted_blobs = if opts.exclude_secrets { redact_export_pack(&mut pack, &red, want_blobs) } else { Default::default() };
         let mut blobs = std::collections::HashMap::new();
         if want_blobs {
             for a in &pack.attachments {
-                if let Some(bytes) = s.attachment_bytes(&a.sha256) {
+                if let Some(bytes) = redacted_blobs.get(&a.sha256).cloned().or_else(|| s.attachment_bytes(&a.sha256)) {
                     blobs.insert(a.sha256.clone(), bytes);
                 }
             }
@@ -513,4 +539,45 @@ pub fn test_redaction_rule(pattern: String, keyword: bool, sample: String) -> ho
 #[tauri::command]
 pub fn builtin_redaction_kinds() -> Vec<&'static str> {
     hopilo_core::scan::BUILTIN_KINDS.to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hopilo_core::{Block, CapturedFile, CaptureStatus, ContextBrief, Integrity, Message, Mode, Source, SourceKind, SCHEMA_VERSION};
+
+    #[test]
+    fn redacted_archive_contains_sanitized_file_bytes_and_valid_references() {
+        let file = CapturedFile { name: "config.txt".into(), media_type: "text/plain".into(), bytes: b"email admin@example.com".to_vec() };
+        let attachment = file.attachment();
+        let mut pack = Pack {
+            schema_version: SCHEMA_VERSION.into(), pack_id: "p".into(), title: "Review admin@example.com".into(),
+            version: 0, created_at: String::new(), mode: Mode::Full,
+            sources: vec![Source {
+                source_id: "s".into(), kind: SourceKind::Manual, provider: "manual".into(), title: "Review".into(),
+                origin: None, project: None, model: None, captured_at: String::new(), capture_status: CaptureStatus::Complete,
+                missing_items: vec![], omitted: vec![],
+            }],
+            messages: vec![Message { id: "m".into(), source_id: "s".into(), role: Role::User, created_at: None, blocks: vec![file.block(), file.block()] }],
+            context: ContextBrief::default(), attachments: vec![attachment.clone(), attachment], tags: vec![], integrity: Integrity::default(),
+        };
+        pack.attachments[1].id.push_str("-second");
+        let redactor = Redactor::builtin();
+        let blobs = redact_export_pack(&mut pack, &redactor, true);
+        let mut archive = std::io::Cursor::new(Vec::new());
+        hopilo_pack_format::write_handoff(&pack, &RenderOptions::default(), &|a| blobs.get(&a.sha256).cloned(), &mut archive).unwrap();
+        archive.set_position(0);
+        let imported = hopilo_pack_format::read_handoff(archive).unwrap();
+        assert!(!serde_json::to_string(&imported.pack).unwrap().contains("admin@example.com"));
+        for a in &imported.pack.attachments {
+            let bytes = &imported.attachments[&a.id];
+            assert_eq!(bytes.as_slice(), b"email [REDACTED: Email address]");
+            assert_eq!(a.size, bytes.len() as u64);
+            assert_eq!(a.sha256, hopilo_pack_format::sha256_hex(bytes));
+        }
+        for b in &imported.pack.messages[0].blocks {
+            assert!(matches!(b, Block::File { sha256, size, .. } if sha256 == &imported.pack.attachments[0].sha256 && *size == imported.pack.attachments[0].size));
+        }
+        assert_eq!(file.bytes, b"email admin@example.com", "original source remains unchanged");
+    }
 }

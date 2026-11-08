@@ -64,7 +64,18 @@ pub fn to_json(pack: &Pack) -> Result<String> {
 }
 
 pub fn from_json(s: &str) -> Result<Pack> {
-    Ok(serde_json::from_str(s)?)
+    let pack: Pack = serde_json::from_str(s)?;
+    validate_attachments(&pack)?;
+    Ok(pack)
+}
+
+fn validate_attachments(pack: &Pack) -> Result<()> {
+    for a in &pack.attachments {
+        if a.sha256.len() != 64 || !a.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(FormatError::NotHandoff(format!("invalid attachment checksum for {}", a.file_name)));
+        }
+    }
+    Ok(())
 }
 
 pub fn to_markdown(pack: &Pack, opts: &RenderOptions) -> String {
@@ -113,6 +124,7 @@ pub fn write_handoff<W: Write + Seek>(
     bytes_for: &dyn Fn(&Attachment) -> Option<Vec<u8>>,
     writer: W,
 ) -> Result<()> {
+    validate_attachments(pack)?;
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     files.insert("conversation/normalized.json".into(), to_json(pack)?.into_bytes());
     let transcript_opts = RenderOptions { include_attachments_inline: false, ..opts.clone() };
@@ -211,7 +223,11 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     if manifest.format != ARCHIVE_FORMAT {
         return Err(FormatError::NotHandoff(manifest.format));
     }
+    if manifest.format_version != ARCHIVE_FORMAT_VERSION {
+        return Err(FormatError::NotHandoff(format!("unsupported archive version {}", manifest.format_version)));
+    }
     let pack: Pack = serde_json::from_slice(&verified("conversation/normalized.json")?)?;
+    validate_attachments(&pack)?;
     let mut attachments = BTreeMap::new();
     for a in &pack.attachments {
         let p = attachment_path(a);
@@ -271,6 +287,15 @@ mod tests {
         assert_eq!(sanitize_filename("Auth Migration: Phase 2!"), "auth-migration-phase-2");
         assert_eq!(sanitize_filename("///"), "context-pack");
         assert_eq!(sanitize_attachment_name("../../diagram.png"), "diagram.png");
+    }
+
+    #[test]
+    fn malformed_unicode_checksum_returns_error_without_panicking() {
+        let (mut pack, _) = sample();
+        pack.attachments[0].sha256 = format!("{}é{}", "a".repeat(11), "b".repeat(51));
+        assert!(from_json(&to_json(&pack).unwrap()).is_err());
+        let mut buf = Cursor::new(Vec::new());
+        assert!(write_handoff(&pack, &RenderOptions::default(), &|_| None, &mut buf).is_err());
     }
 
     #[test]

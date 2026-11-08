@@ -31,6 +31,8 @@ function normalizeSetting(key: string, value: unknown): Partial<Settings> {
 }
 
 const queryCache = new Map<string, unknown>();
+const cachedTicks = new Map<string, number>();
+let cacheEpoch = 0;
 const MAX_CACHED_QUERIES = 24;
 const inflight = new Map<string, { tick: number; promise: Promise<unknown> }>();
 
@@ -49,10 +51,12 @@ export function useDebouncedValue<T>(value: T, delay = 150) {
 function remember(key: string, value: unknown) {
   queryCache.delete(key);
   queryCache.set(key, value);
+  cachedTicks.set(key, useApp.getState().tick);
   while (queryCache.size > MAX_CACHED_QUERIES) {
     const oldest = queryCache.keys().next().value;
     if (oldest === undefined) break;
     queryCache.delete(oldest);
+    cachedTicks.delete(oldest);
   }
 }
 
@@ -93,16 +97,20 @@ export function patchCachedSession(id: string, patch: Partial<SessionRow>) {
 }
 
 export function invalidateQuery() {
+  cacheEpoch += 1;
   queryCache.clear();
+  cachedTicks.clear();
+  inflight.clear();
 }
 
 function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
   const tick = useApp.getState().tick;
+  const epoch = cacheEpoch;
   const current = inflight.get(key);
   if (current && current.tick === tick) return current.promise as Promise<T>;
-  const pending = loader()
+  const pending = Promise.resolve().then(loader)
     .then((data) => {
-      if (useApp.getState().tick === tick || !queryCache.has(key)) remember(key, data);
+      if (cacheEpoch === epoch && useApp.getState().tick === tick && inflight.get(key)?.promise === pending) remember(key, data);
       return data;
     })
     .finally(() => {
@@ -118,7 +126,8 @@ export function readCached<T>(loader: () => Promise<T>, deps: unknown[] = []): T
 
 export function prefetch<T>(loader: () => Promise<T>, deps: unknown[] = []) {
   const key = loader.toString() + JSON.stringify(deps);
-  if (queryCache.has(key) || inflight.has(key)) return;
+  const tick = useApp.getState().tick;
+  if (cachedTicks.get(key) === tick || inflight.get(key)?.tick === tick) return;
   request(key, loader).catch(() => undefined);
 }
 
@@ -214,6 +223,7 @@ export function useBootstrap() {
             hydrateListView(savedList as Partial<ListView>);
           }
         })
+        .catch((e) => useApp.getState().toast({ key: "settings-load", kind: "error", text: `Couldn't load settings: ${errorText(e)}` }))
         .finally(() => setReady(true));
     load();
     let dirty = false;

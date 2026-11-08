@@ -58,7 +58,7 @@ Copy renders a session into one handoff message for the AI you continue in. **Fu
 
 ## Browser extension
 
-The extension saves ChatGPT, Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) and can insert a session into a chat box as an unsent draft. It talks only to `hopilo-native-host`, a small bridge shipped inside the app bundle and registered per browser from **Browser › Connect**. The bridge accepts messages only from Hopilo's extension ID.
+The extension saves Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) and can insert a session into a chat box as an unsent draft. ChatGPT conversations are supported through account data export imports; the extension currently has no ChatGPT adapter. It talks only to `hopilo-native-host`, a small bridge shipped inside the app bundle and registered per browser from **Browser › Connect**. The bridge accepts messages only from Hopilo's extension ID.
 
 ## In-app updates
 

@@ -206,7 +206,7 @@ pub(crate) fn file_meta(path: &Path) -> Result<(u64, String)> {
     let modified = md
         .modified()
         .ok()
-        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))
         .unwrap_or_default();
     Ok((md.len(), modified))
 }

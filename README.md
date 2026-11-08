@@ -34,7 +34,7 @@
 - Finds sessions from Claude Code, Codex CLI, Gemini CLI, Qwen Code, Antigravity, Cursor and Cursor CLI, VS Code Copilot Chat, Copilot CLI, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Kimi CLI, Goose, OpenCode and Zed, and keeps them in step with their files.
 - Copies any session as one handoff message for the AI you continue in: Full, Balanced or Minimal, by fixed rules, with no summarizing model.
 - Combines several sessions into one copy, or exports `.md`, `.txt`, `.json` or `.handoff` (with files and checksums).
-- Saves ChatGPT, Claude and Gemini web chats with the browser extension (DeepSeek, Grok and Perplexity experimentally) and inserts a session into a chat box as an unsent draft.
+- Saves Claude and Gemini web chats with the browser extension (DeepSeek, Grok and Perplexity experimentally) and inserts a session into a chat box as an unsent draft. ChatGPT conversations can be imported from account data exports.
 - Imports pasted text, ChatGPT and Claude data exports, Aider history, files and `.handoff` archives.
 - Warns about keys, tokens and emails before you paste anything.
 - Lives in the menu bar: tap a recent session to copy it, or **Copy latest session** without opening anything.

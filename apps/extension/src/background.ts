@@ -1,4 +1,5 @@
 import { HOST_NAME, type BgRequest } from "./protocol";
+import { readCapped } from "./readCapped";
 
 let seq = 0;
 
@@ -13,33 +14,6 @@ function hostAllowed(u: URL): boolean {
     if (!m) return false;
     return m[1] ? u.hostname === m[2] || u.hostname.endsWith(`.${m[2]}`) : u.hostname === m[2];
   });
-}
-
-async function readCapped(res: Response, limit: number): Promise<Uint8Array | null> {
-  if (!res.body) {
-    const buf = await res.arrayBuffer();
-    return buf.byteLength > limit ? null : new Uint8Array(buf);
-  }
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limit) {
-      reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    out.set(c, offset);
-    offset += c.byteLength;
-  }
-  return out;
 }
 
 async function fetchFile(url: string, maxBytes: number) {

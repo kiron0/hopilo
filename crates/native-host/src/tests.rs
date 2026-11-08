@@ -165,3 +165,22 @@ fn oversized_reply_becomes_an_error() {
     let small = ok(&json!("r2"), json!({}));
     assert_eq!(fit_outgoing(small.clone()), small);
 }
+
+#[test]
+fn browser_draft_honors_file_exclusions_and_custom_secret_rules() {
+    let (_dir, mut h) = host();
+    let mut req = capture_req("claude", "complete");
+    req["payload"]["messages"][0]["text"] = json!("InternalProject");
+    req["payload"]["messages"][0]["files"] = json!([
+        { "name": "private.txt", "mediaType": "text/plain", "data": "c2VjcmV0LWZpbGUtY29udGVudA==" }
+    ]);
+    let captured = h.handle(&req);
+    let id = captured["result"]["sourceId"].as_str().unwrap();
+    h.store.set_setting("redaction", &json!({ "keywords": ["InternalProject"], "excludePaths": ["private.txt"] })).unwrap();
+    let draft = h.handle(&json!({ "type": "session.getDraft", "ids": [id], "level": "full" }));
+    assert_eq!(draft["ok"], true, "{draft}");
+    let text = draft["result"]["text"].as_str().unwrap();
+    assert!(!text.contains("secret-file-content"));
+    assert!(draft["result"]["findings"].as_u64().unwrap() > 0, "custom keyword is scanned");
+    assert_eq!(h.store.list_attachments().unwrap().len(), 1, "library file is preserved");
+}
