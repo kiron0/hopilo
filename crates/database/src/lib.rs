@@ -376,13 +376,16 @@ impl Store {
     }
 
     fn load_source(&self, id: &str) -> Result<(Source, Vec<Message>)> {
-        let (json, title): (String, String) = self
+        let (json, title, captured_at): (String, String, String) = self
             .conn
-            .query_row("SELECT source_json, title FROM sources WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT source_json, title, captured_at FROM sources WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
             .optional()?
             .ok_or_else(|| DbError::NotFound(format!("source {id}")))?;
         let mut source: Source = serde_json::from_str(&json)?;
         source.title = title;
+        source.captured_at = captured_at;
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, role, created_at, blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal",
         )?;

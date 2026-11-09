@@ -238,7 +238,8 @@ fn capture_round_trip_and_duplicate_detection() {
     let first = db.insert_capture(&s, &m).unwrap();
     assert!(first.duplicate_of.is_none());
 
-    let (s2, m2) = capture("/a.jsonl", "migrate sessions table to uuid keys");
+    let (mut s2, m2) = capture("/a.jsonl", "migrate sessions table to uuid keys");
+    s2.captured_at = "2099-01-01T00:00:00Z".into();
     let again = db.insert_capture(&s2, &m2).unwrap();
     assert_eq!(again.duplicate_of.as_deref(), Some(first.source_id.as_str()));
 
