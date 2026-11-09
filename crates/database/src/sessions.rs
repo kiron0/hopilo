@@ -632,7 +632,6 @@ impl Store {
         let position = messages.iter().position(|m| m.id == message_id).unwrap_or(messages.len());
         messages.retain(|m| m.id != message_id);
         if !owned.blocks.is_empty() {
-            // Preserve the message's position among the other turns.
             messages.insert(position.min(messages.len()), owned.clone());
         }
         self.replace_messages(&source, &messages, Some(&owned))

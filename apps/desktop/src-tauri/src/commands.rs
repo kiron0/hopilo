@@ -555,7 +555,6 @@ pub async fn add_files(app: AppHandle, session: Option<String>, paths: Vec<Strin
             match files::load(Path::new(&p)) {
                 Ok((att, bytes)) => match with_store(&state, |s| s.insert_attachment(&att, &bytes).map_err(err)) {
                     Ok((mut a, _)) => {
-                        // Deduplication reuses bytes, while this upload keeps its own name.
                         a.file_name = att.file_name;
                         stored.push(a);
                     }
@@ -977,7 +976,6 @@ mod tests {
         assert_eq!(std::fs::read(&source_file).unwrap(), original);
         store.remove_session(&imported.source_id).unwrap();
         store.permanently_delete_sessions(&[imported.source_id]).unwrap();
-        // Only this disposable source fixture is removed; the app never deletes originals.
         std::fs::remove_file(&source_file).unwrap();
         assert!(Codex.discover(&sessions).unwrap().is_empty());
         assert!(store.list_sessions().unwrap().is_empty());

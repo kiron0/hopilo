@@ -262,8 +262,6 @@ pub fn render_html(pack: &Pack, opts: &RenderOptions) -> String {
     );
     out.push_str("<div class=\"bar\"><input id=\"q\" type=\"search\" placeholder=\"Search this transcript\"><span id=\"count\" class=\"dim\"></span><button id=\"tools\" type=\"button\">Expand tools</button><button id=\"theme\" type=\"button\">Theme</button></div>");
     if opts.level != crate::brief::ContextLevel::Full {
-        // Use the same deterministic brief as Markdown and prompt text. Escape
-        // through rich_text rather than interpreting source text as HTML.
         let _ = write!(out, "<article class=\"msg\">{}</article><footer>Exported with Hopilo</footer></div><script>{SCRIPT}</script></body></html>", rich_text(&crate::render::render_markdown(pack, opts)));
         return out;
     }

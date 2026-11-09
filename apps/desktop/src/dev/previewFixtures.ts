@@ -1,4 +1,3 @@
-// Small synthetic preview fixtures used only by the development mock.
 const bytes = (s: string) => new TextEncoder().encode(s);
 function pdf() {
   const stream = "BT /F1 26 Tf 40 140 Td (Offline PDF preview) Tj ET";

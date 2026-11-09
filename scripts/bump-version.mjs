@@ -117,7 +117,6 @@ if (!inputArg) {
   }
 }
 
-// Update JSON files
 const jsonFiles = [packageJson, desktopPkg, extPkg, manifestJson, tauriConf];
 for (const file of jsonFiles) {
   if (existsSync(file)) {
@@ -130,7 +129,6 @@ for (const file of jsonFiles) {
   }
 }
 
-// Update Cargo.toml
 const cargo = readFileSync(cargoToml, "utf8");
 const pattern = /(\[workspace\.package\][\s\S]*?\nversion\s*=\s*)"[^"]+"/;
 if (!pattern.test(cargo)) {
@@ -143,7 +141,6 @@ if (nextCargo !== cargo) {
   console.log(`  ✓ Updated ${relative(root, cargoToml)}`);
 }
 
-// Update Cargo.lock
 try {
   const res = spawnSync("cargo", ["check", "--workspace", "--quiet"], {
     cwd: root,
@@ -156,7 +153,6 @@ try {
   console.log("  ✓ Updated Cargo.lock");
 } catch {}
 
-// Update pnpm-lock.yaml
 try {
   const res = spawnSync("pnpm", ["install", "--lockfile-only", "--quiet"], {
     cwd: root,
@@ -173,7 +169,6 @@ try {
   console.log("  ✓ Updated pnpm-lock.yaml");
 } catch {}
 
-// Update CHANGELOG.md
 if (existsSync(changelogFile)) {
   const changelog = readFileSync(changelogFile, "utf8");
   if (!changelog.includes(`## ${targetVersion}`)) {

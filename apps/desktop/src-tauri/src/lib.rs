@@ -393,7 +393,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .setup(|app| {
-            // Debug UI flows use a disposable library; release builds always use app data.
             let dir = if cfg!(debug_assertions) {
                 std::env::var_os("HOPILO_TEST_DATA_DIR")
                     .map(std::path::PathBuf::from)

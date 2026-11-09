@@ -10,7 +10,6 @@ import { BackupSettings } from "./BackupSettings";
 import { Sessions } from "../pages/Sessions";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
-// React DOM detects event support at import time. Supply a DOM before it loads.
 await vi.hoisted(async () => {
   const { parseHTML } = await import("linkedom");
   const { window } = parseHTML("<html><body></body></html>");
@@ -30,7 +29,6 @@ beforeEach(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
   window.HTMLElement.prototype.getBoundingClientRect = () => ({ left: 0, right: 200, top: 0, bottom: 30, width: 200, height: 30, x: 0, y: 0, toJSON: () => ({}) });
   window.innerWidth = 1200; window.innerHeight = 800;
-  // LinkeDOM omits textarea.defaultValue; browsers reflect it into textContent.
   Object.defineProperty(window.HTMLTextAreaElement.prototype, "defaultValue", {
     configurable: true, get() { return this.textContent; }, set(value) { this.textContent = String(value); },
   });

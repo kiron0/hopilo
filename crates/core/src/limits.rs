@@ -1,5 +1,3 @@
-//! Shared allocation limits for local input. Large account exports are streamed;
-//! individual sessions/documents and decompressed records have a smaller budget.
 use std::io::{self, Read};
 use std::path::Path;
 

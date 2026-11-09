@@ -223,8 +223,6 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
         onSuccess?.();
         onClose();
       } else {
-        // A source can change between preview and execution. Refresh for review
-        // instead of leaving a failed stale hash attached to every retry.
         setPreviewRevision((revision) => revision + 1);
       }
     } finally {

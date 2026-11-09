@@ -825,13 +825,12 @@ fn encrypted_backup_roundtrip_preserves_settings_history_and_blobs() {
     let restored_dir = dir.path().join("restored");
     let mut restored = Store::open(&restored_dir).unwrap();
     restored.set_setting("theme", &serde_json::json!("light")).unwrap();
-    restored.query_sessions(&SessionQuery::default()).unwrap(); // prime caches
+    restored.query_sessions(&SessionQuery::default()).unwrap();
     restored.restore_backup(verified).unwrap();
     assert_eq!(restored.query_sessions(&SessionQuery::default()).unwrap().total, 1);
     assert_eq!(restored.settings().unwrap()["theme"], "dark");
     assert_eq!(restored.list_handoffs(10).unwrap().len(), 1);
     assert_eq!(std::fs::read(restored_dir.join("attachments").join(&attachment.sha256)).unwrap(), file.bytes);
-    // A failed replacement must preserve the last verified backup.
     std::fs::write(db.root().join("attachments").join(&attachment.sha256), "damaged").unwrap();
     assert!(db.create_backup(&backup_path, password).is_err());
     assert_eq!(std::fs::read(&backup_path).unwrap(), bytes);
@@ -869,12 +868,11 @@ fn manual_file_removal_preserves_native_refs_other_files_snapshots_and_sync() {
     let entries = db.session_file_entries(&id, &messages).unwrap();
     assert!(entries[0].manual_message_id.is_none(), "shared SHA does not make native files removable");
     assert_eq!(entries[1].manual_message_id.as_deref(), Some(upload.as_str()));
-    // Sync from disk must retain the independently recorded manual upload.
     native[1].blocks = vec![Block::text("new agent response")];
     db.upsert_session(&source, &native, None).unwrap();
     assert_eq!(db.get_source(&id).unwrap().1.len(), 3);
     let snapshot = db.compose(std::slice::from_ref(&id)).unwrap();
-    db.query_sessions(&SessionQuery::default()).unwrap(); // prime counts/cache
+    db.query_sessions(&SessionQuery::default()).unwrap();
     assert!(db.remove_session_file(&id, "forged", &a.sha256, &a.file_name).is_err());
     assert!(db.remove_session_file(&id, &upload, &a.sha256, "wrong name").is_err());
     db.remove_session_file(&id, &upload, &a.sha256, &a.file_name).unwrap();

@@ -33,7 +33,6 @@ export async function loadFilePreview(file: Attachment, signal: AbortSignal, lim
   return new Blob(chunks, { type: previewMime(file) });
 }
 
-// A template is inert while parsing. Never insert untrusted markup in the app DOM.
 export function safeHtmlPreview(raw: string): string {
   const template = document.createElement("template");
   template.innerHTML = raw;

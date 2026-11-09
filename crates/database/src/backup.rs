@@ -1,6 +1,3 @@
-//! Versioned, authenticated encrypted backups. Plaintext exists only in private
-//! temporary files. Each record authenticates its index, length and header; an
-//! authenticated empty final record makes truncation/reordering detectable.
 use crate::{DbError, Result, Store};
 use ring::{
     aead, pbkdf2,
@@ -223,7 +220,6 @@ pub fn verify(path: &Path, password: &str) -> Result<VerifiedBackup> {
     if integrity != "ok" || version == 0 || version > crate::migrations::latest() {
         return Err(invalid("Backup database is damaged or uses a different schema version"));
     }
-    // Verify original bytes first, then migrate only the private extracted copy.
     crate::tune(&conn)?;
     crate::migrations::run(&mut conn)?;
     if conn.prepare("PRAGMA foreign_key_check")?.exists([])? {
@@ -289,7 +285,6 @@ impl PreparedBackup {
         let mut output = tempfile::NamedTempFile::new_in(parent)?;
         encrypt(&mut archive, &mut output, password)?;
         output.as_file().sync_all()?;
-        // Verify the complete encrypted artifact before replacing any existing backup.
         let verified = verify(output.path(), password)?;
         output.persist(&self.path).map_err(wrap)?;
         Ok(verified.report)
@@ -316,7 +311,6 @@ impl Store {
         let snapshot = stage.path().join("hopilo.db");
         self.conn.execute("VACUUM INTO ?1", [snapshot.display().to_string()])?;
         let mut paths = vec![("hopilo.db".to_string(), snapshot)];
-        // Back up all content-addressed files, including blobs retained by immutable snapshots.
         for entry in std::fs::read_dir(self.root.join("attachments"))? {
             let entry = entry?;
             let name = format!("attachments/{}", entry.file_name().to_string_lossy());

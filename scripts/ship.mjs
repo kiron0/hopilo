@@ -26,7 +26,6 @@ const getPlatform = () => {
 
 const platform = getPlatform();
 
-// Ensure MinGW64 tools (gcc, makensis) are available on Windows if present
 if (platform === "windows") {
   const msysBin = "C:\\msys64\\mingw64\\bin";
   if (existsSync(msysBin) && !process.env.PATH?.includes(msysBin)) {
@@ -205,18 +204,12 @@ const findSetupFiles = (dir) => {
   return results;
 };
 
-// ==========================================
-// [1/5] Verify
-// ==========================================
 console.log("[1/5] Verify");
 run("pnpm", ["--filter", "@hopilo/desktop", "typecheck"]);
 run("pnpm", ["--filter", "@hopilo/desktop", "test"]);
 run("node", ["apps/desktop/scripts/sidecar.mjs"]);
 run("cargo", ["check", "-p", "hopilo-desktop"]);
 
-// ==========================================
-// [2/5] Build signed bundle
-// ==========================================
 console.log(`[2/5] Build signed ${platform} bundle`);
 if (!existsSync(keyPath)) {
   console.error(`Updater signing key missing: ${keyPath}`);
@@ -231,15 +224,9 @@ run("pnpm", ["--filter", "@hopilo/desktop", "tauri", "build", "--bundles", bundl
   },
 });
 
-// ==========================================
-// [3/5] Stop every running instance
-// ==========================================
 console.log(`[3/5] Stop every running ${appName}`);
 stopRunning();
 
-// ==========================================
-// [4/5] Install native bundle
-// ==========================================
 console.log("[4/5] Install native bundle");
 const home = homedir();
 let dest = "";
@@ -344,9 +331,6 @@ if (platform === "macos") {
 console.log(`Installed: ${dest}`);
 console.log(`App data preserved: ${dataDir}`);
 
-// ==========================================
-// [5/5] Launch + verify
-// ==========================================
 console.log("[5/5] Launch + verify");
 if (platform === "macos") {
   spawnSync("open", [dest], { stdio: "inherit" });

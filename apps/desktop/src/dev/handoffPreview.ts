@@ -1,7 +1,6 @@
 import type { CopyOptions } from "../lib/api";
 import { INTENTS } from "../lib/handoff";
 
-// Browser-only development fixture. Native previews use the Rust renderer.
 export function mockHandoffText(transcript: string, format: string, opts: CopyOptions = {}, sessions = 1) {
   const note = opts.note ? `\n\n${opts.note}` : "";
   if (format !== "txt") return `Development transcript preview · ${format}\n\n${transcript}${note}`;

@@ -129,7 +129,6 @@ pub async fn restore_backup(app: AppHandle, path: String, password: String) -> C
         let shortcut = state.setting(crate::SHORTCUT_KEY).and_then(|v| v.as_str().map(str::to_string));
         if let Err(error) = crate::apply_shortcut(app, shortcut.as_deref()) {
             eprintln!("Restored shortcut could not be registered: {error}");
-            // Keep saved and running settings consistent when the shortcut is unavailable here.
             save_setting_blocking(app, crate::SHORTCUT_KEY, serde_json::Value::Null)?;
         }
         state.discovery.lock().map_err(err)?.clear();
@@ -152,7 +151,6 @@ pub async fn unlock_backup_schedule(app: AppHandle, directory: String, hours: u6
         }
         let directory = std::fs::canonicalize(directory).map_err(err)?;
         validate_directory(&directory)?;
-        // Prove that the chosen folder is writable before enabling the schedule.
         tempfile::NamedTempFile::new_in(&directory).map_err(err)?;
         let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
         if directory.starts_with(std::fs::canonicalize(root.join("attachments")).map_err(err)?) {
@@ -181,7 +179,6 @@ pub fn start(app: &AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(30));
         let runtime = app.state::<BackupRuntime>();
-        // A busy manual backup must not postpone a due schedule for an entire interval.
         let Ok(_operation) = runtime.operation.try_lock() else { continue };
         let task = {
             let Ok(mut schedule) = runtime.schedule.lock() else { continue };

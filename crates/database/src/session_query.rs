@@ -81,7 +81,6 @@ fn bind(values: &mut Vec<Value>, value: impl Into<Value>) -> String {
 }
 
 impl Store {
-    /// Filter and page before decoding rows or crossing IPC. Values are always bound.
     pub fn query_sessions(&self, query: &SessionQuery) -> Result<SessionPage> {
         let hidden = i64::from(query.filter == "hidden");
         let mut values = vec![Value::Integer(hidden)];

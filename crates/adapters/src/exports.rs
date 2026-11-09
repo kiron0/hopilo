@@ -28,8 +28,6 @@ fn io(path: &Path, e: impl std::fmt::Display) -> AdapterError {
     AdapterError::Io { path: path.display().to_string(), source: std::io::Error::other(e.to_string()) }
 }
 
-// Parse one conversation at a time. Listing retains metadata only; selective
-// import normalizes only chosen conversations. Neither path retains the raw tree.
 struct ExportVisitor<'a> {
     origin: &'a str,
     selected: Option<&'a std::collections::HashSet<String>>,

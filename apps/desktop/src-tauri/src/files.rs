@@ -328,7 +328,6 @@ mod tests {
     }
 }
 
-/// Preview bytes stay bounded and are read from content-addressed library storage.
 pub fn preview_chunk(root: &Path, sha: &str, offset: u64, length: u32) -> std::io::Result<Vec<u8>> {
     use std::io::{Seek, SeekFrom};
     if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) || length > 1024 * 1024 {

@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import type { Plugin } from "vite";
 
-// Ship the renderer's fonts, character maps and decoders with the app, never a CDN.
 export function pdfAssets(): Plugin {
   const root = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
   const groups = ["cmaps", "standard_fonts", "wasm"];
