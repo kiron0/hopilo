@@ -1,10 +1,37 @@
+import { CodeBlock } from "./CodeBlock";
+import { structuredLanguage } from "../lib/structuredText";
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ChevronRight, FileImage, FileText, MessagesSquare, Wrench } from "./Icons";
-import type { Block, Message } from "../lib/api";
+import { AlertTriangle, ChevronRight, MessagesSquare, Wrench } from "./Icons";
+import type { Attachment, Block, Message } from "../lib/api";
+import { FilePreview, FileThumbnail } from "./FilePreview";
 import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
-import { Button, Checkbox, cx, EmptyState } from "./ui";
+import { MarkdownPreview } from "./MarkdownPreview";
+import { Button, Checkbox, cx, EmptyState, Segmented } from "./ui";
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
+
+function ConversationFile({ file, children }: { file: Attachment; children: React.ReactNode }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [near, setNear] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!ref.current || typeof IntersectionObserver === "undefined") { setNear(true); return; }
+    const observer = new IntersectionObserver(([entry]) => setNear(!!entry?.isIntersecting), { rootMargin: "300px" });
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  return <>
+    <button ref={ref} type="button" aria-label={`Preview ${file.fileName}`} onClick={() => setOpen(true)}
+      className="block w-60 max-w-full overflow-hidden rounded-xl border border-line bg-surface text-left shadow-item transition-colors hover:border-accent/40">
+      <span className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-surface-2"><FileThumbnail file={file} near={near} /></span>
+      <span className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+        <span className="min-w-0 flex-1 truncate font-medium">{children}</span>
+        <span className="shrink-0 font-mono text-[11px] text-faint">{bytes(file.size)}</span>
+      </span>
+    </button>
+    {open && <FilePreview file={file} onClose={() => setOpen(false)} />}
+  </>;
+}
 
 function HighlightedText({
   text,
@@ -46,6 +73,7 @@ function HighlightedText({
 function ToolBlock({
   title,
   body,
+  language,
   error,
   searchQuery,
   matchPrefix,
@@ -53,6 +81,7 @@ function ToolBlock({
 }: {
   title: string;
   body: string;
+  language?: string;
   error?: boolean;
   searchQuery?: string;
   matchPrefix?: string;
@@ -75,28 +104,33 @@ function ToolBlock({
         <span className={cx("font-medium", error ? "text-danger" : "text-muted")}>{title}</span>
         {!effectiveOpen && <span className="truncate font-mono text-[11.5px] text-faint">{firstLine.slice(0, 120)}</span>}
       </button>
-      {effectiveOpen && (
+      {effectiveOpen && (!searchQuery?.trim() ? <CodeBlock code={body} language={language ?? structuredLanguage(body) ?? "text"} /> : (
         <pre data-selectable className="max-h-80 overflow-auto border-t border-line px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink">
           <HighlightedText text={body} query={searchQuery} matchPrefix={matchPrefix} activeMatchId={activeMatchId} />
         </pre>
-      )}
+      ))}
     </div>
   );
 }
 
 function BlockView({
   b,
+  rich,
   searchQuery,
   matchPrefix,
   activeMatchId,
+  files,
 }: {
   b: Block;
+  files?: Attachment[];
+  rich?: boolean;
   searchQuery?: string;
   matchPrefix?: string;
   activeMatchId?: string;
 }) {
   switch (b.type) {
     case "text":
+      if (rich) return <MarkdownPreview text={b.text} />;
       return (
         <div data-selectable className="text-[13px] leading-relaxed break-words whitespace-pre-wrap">
           <HighlightedText text={b.text} query={searchQuery} matchPrefix={matchPrefix} activeMatchId={activeMatchId} />
@@ -107,6 +141,7 @@ function BlockView({
         <ToolBlock
           title={`Tool call · ${b.name}`}
           body={b.input}
+          language="json"
           searchQuery={searchQuery}
           matchPrefix={matchPrefix ? `${matchPrefix}-body` : undefined}
           activeMatchId={activeMatchId}
@@ -130,15 +165,12 @@ function BlockView({
         </div>
       );
     case "file": {
-      const Glyph = b.mediaType.startsWith("image/") ? FileImage : FileText;
+      const file = files?.find((file) => file.sha256 === b.sha256 && file.fileName === b.name)
+        ?? { id: b.sha256, fileName: b.name, mediaType: b.mediaType, sha256: b.sha256, size: b.size, originPath: null, text: null };
       return (
-        <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface px-2.5 py-1.5 text-[12.5px] shadow-item" title={b.mediaType}>
-          <Glyph size={15} className="shrink-0 text-accent" />
-          <span className="truncate font-medium">
-            <HighlightedText text={b.name} query={searchQuery} matchPrefix={matchPrefix} activeMatchId={activeMatchId} />
-          </span>
-          <span className="shrink-0 font-mono text-[11px] text-faint">{bytes(b.size)}</span>
-        </div>
+        <ConversationFile key={`${b.sha256}:${b.name}`} file={file}>
+          <HighlightedText text={b.name} query={searchQuery} matchPrefix={matchPrefix} activeMatchId={activeMatchId} />
+        </ConversationFile>
       );
     }
   }
@@ -153,8 +185,12 @@ export function Transcript({
   activeMatchId,
   activeMessageId,
   searchQuery,
+  view: controlledView,
+  files,
 }: {
   messages: Message[];
+  files?: Attachment[];
+  view?: "preview" | "source";
   selected?: Set<string>;
   onToggle?: (id: string) => void;
   activeMatchId?: string;
@@ -162,6 +198,8 @@ export function Transcript({
   searchQuery?: string;
 }) {
   const [shown, setShown] = useState(PAGE);
+  const [localView, setView] = useState<"preview" | "source">("preview");
+  const view = controlledView ?? localView;
   const sentinelRef = useRef<HTMLDivElement>(null);
   const visible = messages.slice(0, shown);
   useEffect(() => {
@@ -188,6 +226,7 @@ export function Transcript({
 
   return (
     <>
+      {(controlledView === undefined || searchQuery?.trim()) && <div className="mb-3 flex flex-wrap items-center gap-3">{controlledView === undefined && <Segmented label="Transcript view" value={view} onChange={setView} options={[{ value: "preview", label: "Preview" }, { value: "source", label: "Source" }]} />}{searchQuery?.trim() && <span className="text-[12px] text-muted">Search shows source for exact match navigation.</span>}</div>}
       <ol className="space-y-3">
         {visible.map((m) => {
           const isSel = selected?.has(m.id);
@@ -218,6 +257,8 @@ export function Transcript({
                   <BlockView
                     key={i}
                     b={b}
+                    files={files}
+                    rich={view === "preview" && !searchQuery?.trim()}
                     searchQuery={searchQuery}
                     matchPrefix={`${m.id}-${i}`}
                     activeMatchId={activeMatchId}

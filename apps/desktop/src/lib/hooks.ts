@@ -1,3 +1,4 @@
+import { useStartupLoad } from "./startup";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -186,6 +187,7 @@ export function useLoad<T>(loader: () => Promise<T>, query: QueryKey, opts: { re
     };
   }, [key]);
   const changed = shownKey.current !== key;
+  useStartupLoad(changed ? !queryCache.has(key) : loading && data === null);
   return { data: changed ? (queryCache.get(key) as T | undefined) ?? null : data, error: changed ? null : error, loading: changed ? !queryCache.has(key) : loading, reload };
 }
 

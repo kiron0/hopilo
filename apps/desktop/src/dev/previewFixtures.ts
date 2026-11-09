@@ -1,3 +1,4 @@
+import { markdownSample } from "./markdownSample";
 const bytes = (s: string) => new TextEncoder().encode(s);
 function pdf() {
   const stream = "BT /F1 26 Tf 40 140 Td (Offline PDF preview) Tj ET";
@@ -15,6 +16,7 @@ function wav() {
   return data;
 }
 export const previewFixtures = [
+  { sha256: "demo-markdown", fileName: "reader-demo.md", mediaType: "text/markdown", data: bytes(markdownSample) },
   { sha256: "demo-pdf", fileName: "example.pdf", mediaType: "application/pdf", data: pdf() },
   { sha256: "demo-html", fileName: "report.html", mediaType: "text/html", data: bytes("<!doctype html><style>body{background:#eef2ff;color:#312e81}h1{font-size:36px}</style><h1>Local HTML report</h1><p>Rendered inside Hopilo.</p><script>document.body.innerHTML='UNSAFE';</script><a href='https://example.com'>External link disabled</a>") },
   { sha256: "demo-audio", fileName: "recording.wav", mediaType: "audio/wav", data: wav() },

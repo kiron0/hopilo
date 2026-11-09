@@ -1,0 +1,53 @@
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import type { highlightCode } from "../lib/codeHighlight";
+import { MAX_HIGHLIGHT_CODE } from "../lib/markdown";
+import { errorText } from "../lib/api";
+import { Button, cx } from "./ui";
+
+export function usePreviewVisible() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    if (visible || !ref.current || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => { if (entry?.isIntersecting) { setVisible(true); observer.disconnect(); } }, { rootMargin: "200px" });
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, [visible]);
+  return { ref, visible };
+}
+export function CodeBlock({ code, language = "text" }: { code: string; language?: string }) {
+  const { ref, visible } = usePreviewVisible();
+  const [highlighted, setHighlighted] = useState<{ key: string; tokens: Awaited<ReturnType<typeof highlightCode>> } | null>(null);
+  const [wrap, setWrap] = useState(false);
+  const [numbers, setNumbers] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const key = `${language}\0${code}`;
+  useEffect(() => {
+    if (!visible || !language || /^(text|txt|plain|plaintext)$/i.test(language) || code.length > MAX_HIGHLIGHT_CODE) return;
+    let live = true;
+    import("../lib/codeHighlight").then((m) => m.highlightCode(code, language)).then((tokens) => { if (live) setHighlighted({ key, tokens }); }).catch(() => {});
+    return () => { live = false; };
+  }, [code, language, visible, key]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const copy = async () => {
+    setCopying(true); setError("");
+    try { await writeText(code); setCopied(true); clearTimeout(timer.current); timer.current = setTimeout(() => setCopied(false), 1800); }
+    catch (e) { setError(`Could not copy code: ${errorText(e)}`); }
+    finally { setCopying(false); }
+  };
+  const tokens = highlighted?.key === key ? highlighted.tokens : null;
+  const lines = code.split("\n");
+  return <div ref={ref} className="markdown-code-block not-prose">
+    <div className="markdown-code-toolbar"><span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted">{language || "text"}</span>
+      <Button size="sm" variant="ghost" aria-pressed={numbers} onClick={() => setNumbers(!numbers)}>Lines</Button>
+      <Button size="sm" variant="ghost" aria-pressed={wrap} onClick={() => setWrap(!wrap)}>Wrap</Button>
+      <Button size="sm" variant="ghost" disabled={copying} onClick={copy}>{copied ? "Copied" : "Copy code"}</Button>
+    </div>
+    <pre tabIndex={0} aria-label={`${language} code`} className={cx(wrap && "code-wrap")} data-selectable><code>{tokens ? tokens.map((line, i) => <span className="code-line" key={i}>{numbers && <span className="code-line-number" aria-hidden="true">{i + 1}</span>}{line.map((token, j) => <span key={j} className="syntax-token" style={token.htmlStyle as CSSProperties}>{token.content}</span>)}{i < tokens.length - 1 ? "\n" : ""}</span>) : numbers ? lines.map((line, i) => <span className="code-line" key={i}><span className="code-line-number" aria-hidden="true">{i + 1}</span>{line}{i < lines.length - 1 ? "\n" : ""}</span>) : code}</code></pre>
+    {error && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{error}</p>}
+  </div>;
+}

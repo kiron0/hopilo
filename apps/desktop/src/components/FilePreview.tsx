@@ -1,8 +1,11 @@
+import { StructuredTextViewer } from "./StructuredTextViewer";
+import { structuredLanguage } from "../lib/structuredText";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { Attachment } from "../lib/api";
 import { errorText } from "../lib/api";
 import { fileKind, loadFilePreview, safeHtmlPreview, type FileKind } from "../lib/filePreview";
 import { File, FileImage, FilePdf, FileCode, FileAudio, FileVideo, FileText } from "./Icons";
+import { MarkdownViewer } from "./MarkdownPreview";
 import { Modal, Skeleton } from "./ui";
 const PdfPreview = lazy(() => import("./PdfPreview"));
 export const fileGlyph = (kind: FileKind) => ({ image: FileImage, pdf: FilePdf, html: FileCode, audio: FileAudio, video: FileVideo, text: FileText, binary: File })[kind];
@@ -82,7 +85,7 @@ export function FilePreview({ file, onClose }: { file: Attachment; onClose: () =
       {kind === "html" && preview.text && <iframe title={`HTML preview: ${file.fileName}`} sandbox="" referrerPolicy="no-referrer" srcDoc={preview.text} onLoad={() => setDecoded(preview.text)} className="h-full w-full border-0 bg-white" />}
       {kind === "video" && preview.url && <video ref={(node) => { media.current = node; }} src={preview.url} controls playsInline preload="auto" aria-label={file.fileName} className="max-h-full w-full" onLoadedData={() => setDecoded(preview.url)} onError={() => setMediaError(true)} />}
       {kind === "audio" && preview.url && <audio onLoadedMetadata={() => setDecoded(preview.url)} ref={(node) => { media.current = node; }} src={preview.url} controls preload="auto" aria-label={file.fileName} className="w-full" onLoadedData={() => setDecoded(preview.url)} onError={() => setMediaError(true)} />}
-      {(kind === "text" || kind === "binary") && !preview.loading && !preview.error && <div className="h-full w-full overflow-auto p-3">{kind === "binary" && <p className="mb-3 text-[12px] text-muted">Binary preview · first 4 KiB</p>}<pre className="whitespace-pre-wrap break-all font-mono text-[12px]" data-selectable>{preview.text || "Empty file"}</pre></div>}
+      {(kind === "text" || kind === "binary") && !preview.loading && !preview.error && <div className="h-full w-full overflow-auto p-3">{kind === "binary" && <p className="mb-3 text-[12px] text-muted">Binary preview · first 4 KiB</p>}{kind === "text" && (/\.(md|markdown)$/i.test(file.fileName) || file.mediaType === "text/markdown") ? <MarkdownViewer key={file.sha256} text={preview.text} /> : kind === "text" && (/\.(xml|json)$/i.test(file.fileName) || structuredLanguage(preview.text)) ? <StructuredTextViewer key={file.sha256} text={preview.text} language={/\.json$/i.test(file.fileName) ? "json" : /\.xml$/i.test(file.fileName) ? "xml" : structuredLanguage(preview.text)!} /> : <pre className="whitespace-pre-wrap break-all font-mono text-[12px]" data-selectable>{preview.text || "Empty file"}</pre>}</div>}
       {mediaError && <p role="alert" className="p-3 text-danger">This file format or codec cannot be decoded by this app's webview.</p>}
     </div>
     {kind === "html" && <p className="mt-2 text-[12px] text-muted">Local preview. Scripts, forms, external links and network resources are disabled.</p>}

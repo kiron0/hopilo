@@ -1,12 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type Route, routeFrom, useApp } from "./lib/store";
 import { ownWindowLabel, useBootstrap } from "./lib/hooks";
 import { api, errorText, type BundleImport, type LatestCopied } from "./lib/api";
 import { plural } from "./lib/format";
 import { useFileDrop } from "./lib/useFileDrop";
+import { StartupPageReady, StartupProvider } from "./lib/startup";
 import { Shell } from "./components/Shell";
 import { FileImportModal } from "./components/FileImport";
 import { Overview } from "./pages/Overview";
@@ -47,61 +47,8 @@ export function App() {
     if (bundles.length) void importBundles(bundles);
     if (rest.length) setDropped(rest);
   });
-  const [hasBeenVisible, setHasBeenVisible] = useState(false);
-  const [minDelayPassed, setMinDelayPassed] = useState(false);
   const [splashVisible, setSplashVisible] = useState(true);
-  const [splashFading, setSplashFading] = useState(false);
-
-  useEffect(() => {
-    const markVisible = () => setHasBeenVisible(true);
-    if ((window as { __HOPILO_MOCK__?: boolean }).__HOPILO_MOCK__ && document.visibilityState === "visible") markVisible();
-
-    getCurrentWindow()
-      .isVisible()
-      .then((v) => {
-        if (v) markVisible();
-      })
-      .catch(() => undefined);
-
-    const label = ownWindowLabel();
-    const unVis = listen<boolean>(
-      "hopilo://visibility",
-      ({ payload }) => {
-        if (payload) markVisible();
-      },
-      label ? { target: label } : undefined,
-    );
-
-    const unFocus = getCurrentWindow().onFocusChanged(({ payload }) => {
-      if (payload) markVisible();
-    });
-
-    const onDocVis = () => {
-      if (document.visibilityState === "visible") markVisible();
-    };
-    document.addEventListener("visibilitychange", onDocVis);
-    window.addEventListener("focus", markVisible);
-
-    return () => {
-      unVis.then((f) => f());
-      unFocus.then((f) => f());
-      document.removeEventListener("visibilitychange", onDocVis);
-      window.removeEventListener("focus", markVisible);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!hasBeenVisible) return;
-    const timer = setTimeout(() => setMinDelayPassed(true), 1500);
-    return () => clearTimeout(timer);
-  }, [hasBeenVisible]);
-
-  useEffect(() => {
-    if (!ready || !minDelayPassed) return;
-    setSplashFading(true);
-    const timer = setTimeout(() => setSplashVisible(false), 280);
-    return () => clearTimeout(timer);
-  }, [ready, minDelayPassed]);
+  const finishStartup = useCallback(() => setSplashVisible(false), []);
 
   useEffect(() => {
     const label = ownWindowLabel();
@@ -170,12 +117,12 @@ export function App() {
   }, [ready]);
 
   return (
-    <>
+    <StartupProvider ready={ready} onReady={finishStartup}>
       {splashVisible && (
         <div
           id="splash"
-          className={splashFading ? "splash-fading" : ""}
-          aria-hidden="true"
+          role="status"
+          aria-label={ready ? "Loading sessions" : "Loading settings"}
           style={{ display: "flex" }}
         >
           <div className="splash-glow" />
@@ -193,11 +140,12 @@ export function App() {
       )}
       {ready && (
         <Shell>
-          <ErrorBoundary key={route.page} onOverview={() => navigate({ page: "overview" })}>
-            <Suspense fallback={<RouteSkeleton page={route.page} />}>
+          <Suspense fallback={<RouteSkeleton page={route.page} />}>
+            <ErrorBoundary key={route.page} onOverview={() => navigate({ page: "overview" })}>
               <Page route={route} />
-            </Suspense>
-          </ErrorBoundary>
+            </ErrorBoundary>
+            <StartupPageReady />
+          </Suspense>
         </Shell>
       )}
       {hovering && !dropped && (
@@ -212,6 +160,6 @@ export function App() {
       {dropped && (
         <FileImportModal paths={dropped} session={route.page === "sessions" ? (route.id ?? null) : null} onClose={() => setDropped(null)} />
       )}
-    </>
+    </StartupProvider>
   );
 }

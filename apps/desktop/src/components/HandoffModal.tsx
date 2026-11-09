@@ -1,3 +1,6 @@
+import { StructuredTextViewer } from "./StructuredTextViewer";
+import { structuredLanguage } from "../lib/structuredText";
+import { MarkdownViewer } from "./MarkdownPreview";
 import { Transcript } from "./Transcript";
 import { Select } from "./Select";
 import { useEffect, useMemo, useState } from "react";
@@ -284,7 +287,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
           <p className="text-[12px] text-muted">{previewFormat === "handoff" ? "Bundle normalized JSON; original files are included separately." : "Final text after selection, level, layout and redaction."} Token count is estimated.{action === "export" && picked.includes("txt") && " Intent and prompt layout apply to TXT; Markdown, HTML, JSON and bundles preserve the transcript."}</p>
           {(preview.loading || unsettled) && <p role="status" className="text-[12px] text-muted">Updating preview…</p>}
           {preview.error && <p role="alert" className="text-danger">{preview.error}</p>}
-          {preview.data && <TextArea aria-label="Final handoff preview" readOnly value={preview.data.text} rows={8} className="font-mono text-[11px]" />}
+          {preview.data && (previewFormat === "md" ? <MarkdownViewer text={preview.data.text} initialMode="source" sourceLabel="Final handoff preview" /> : previewFormat === "json" || previewFormat === "txt" && (style === "xml" || structuredLanguage(preview.data.text)) ? <StructuredTextViewer key={`${previewFormat}-${style}`} text={preview.data.text} language={previewFormat === "json" ? "json" : style === "xml" ? "xml" : structuredLanguage(preview.data.text)!} sourceLabel="Final handoff preview" /> : <TextArea aria-label="Final handoff preview" readOnly value={preview.data.text} rows={8} className="font-mono text-[11px]" />)}
           {preview.data?.truncated && <p className="text-[12px] text-muted">Preview shows the first 4 MiB. The full output is used when you continue.</p>}
           {selecting && <>
             <div className="flex items-center gap-2">

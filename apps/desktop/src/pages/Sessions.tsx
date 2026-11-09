@@ -836,6 +836,7 @@ function SessionPage({ id }: { id: string }) {
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
+  const [transcriptView, setTranscriptView] = useState<"preview" | "source">("preview");
   const [search, setSearch] = useState("");
   const searchQuery = useDebouncedValue(search);
   const [matchIndex, setMatchIndex] = useState(0);
@@ -1012,16 +1013,20 @@ function SessionPage({ id }: { id: string }) {
             </Button>
           </div>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line px-4 py-2.5">
-          <Segmented
-            label="View"
-            value={tab}
-            onChange={(v) => setTab(v as "conversation" | "files")}
-            options={[
-              { value: "conversation", label: "Conversation" },
-              { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
-            ]}
-          />
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2.5 border-b border-line px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Segmented
+              label="View"
+              value={tab}
+              onChange={(v) => setTab(v as "conversation" | "files")}
+              options={[
+                { value: "conversation", label: "Conversation" },
+                { value: "files", label: files.length ? `Files (${files.length})` : "Files" },
+              ]}
+            />
+            {tab === "conversation" && <Segmented label="Transcript view" value={transcriptView} onChange={setTranscriptView}
+              options={[{ value: "preview", label: "Preview" }, { value: "source", label: "Source" }]} />}
+          </div>
 
           {tab === "conversation" ? (
             <div className="flex min-w-[220px] max-w-sm flex-1 items-center gap-1.5 rounded-xl border border-line bg-card px-2.5 py-1 shadow-item focus-within:border-accent">
@@ -1112,6 +1117,8 @@ function SessionPage({ id }: { id: string }) {
             <Transcript
               key={id}
               messages={data.messages}
+              files={files}
+              view={transcriptView}
               activeMatchId={activeMatchId}
               activeMessageId={activeMessageId}
               searchQuery={searchQuery}

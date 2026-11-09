@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -17,6 +18,7 @@ await vi.hoisted(async () => {
   Object.defineProperty(window.document, "oninput", { value: null, configurable: true });
 });
 
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn(), readText: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 let root: Root;
 beforeEach(() => {
@@ -39,6 +41,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text)!;
 const click = async (el: Element) => act(async () => { el.dispatchEvent(new window.Event("click", { bubbles: true })); });
+const finalPreviewText = () => document.querySelector<HTMLTextAreaElement>('[aria-label="Final handoff preview"]')?.value ?? document.querySelector('[aria-label="Exact handoff preview"] pre code')?.textContent;
 const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 230)); });
 const type = async (input: HTMLInputElement, value: string) => act(async () => {
   Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
@@ -63,13 +66,13 @@ describe("exact handoff flow", () => {
     const copy = vi.spyOn(api, "copySessions").mockResolvedValue({ ids: ["a", "b"], title: "Project", target: "claude", tokenEstimate: 4, missing: 0, findings: 0, attach: [] });
     const close = vi.fn();
     await act(async () => root.render(<HandoffModal ids={["a", "b"]} action="copy" onClose={close} />));
-    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Final handoff preview"]')?.value).toBe("Final: a,b");
+    expect(finalPreviewText()).toBe("Final: a,b");
     await click(button("Select messages"));
     await click(document.querySelectorAll('[aria-label="Include User message"]')[1]);
     expect(button("Copy combined pack for Claude").disabled).toBe(true);
     await settle();
     expect(preview.mock.calls.at(-1)?.[2]?.selected).toEqual([{ sourceId: "a", id: "same" }]);
-    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Final handoff preview"]')?.value).toBe("Final: a");
+    expect(finalPreviewText()).toBe("Final: a");
     await click(button("Copy combined pack for Claude"));
     expect(copy.mock.calls[0][1]).toMatchObject({ selected: [{ sourceId: "a", id: "same" }], reviewed: { format: "txt", hash: "hash-a" } });
     expect(close).toHaveBeenCalledOnce();
@@ -157,7 +160,19 @@ describe("session file cards", () => {
     const openFile = vi.spyOn(api, "openFile").mockResolvedValue();
     const remove = vi.spyOn(api, "removeSessionFile").mockRejectedValueOnce(new Error("Library busy")).mockImplementation(async () => { removed = true; });
     await act(async () => root.render(<Sessions />));
+    const viewControl = document.querySelector('[aria-label="Transcript view"]')!;
+    expect(viewControl.parentElement?.querySelector('[aria-label="View"]')).not.toBeNull();
+    expect(document.getElementById("msg-upload")?.contains(viewControl)).toBe(false);
+    await click([...viewControl.querySelectorAll('[role="radio"]')].find((el) => el.textContent === "Source")!);
+    expect(viewControl.querySelector('[aria-checked="true"]')?.textContent).toBe("Source");
+    const inlineFile = document.querySelector('#msg-upload [aria-label="Preview notes.txt"]')!;
+    expect(inlineFile.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    await click(inlineFile);
+    expect(document.querySelector('[aria-label="File preview: notes.txt"]')?.textContent).toContain("local notes");
+    await click(document.querySelector('[role="dialog"] button[aria-label="Close"]')!);
+    await settle();
     await click(button("Files (2)"));
+    expect(document.querySelector('[aria-label="Transcript view"]')).toBeNull();
     expect(document.querySelectorAll('[aria-label="Session files"] > li')).toHaveLength(2);
     expect(document.querySelector('[aria-label="Remove source.png"]')).toBeNull();
     await click(document.querySelector('[aria-label="Actions for notes.txt"]')!);
@@ -176,6 +191,7 @@ describe("session file cards", () => {
     expect(remove).toHaveBeenLastCalledWith("a", "upload", "added-sha", "notes.txt");
     expect(document.querySelectorAll('[aria-label="Session files"] > li')).toHaveLength(1);
     await click(button("Conversation"));
+    expect(document.querySelector('[aria-label="Transcript view"] [aria-checked="true"]')?.textContent).toBe("Source");
     expect(document.getElementById("msg-upload")).toBeNull();
     expect(document.getElementById("msg-same")).not.toBeNull();
   });
@@ -301,7 +317,7 @@ it("switches export preview to prompt text when intent changes, then sends the r
   vi.spyOn(api, "suggestExportName").mockResolvedValue("export.zip");
   vi.mocked(save).mockResolvedValue("/tmp/export.zip");
   await act(async () => root.render(<HandoffModal ids={["a"]} action="export" onClose={vi.fn()} />));
-  const text = () => document.querySelector<HTMLTextAreaElement>('[aria-label="Final handoff preview"]')!.value;
+  const text = finalPreviewText;
   expect(text()).toBe("md: continue");
   await click(button("Review"));
   expect(button("Export 2 formats").disabled).toBe(true);
@@ -361,5 +377,74 @@ describe("model limit settings", () => {
     await click(button("Save limit"));
     expect(document.body.textContent).toContain("disk full");
     expect(useApp.getState().settings.destinationBudgets).toEqual(original);
+  });
+});
+
+
+describe("Markdown reader controls", () => {
+  it("copies exact code while wrap and line numbers only change presentation", async () => {
+    const { CodeBlock } = await import("./CodeBlock");
+    const code = "first line\n  second line\n";
+    vi.mocked(writeText).mockResolvedValue();
+    await act(async () => root.render(<CodeBlock code={code} />));
+    await click(button("Wrap"));
+    await click(button("Lines"));
+    expect(document.querySelector("pre")?.className).toContain("code-wrap");
+    expect(document.querySelectorAll(".code-line-number").length).toBe(3);
+    await click(button("Copy code"));
+    expect(writeText).toHaveBeenCalledWith(code);
+    expect(button("Copied")).toBeDefined();
+  });
+  it("reports clipboard errors without discarding code", async () => {
+    const { CodeBlock } = await import("./CodeBlock");
+    vi.mocked(writeText).mockRejectedValue(new Error("Clipboard unavailable"));
+    await act(async () => root.render(<CodeBlock code="keep me" />));
+    await click(button("Copy code"));
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Clipboard unavailable");
+    expect(document.querySelector("pre")?.textContent).toBe("keep me");
+  });
+  it("preserves exact source through preview/source switching", async () => {
+    const { MarkdownViewer } = await import("./MarkdownPreview");
+    const text = "# Exact source\n\n- [x] Keep formatting\n";
+    await act(async () => root.render(<MarkdownViewer text={text} initialMode="source" sourceLabel="Exact Markdown" />));
+    expect(document.querySelector("textarea")?.value).toBe(text);
+    await click(document.querySelector('[role="radio"][aria-checked="false"]')!);
+    await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+    await click([...document.querySelectorAll('[role="radio"]')].find((el) => el.textContent === "Source")!);
+    expect(document.querySelector("textarea")?.value).toBe(text);
+  });
+  it("keeps original search match IDs when Markdown is enabled", async () => {
+    const { Transcript } = await import("./Transcript");
+    const messages: Message[] = [{ id: "reader-test", sourceId: "source", role: "assistant", createdAt: null, blocks: [{ type: "text", text: "# heading\n\n**needle**" }] }];
+    await act(async () => root.render(<Transcript messages={messages} searchQuery="needle" activeMatchId="reader-test-0-0" activeMessageId="reader-test" />));
+    expect(document.getElementById("match-reader-test-0-0")?.textContent).toBe("needle");
+    expect(document.body.textContent).toContain("Search shows source");
+    expect(document.querySelector("h1")).toBeNull();
+  });
+});
+
+
+describe("structured code previews", () => {
+  it("previews XML without a fence and preserves its exact source", async () => {
+    const { MarkdownPreview } = await import("./MarkdownPreview");
+    const { StructuredTextViewer } = await import("./StructuredTextViewer");
+    const text = '<context version="1">\n  <goal>Keep &amp; preserve</goal>\n</context>';
+    await act(async () => root.render(<MarkdownPreview text={text} />));
+    expect(document.querySelector('[aria-label="xml code"]')?.textContent).toBe(text);
+    expect(document.querySelector("context")).toBeNull();
+    await act(async () => root.render(<StructuredTextViewer text={text} language="xml" sourceLabel="XML source" />));
+    expect(document.querySelector('[aria-label="xml code"]')).not.toBeNull();
+    await click([...document.querySelectorAll('[role="radio"]')].find((el) => el.textContent === "Source")!);
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="XML source"]')?.value).toBe(text);
+  });
+  it("shows tool-call JSON as code and preserves search match IDs", async () => {
+    const { Transcript } = await import("./Transcript");
+    const text = '{"command":"echo needle"}';
+    const messages: Message[] = [{ id: "tool-test", sourceId: "s1", role: "assistant", createdAt: null, blocks: [{ type: "toolCall", name: "Bash", input: text }] }];
+    await act(async () => root.render(<Transcript messages={messages} />));
+    await click([...document.querySelectorAll("button")].find((b) => b.textContent?.includes("Tool call · Bash"))!);
+    expect(document.querySelector('[aria-label="json code"]')?.textContent).toBe(text);
+    await act(async () => root.render(<Transcript messages={messages} searchQuery="needle" activeMatchId="tool-test-0-body-0" />));
+    expect(document.getElementById("match-tool-test-0-body-0")?.textContent).toBe("needle");
   });
 });

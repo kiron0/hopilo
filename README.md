@@ -26,47 +26,27 @@
 ---
 
 <p align="center">
-  <img src="docs/screenshots/overview.jpg" width="100%" alt="Hopilo overview: 1,227 sessions from Codex, Antigravity, VS Code Copilot, Claude Code, OpenCode and Zed" />
+  <img src="docs/screenshots/overview.jpg" width="100%" alt="Hopilo overview: 16 sessions ready to continue, a sources map, and tiles for coding agents, web chats, copies and privacy" />
 </p>
 
 ## Features
 
-- Finds sessions from Claude Code, Codex CLI, Gemini CLI, Qwen Code, Antigravity, Cursor and Cursor CLI, VS Code Copilot Chat, Copilot CLI, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Kimi CLI, Goose, OpenCode and Zed, and keeps them in step with their files.
-- Copies any session as one handoff message for the AI you continue in: Full, Balanced or Minimal, by fixed rules, with no summarizing model.
-- Combines several sessions into one copy, or exports `.md`, `.txt`, `.json` or `.handoff` (with files and checksums).
-- Saves Claude and Gemini web chats with the browser extension (DeepSeek, Grok and Perplexity experimentally) and inserts a session into a chat box as an unsent draft. ChatGPT conversations can be imported from account data exports.
-- Imports pasted text, ChatGPT and Claude data exports, Aider history, files and `.handoff` archives.
-- Warns about keys, tokens and emails before you paste anything.
-- Previews images, PDFs, HTML and text inside Hopilo, with audio/video players and type-specific file cards. File menus offer Open, Download, Details and Delete for Hopilo-added files.
-- Deletes individual or selected Hidden sessions from Hopilo, with confirmation. Sync can import them again while their configured agent source still exists.
-- Previews the exact handoff text after selection and redaction. Keep individual messages and review changes before copying or exporting.
-- Creates and verifies password-encrypted library backups from **Settings → Privacy & data**. Schedule local backups while Hopilo is running; unlock the schedule each app run.
-- Lives in the menu bar: tap a recent session to copy it, or **Copy latest session** without opening anything.
-- **Offline by Default & Local-First**: agent folders are only read locally, all your data stays stored on your device, and nothing is ever uploaded or synced to the cloud. Network access happens only when you click **Check for Updates** or **Refresh catalog**; catalog refresh downloads the models.dev model list.
-
-## How it works
-
-Session sources and their paths, sync, the library, exports, the browser bridge, and how to build and release live in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+- Keep AI conversations and files together in one local library.
+- Copy or export sessions to continue in another AI.
+- Import chats from local tools, browser captures and data exports.
+- Preview files, search conversations and back up your library.
 
 ## Install
 
 Get the latest build from [Releases](https://github.com/kiron0/hopilo/releases/latest).
 
-**macOS**
+- **macOS:** open the `.dmg` and drag Hopilo into Applications.
+- **Windows:** run the `.msi` or `.exe` installer.
+- **Linux:** install the `.deb` or run the `.AppImage`.
 
-1. Open the `.dmg` and drag **Hopilo** into Applications.
-2. Open Hopilo. If macOS says it can't verify the app, go to **System Settings › Privacy & Security** and click **Open Anyway**.
-3. Hopilo starts in the menu bar. Click its icon, or set **Settings › On launch, show** to **Overview** to open the window at launch.
+Optional browser extensions are included with each release.
 
-**Windows**: run the `.msi` or `.exe` installer. If SmartScreen appears, choose **More info › Run anyway**.
-
-**Linux**: install the `.deb`, or mark the `.AppImage` executable and run it.
-
-**Browser extension** (optional): unzip `hopilo-extension-chrome-<version>.zip` from the same release, open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the folder. Then in Hopilo open **Browser › Connect**. Firefox: load `hopilo-extension-firefox-<version>.zip` from `about:debugging`.
-
-More in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md#build-and-release).
-
-Support development: [Buy me a coffee](https://buymeacoffee.com/_thk).
+See [How it works](docs/HOW-IT-WORKS.md) for setup, supported sources and development.
 
 ## License
 
@@ -74,18 +54,3 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 
 © [Toufiq Hasan Kiron](https://github.com/kiron0). All rights reserved.
 
-### Context limits
-
-Size suggestions in the handoff dialog use 80% of the destination model's
-context window, leaving room for system prompts, tools and the reply. Common
-Claude, GPT, Gemini, DeepSeek and Grok models are built in, and known
-destinations default to one of them. Other destinations show an unknown limit
-until you choose a model.
-
-Open **Settings → Customization → Model limits** to choose a destination's model
-or enter a manual limit. **Refresh catalog** downloads the
-[models.dev](https://models.dev) catalog once so every listed model can be
-searched. It runs only on request, sends no session content, needs no API key,
-and is saved locally (`model-limits.json` in the library folder) for offline
-use. A failed refresh keeps the saved catalog. When a model publishes a separate
-input limit, the smaller of input and context is used.

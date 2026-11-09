@@ -1,3 +1,4 @@
+import { markdownSample } from "./markdownSample";
 import { mockHandoffText } from "./handoffPreview";
 import { previewFixtures } from "./previewFixtures";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -39,7 +40,7 @@ const SESSIONS = [
 
 const MESSAGES = [
   { id: "m1", sourceId: "s1", role: "user", createdAt: ago(30), blocks: [{ type: "text", text: "Review the SwiftUI architecture in `Sources/DevDock` and list risks." }] },
-  { id: "m2", sourceId: "s1", role: "assistant", createdAt: ago(29), blocks: [{ type: "text", text: "I'll read the module layout first." }, { type: "toolCall", name: "Bash", input: '{\n  "command": "ls Sources/DevDock"\n}' }] },
+  { id: "m2", sourceId: "s1", role: "assistant", createdAt: ago(29), blocks: [{ type: "text", text: markdownSample }, { type: "toolCall", name: "Bash", input: '{\n  "command": "ls Sources/DevDock"\n}' }] },
   { id: "m3", sourceId: "s1", role: "tool", createdAt: ago(29), blocks: [{ type: "toolResult", name: "Bash", output: "App/\nFeatures/\nServices/", isError: false }] },
 ];
 
