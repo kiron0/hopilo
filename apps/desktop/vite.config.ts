@@ -10,6 +10,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), pdfAssets()],
   clearScreen: false,
   build: {
+    chunkSizeWarningLimit: 1600,
     rolldownOptions: {
       output: {
         codeSplitting: {
