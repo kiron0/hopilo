@@ -158,7 +158,12 @@ fn autolink(text: &str, out: &mut Vec<Node>) {
         }
         push_text(out, &rest[..at]);
         let url = &rest[at..at + len];
-        out.push(Node::Link { href: url.into(), title: String::new(), id: None, c: vec![Node::Text { v: url.into() }] });
+        out.push(Node::Link {
+            href: url.into(),
+            title: String::new(),
+            id: None,
+            c: vec![Node::Text { v: url.into() }],
+        });
         rest = &rest[at + len..];
     }
     push_text(out, rest);
@@ -265,7 +270,15 @@ impl Builder {
                         *task = true;
                     }
                 }
-                Node::El { tag: "li", id: None, class: checked.map(|_| "task-list-item"), start: None, align: None, checked, c }
+                Node::El {
+                    tag: "li",
+                    id: None,
+                    class: checked.map(|_| "task-list-item"),
+                    start: None,
+                    align: None,
+                    checked,
+                    c,
+                }
             }
             Frame::Code { lang, text } => Node::Code { lang, v: text.strip_suffix('\n').unwrap_or(&text).to_string() },
             Frame::Html { text } => Node::Code { lang: "xml".into(), v: text.trim_end_matches('\n').to_string() },
@@ -319,7 +332,12 @@ impl Builder {
         let next = self.notes.len() + 1;
         let n = *self.notes.entry(label.to_string()).or_insert(next);
         let id = note_id(label);
-        let link = Node::Link { href: format!("#fn-{id}"), title: String::new(), id: Some(format!("fnref-{id}-{n}")), c: vec![Node::Text { v: n.to_string() }] };
+        let link = Node::Link {
+            href: format!("#fn-{id}"),
+            title: String::new(),
+            id: Some(format!("fnref-{id}-{n}")),
+            c: vec![Node::Text { v: n.to_string() }],
+        };
         self.children().push(el("sup", vec![link]));
     }
 
@@ -334,7 +352,12 @@ impl Builder {
             .map(|(label, mut c)| {
                 let id = note_id(&label);
                 if let Some(n) = self.notes.get(&label) {
-                    let back = Node::Link { href: format!("#fnref-{id}-{n}"), title: "Back to reference".into(), id: None, c: vec![Node::Text { v: "↩".into() }] };
+                    let back = Node::Link {
+                        href: format!("#fnref-{id}-{n}"),
+                        title: "Back to reference".into(),
+                        id: None,
+                        c: vec![Node::Text { v: "↩".into() }],
+                    };
                     match c.last_mut() {
                         Some(Node::El { tag: "p", c: inner, .. }) => {
                             inner.push(Node::Text { v: " ".into() });
@@ -343,10 +366,26 @@ impl Builder {
                         _ => c.push(back),
                     }
                 }
-                Node::El { tag: "li", id: Some(format!("fn-{id}")), class: None, start: None, align: None, checked: None, c }
+                Node::El {
+                    tag: "li",
+                    id: Some(format!("fn-{id}")),
+                    class: None,
+                    start: None,
+                    align: None,
+                    checked: None,
+                    c,
+                }
             })
             .collect();
-        Some(Node::El { tag: "section", id: None, class: Some("footnotes"), start: None, align: None, checked: None, c: vec![el("ol", items)] })
+        Some(Node::El {
+            tag: "section",
+            id: None,
+            class: Some("footnotes"),
+            start: None,
+            align: None,
+            checked: None,
+            c: vec![el("ol", items)],
+        })
     }
 }
 
@@ -354,8 +393,19 @@ pub fn parse_markdown(text: &str) -> Option<Vec<Node>> {
     if text.len() > MAX_MARKDOWN_BYTES {
         return None;
     }
-    let options = Options::ENABLE_TABLES | Options::ENABLE_FOOTNOTES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_MATH;
-    let mut b = Builder { stack: vec![(Frame::Root, Vec::new())], slugs: HashSet::new(), notes: HashMap::new(), definitions: Vec::new(), in_head: false, column: 0 };
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_MATH;
+    let mut b = Builder {
+        stack: vec![(Frame::Root, Vec::new())],
+        slugs: HashSet::new(),
+        notes: HashMap::new(),
+        definitions: Vec::new(),
+        in_head: false,
+        column: 0,
+    };
     let mut pending = String::new();
     for event in Parser::new_ext(text, options) {
         if let Event::Text(t) = &event {
@@ -382,7 +432,9 @@ pub fn parse_markdown(text: &str) -> Option<Vec<Node>> {
             Event::HardBreak => b.children().push(Node::Br),
             Event::Rule => b.children().push(el("hr", vec![])),
             Event::TaskListMarker(done) => {
-                if let Some((Frame::Item { checked }, _)) = b.stack.iter_mut().rev().find(|(f, _)| matches!(f, Frame::Item { .. })) {
+                if let Some((Frame::Item { checked }, _)) =
+                    b.stack.iter_mut().rev().find(|(f, _)| matches!(f, Frame::Item { .. }))
+                {
                     *checked = Some(done);
                 }
             }
@@ -448,7 +500,10 @@ mod tests {
     #[test]
     fn heading_ids_are_unique_and_slugged() {
         let out = json("# Same\n\n# Same\n\n## Hello, World!");
-        assert!(out.contains(r#""id":"same""#) && out.contains(r#""id":"same-1""#) && out.contains(r#""id":"hello-world""#), "{out}");
+        assert!(
+            out.contains(r#""id":"same""#) && out.contains(r#""id":"same-1""#) && out.contains(r#""id":"hello-world""#),
+            "{out}"
+        );
     }
 
     #[test]
@@ -467,7 +522,8 @@ mod tests {
 
     #[test]
     fn images_keep_alt_text_and_links_keep_raw_targets() {
-        let nodes = parse_markdown("![tracking **pixel**](https://e.com/p.png \"t\") [bad](javascript:alert%281%29)").unwrap();
+        let nodes =
+            parse_markdown("![tracking **pixel**](https://e.com/p.png \"t\") [bad](javascript:alert%281%29)").unwrap();
         let out = serde_json::to_string(&nodes).unwrap();
         assert!(out.contains(r#"{"t":"img","src":"https://e.com/p.png","alt":"tracking pixel","title":"t"}"#), "{out}");
         assert!(out.contains(r#""href":"javascript:alert%281%29""#), "{out}");

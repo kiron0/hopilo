@@ -20,7 +20,9 @@ fn main() {
     code_blocks(&tree, &mut blocks);
     let highlights: Vec<_> = blocks
         .into_iter()
-        .filter_map(|(lang, code)| highlight(code, lang).map(|tokens| serde_json::json!({ "lang": lang, "code": code, "tokens": tokens })))
+        .filter_map(|(lang, code)| {
+            highlight(code, lang).map(|tokens| serde_json::json!({ "lang": lang, "code": code, "tokens": tokens }))
+        })
         .collect();
     println!("{}", serde_json::json!({ "tree": tree, "highlights": highlights }));
 }

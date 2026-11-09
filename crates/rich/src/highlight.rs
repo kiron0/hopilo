@@ -98,8 +98,10 @@ fn style_into(out: &mut BTreeMap<&'static str, String>, keys: [&'static str; 4],
     }
 }
 
-const LIGHT: [&str; 4] = ["--syntax-light", "--syntax-light-font-style", "--syntax-light-font-weight", "--syntax-light-text-decoration"];
-const DARK: [&str; 4] = ["--syntax-dark", "--syntax-dark-font-style", "--syntax-dark-font-weight", "--syntax-dark-text-decoration"];
+const LIGHT: [&str; 4] =
+    ["--syntax-light", "--syntax-light-font-style", "--syntax-light-font-weight", "--syntax-light-text-decoration"];
+const DARK: [&str; 4] =
+    ["--syntax-dark", "--syntax-dark-font-style", "--syntax-dark-font-weight", "--syntax-dark-text-decoration"];
 
 pub fn highlight(code: &str, language: &str) -> Option<Vec<Vec<Token>>> {
     if code.len() > MAX_HIGHLIGHT_BYTES || code.split('\n').count() > MAX_HIGHLIGHT_LINES {
@@ -176,7 +178,8 @@ mod tests {
         ] {
             let lines = highlight(src, lang).unwrap_or_else(|| panic!("no grammar for {lang}"));
             assert_eq!(text(&lines), src, "{lang}");
-            let colors: std::collections::HashSet<_> = lines.iter().flatten().map(|t| &t.html_style["--syntax-light"]).collect();
+            let colors: std::collections::HashSet<_> =
+                lines.iter().flatten().map(|t| &t.html_style["--syntax-light"]).collect();
             assert!(colors.len() > 1, "{lang} produced a single color");
             assert!(lines.iter().flatten().all(|t| t.html_style.contains_key("--syntax-dark")));
         }
@@ -185,11 +188,49 @@ mod tests {
     #[test]
     fn covers_previous_shiki_languages() {
         let missing: Vec<_> = [
-            "bash", "javascript", "typescript", "tsx", "jsx", "json", "jsonc", "python", "rust", "go", "java", "kotlin", "swift", "c", "cpp", "csharp", "ruby", "php", "html", "css", "scss",
-            "sql", "yaml", "toml", "xml", "markdown", "diff", "dockerfile", "makefile", "ini", "lua", "dart", "scala", "r", "vue", "svelte", "graphql",
+            "bash",
+            "javascript",
+            "typescript",
+            "tsx",
+            "jsx",
+            "json",
+            "jsonc",
+            "python",
+            "rust",
+            "go",
+            "java",
+            "kotlin",
+            "swift",
+            "c",
+            "cpp",
+            "csharp",
+            "ruby",
+            "php",
+            "html",
+            "css",
+            "scss",
+            "sql",
+            "yaml",
+            "toml",
+            "xml",
+            "markdown",
+            "diff",
+            "dockerfile",
+            "makefile",
+            "ini",
+            "lua",
+            "dart",
+            "scala",
+            "r",
+            "vue",
+            "svelte",
+            "graphql",
         ]
         .into_iter()
-        .chain(["js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rs", "kt", "kts", "h", "cc", "hpp", "cs", "rb", "yml", "sh", "zsh", "gql", "patch"])
+        .chain([
+            "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rs", "kt", "kts", "h", "cc", "hpp", "cs", "rb", "yml", "sh",
+            "zsh", "gql", "patch",
+        ])
         .filter(|l| syntax(&assets().syntaxes, l).is_none())
         .collect();
         assert!(missing.is_empty(), "missing grammars: {missing:?}");
