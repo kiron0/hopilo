@@ -1,11 +1,12 @@
 # How Hopilo works
 
-Hopilo is a Tauri 2 desktop app (Rust core, React UI) plus a browser extension. Everything stays on your machine: the library is a SQLite file, agent folders are only ever read, and the only network request the app makes is the update check you start from Settings.
+Hopilo is a Tauri 2 desktop app (Rust core, React UI) plus a browser extension. Everything stays on your machine: the library is a SQLite file, agent folders are only ever read, and the only network requests the app makes are the update check and the model catalog refresh, both started from Settings.
 
 ## Layout
 
 ```text
 crates/core          types, rendering (handoff prompt / Markdown), secret scan
+crates/rich          Markdown parsing and code syntax highlighting for the UI
 crates/adapters      session readers for every coding agent, chat-export parsers
 crates/pack-format   .md / .json / .txt exports and .handoff archives
 crates/database      SQLite library: sessions, files, copy history, full-text search
@@ -77,6 +78,10 @@ Size suggestions use 80% of the destination model's context window. Built-in lim
 | `moonshotai` | Kimi CLI | `kimi-k3.1-pro` |
 
 Destinations that run models from any provider (Cursor, OpenCode, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Goose, Zed, Aider, Other AI) start with an unknown limit: choose a model from the catalog or enter a limit.
+
+## Rich previews
+
+Markdown in previews is parsed in Rust (`crates/rich`, pulldown-cmark with GFM tables, task lists, strikethrough, footnotes and math) and sent to the UI as a small node tree, which React renders. Raw HTML in Markdown is shown as code, never run. Links open only for `http`, `https`, `mailto` and in-page anchors; remote images are not loaded automatically. Code blocks are highlighted in Rust with syntect (GitHub light and One Half Dark colors) for up to 40,000 characters and 1,000 lines; larger or unknown-language blocks stay plain. Both run off the UI thread. Math is drawn with KaTeX, Mermaid diagrams render in a sandboxed frame, and PDFs use pdf.js, all loaded only when a preview needs them.
 
 ## Conversation and files
 

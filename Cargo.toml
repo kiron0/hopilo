@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/adapters", "crates/pack-format", "crates/database", "crates/native-host", "apps/desktop/src-tauri"]
+members = ["crates/core", "crates/rich", "crates/adapters", "crates/pack-format", "crates/database", "crates/native-host", "apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.5"
@@ -12,6 +12,7 @@ hopilo-core = { path = "crates/core" }
 hopilo-adapters = { path = "crates/adapters" }
 hopilo-pack-format = { path = "crates/pack-format" }
 hopilo-database = { path = "crates/database" }
+hopilo-rich = { path = "crates/rich" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 thiserror = "2"

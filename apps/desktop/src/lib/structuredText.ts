@@ -6,17 +6,3 @@ export function structuredLanguage(text: string): "json" | "xml" | undefined {
   if (start.startsWith("<?xml") || /^<[\w:-]+(?:\s[^<>]*|)\s*\/?\>/.test(start) && /(?:<\/[\w:-]+\s*>|\/>)/.test(text)) return "xml";
   return undefined;
 }
-interface MarkdownNode { type: string; value?: string; lang?: string; children?: MarkdownNode[] }
-export function remarkMarkupCode() {
-  return (tree: MarkdownNode) => {
-    const walk = (parent: MarkdownNode) => {
-      for (const node of parent.children ?? []) {
-        if (node.type === "html" && node.value) {
-          node.type = parent.type === "paragraph" ? "inlineCode" : "code";
-          if (node.type === "code") node.lang = "xml";
-        } else walk(node);
-      }
-    };
-    walk(tree);
-  };
-}

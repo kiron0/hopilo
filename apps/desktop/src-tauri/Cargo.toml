@@ -21,6 +21,7 @@ hopilo-core.workspace = true
 hopilo-adapters.workspace = true
 hopilo-pack-format.workspace = true
 hopilo-database.workspace = true
+hopilo-rich.workspace = true
 hopilo-native-host = { path = "../../../crates/native-host" }
 serde.workspace = true
 serde_json.workspace = true

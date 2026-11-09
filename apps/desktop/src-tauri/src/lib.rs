@@ -5,6 +5,7 @@ mod compare;
 mod files;
 mod handoff;
 mod model_limits;
+mod rich;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -481,6 +482,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_ready,
+            rich::parse_markdown,
+            rich::highlight_code,
             finish_welcome,
             set_global_shortcut,
             compare::compare_sessions,

@@ -1,6 +1,17 @@
 import type { CatalogPage } from "./modelLimits";
 import { invoke } from "@tauri-apps/api/core";
 
+export type MdNode =
+  | { t: "text"; v: string }
+  | { t: "el"; tag: string; id?: string; class?: string; start?: number; align?: "left" | "center" | "right"; checked?: boolean; c: MdNode[] }
+  | { t: "code"; lang: string; v: string }
+  | { t: "icode"; v: string }
+  | { t: "math"; display: boolean; v: string }
+  | { t: "link"; href: string; title?: string; id?: string; c: MdNode[] }
+  | { t: "img"; src: string; alt: string; title?: string }
+  | { t: "br" };
+export interface SyntaxToken { content: string; htmlStyle: Record<string, string> }
+
 export type Role = "user" | "assistant" | "system" | "tool";
 export type CaptureStatus = "complete" | "partial" | "unsupported" | "permissions-needed" | "failed";
 export type Mode = "full" | "selected";
@@ -403,6 +414,8 @@ export const api = {
   getSettings: () => invoke<Record<string, unknown>>("get_settings"),
   searchModelLimits: (query: string) => invoke<CatalogPage>("search_model_limits", { query }),
   syncModelLimits: () => invoke<CatalogPage>("sync_model_limits"),
+  parseMarkdown: (text: string) => invoke<MdNode[] | null>("parse_markdown", { text }),
+  highlightCode: (code: string, language: string) => invoke<SyntaxToken[][] | null>("highlight_code", { code, language }),
   setSetting: (key: string, value: unknown) => invoke<void>("set_setting", { key, value }),
   integrityCheck: () => invoke<string>("integrity_check"),
   auditLibrary: () => invoke<AuditReport>("audit_library"),

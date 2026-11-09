@@ -1,4 +1,6 @@
 import { markdownSample } from "./markdownSample";
+import { mockParseMarkdown } from "./mockMarkdown";
+import sampleTree from "./markdownSample.tree.json";
 import { mockHandoffText } from "./handoffPreview";
 import { previewFixtures } from "./previewFixtures";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -85,6 +87,10 @@ export function installMockIpc() {
       case "backup_status": return schedule;
       case "unlock_backup_schedule": schedule = { unlocked: true, directory: a.directory, hours: a.hours, lastResult: "Development mock: no backup written" }; return null;
       case "lock_backup_schedule": schedule = { ...schedule, unlocked: false }; return null;
+      case "parse_markdown":
+        return a.text === markdownSample ? sampleTree.tree : mockParseMarkdown(a.text);
+      case "highlight_code":
+        return sampleTree.highlights.find((h) => h.lang === a.language && h.code === a.code)?.tokens ?? null;
       case "search_model_limits":
         return { updatedAt: null, total: 0, matches: 0, models: [] };
       case "sync_model_limits":

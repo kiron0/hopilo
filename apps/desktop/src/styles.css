@@ -1,7 +1,11 @@
 @import "tailwindcss";
-@import "@fontsource-variable/onest";
-@import "@fontsource-variable/unbounded";
-@import "@fontsource-variable/jetbrains-mono";
+
+@font-face { font-family: 'Onest Variable'; font-style: normal; font-display: swap; font-weight: 100 900; src: url(../node_modules/@fontsource-variable/onest/files/onest-latin-ext-wght-normal.woff2) format('woff2-variations'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Onest Variable'; font-style: normal; font-display: swap; font-weight: 100 900; src: url(../node_modules/@fontsource-variable/onest/files/onest-latin-wght-normal.woff2) format('woff2-variations'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Unbounded Variable'; font-style: normal; font-display: swap; font-weight: 200 900; src: url(../node_modules/@fontsource-variable/unbounded/files/unbounded-latin-ext-wght-normal.woff2) format('woff2-variations'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Unbounded Variable'; font-style: normal; font-display: swap; font-weight: 200 900; src: url(../node_modules/@fontsource-variable/unbounded/files/unbounded-latin-wght-normal.woff2) format('woff2-variations'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'JetBrains Mono Variable'; font-style: normal; font-display: swap; font-weight: 100 800; src: url(../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-ext-wght-normal.woff2) format('woff2-variations'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'JetBrains Mono Variable'; font-style: normal; font-display: swap; font-weight: 100 800; src: url(../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2) format('woff2-variations'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
@@ -1795,7 +1799,7 @@
 .markdown-code-block code { display: block; min-width: fit-content; }
 .markdown-code-block pre.code-wrap code { min-width: 0; }
 .code-line-number { display: inline-block; min-width: 3em; margin-right: 1em; text-align: right; user-select: none; color: var(--color-faint); }
-.syntax-token { color: var(--shiki-light, inherit); background-color: var(--shiki-light-bg, transparent); font-style: var(--shiki-light-font-style, normal); font-weight: var(--shiki-light-font-weight, normal); text-decoration: var(--shiki-light-text-decoration, none); }
-:root[data-theme="dark"] .syntax-token { color: var(--shiki-dark, inherit); background-color: var(--shiki-dark-bg, transparent); font-style: var(--shiki-dark-font-style, normal); font-weight: var(--shiki-dark-font-weight, normal); text-decoration: var(--shiki-dark-text-decoration, none); }
+.syntax-token { color: var(--syntax-light, inherit); background-color: var(--syntax-light-bg, transparent); font-style: var(--syntax-light-font-style, normal); font-weight: var(--syntax-light-font-weight, normal); text-decoration: var(--syntax-light-text-decoration, none); }
+:root[data-theme="dark"] .syntax-token { color: var(--syntax-dark, inherit); background-color: var(--syntax-dark-bg, transparent); font-style: var(--syntax-dark-font-style, normal); font-weight: var(--syntax-dark-font-weight, normal); text-decoration: var(--syntax-dark-text-decoration, none); }
 .markdown-diagram-canvas { max-height: 650px; overflow: auto; padding: 12px; }
 .markdown-diagram-canvas svg { display: block; width: 100%; max-width: none !important; height: auto; margin: auto; }

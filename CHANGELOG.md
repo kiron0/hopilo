@@ -25,6 +25,9 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Changed
 
+- **Markdown and syntax highlighting in Rust**: A new `crates/rich` parses Markdown (pulldown-cmark, with GFM tables, task lists, footnotes and math) and highlights code (syntect) off the UI thread. This replaces react-markdown, remark, rehype and Shiki with its WebAssembly engine, shrinking the bundled UI from 16 MB to 12 MB and 276 files to 167; the app binary stays about the same size (34.8 MB) because the grammar pack moves into Rust. PowerShell code blocks now show as plain text.
+- **Lighter fonts**: Only Latin and Latin Extended font subsets ship, and KaTeX loads WOFF2 only; other scripts use the system font.
+- **Settings icons**: The Settings sidebar uses a gear for General, a palette for Customization and the coding-agent icon for Sources.
 - **Optimized model limits caching**: Simplified destination model limits with indexed SQLite queries, local caching, and faster search retrieval.
 - **Codebase comment cleanup**: Cleaned up internal commentary and developer comments across Rust crates, TypeScript modules, and release scripts.
 
