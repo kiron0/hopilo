@@ -694,6 +694,14 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
   return <span aria-hidden className={cx("skeleton block", className)} style={style} />;
 }
 
+const PROSE_WIDTHS = ["100%", "94%", "97%", "72%", "88%", "60%"];
+export function ProseSkeleton({ text }: { text: string }) {
+  const rows = Math.min(8, Math.max(2, Math.ceil(text.length / 140)));
+  return <div role="status" aria-label="Formatting text" className="space-y-2.5 py-1">
+    {Array.from({ length: rows }, (_, i) => <Skeleton key={i} className="h-3 rounded" style={{ width: i === rows - 1 ? "45%" : PROSE_WIDTHS[i % PROSE_WIDTHS.length] }} />)}
+  </div>;
+}
+
 export function useFitRows<T extends HTMLElement>(rowHeight: number, min = 10) {
   const [el, ref] = useState<T | null>(null);
   const [rows, setRows] = useState(min);

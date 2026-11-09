@@ -47,6 +47,11 @@ describe("Markdown tree renderer", () => {
 });
 
 describe("Markdown content", () => {
+  it("shows a skeleton, not raw source, until the Rust tree arrives", () => {
+    const html = renderToStaticMarkup(<MarkdownContent text={"# Title\n\n**bold** text"} />);
+    expect(html).toContain('aria-label="Formatting text"'); expect(html).toContain("skeleton");
+    expect(html).not.toContain("# Title"); expect(html).not.toContain("**bold**");
+  });
   it("shows very large Markdown as source without calling Rust", () => {
     const parse = vi.spyOn(api, "parseMarkdown");
     const html = renderToStaticMarkup(<MarkdownContent text={"# Title\n" + "x".repeat(MAX_RICH_MARKDOWN) + "\nEND"} />);

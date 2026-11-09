@@ -4,6 +4,7 @@ import { api, type MdNode } from "../lib/api";
 import { markdownImage, markdownLink, MAX_RICH_MARKDOWN } from "../lib/markdown";
 import { openExternal } from "../lib/updates";
 import { CodeBlock } from "./CodeBlock";
+import { ProseSkeleton } from "./ui";
 import "katex/dist/katex.min.css";
 
 const MermaidBlock = lazy(() => import("./MermaidBlock"));
@@ -89,8 +90,9 @@ function MarkdownContent({ text, className = "" }: { text: string; className?: s
   if (tooLarge) return <SourceFallback text={text} note="Large document shown as source to keep the preview responsive. All loaded text remains available." />;
   const current = parsed?.text === text ? parsed : null;
   if (current && !current.nodes) return <SourceFallback text={text} note="Rich preview unavailable. Source remains readable." />;
-  return <div className={`markdown-body ${className}`} data-selectable aria-busy={!current}>
-    {current?.nodes && <MarkdownTree nodes={current.nodes} prefix={prefix} onOpen={open} />}
+  if (!current) return <ProseSkeleton text={text} />;
+  return <div className={`markdown-body ${className}`} data-selectable>
+    {current.nodes && <MarkdownTree nodes={current.nodes} prefix={prefix} onOpen={open} />}
     {error && <p role="alert" className="text-[12px] text-danger">{error}</p>}
   </div>;
 }

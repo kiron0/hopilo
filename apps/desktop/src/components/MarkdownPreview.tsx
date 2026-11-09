@@ -1,7 +1,7 @@
 import { structuredLanguage } from "../lib/structuredText";
 import { CodeBlock } from "./CodeBlock";
 import { Component, lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, Segmented } from "./ui";
+import { Button, ProseSkeleton, Segmented } from "./ui";
 const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
 class PreviewBoundary extends Component<{ text: string; children: ReactNode }, { failed: boolean }> {
@@ -13,7 +13,7 @@ class PreviewBoundary extends Component<{ text: string; children: ReactNode }, {
 export const MarkdownPreview = memo(function MarkdownPreview({ text, className = "" }: { text: string; className?: string }) {
   const language = structuredLanguage(text);
   if (language) return <CodeBlock code={text} language={language} />;
-  return <PreviewBoundary text={text}><Suspense fallback={<pre className="whitespace-pre-wrap break-words font-mono text-[12px]" data-selectable>{text}</pre>}><MarkdownContent text={text} className={className} /></Suspense></PreviewBoundary>;
+  return <PreviewBoundary text={text}><Suspense fallback={<ProseSkeleton text={text} />}><MarkdownContent text={text} className={className} /></Suspense></PreviewBoundary>;
 });
 
 export function MarkdownViewer({ text, initialMode = "preview", sourceLabel = "Markdown source" }: { text: string; initialMode?: "preview" | "source"; sourceLabel?: string }) {
