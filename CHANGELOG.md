@@ -6,6 +6,9 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Added
 
+- **Destination context window limits**: Size suggestions use 80% of the destination model's window, with built-in defaults per destination, a per-destination model picker and manual limits in **Settings › Model limits**.
+- **Focused catalog refresh**: **Refresh catalog** keeps only the providers behind Hopilo's destinations (Anthropic, OpenAI, Google, GitHub Copilot, DeepSeek, xAI, Perplexity, Alibaba, Moonshot AI), about 200 models instead of nearly 9,000. Saved catalogs are trimmed to the same providers on load.
+- **More built-in defaults**: Perplexity (`sonar-pro`), Qwen Code (`qwen3-coder-plus`) and Kimi CLI (`kimi-k3.1-pro`) now have a known limit offline.
 - **macOS menu-bar popover notch & dynamic anchor arrow**: Quick panel features a unified SVG popover shape with smooth bezier shoulders and a rounded arrow tip pointing directly to the active menu-bar status item on macOS, with the animated mist background shader flowing seamlessly into the arrow.
 - **Session pin indicators in Quick Panel**: Pinned sessions display a dedicated accent pin icon in the quick panel session list for immediate visual confirmation.
 - **Session comparison view**: Compare two sessions side-by-side to inspect differing file edits, contrasting conclusions, and message/token statistics.
@@ -21,6 +24,7 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Fixed
 
+- **Copilot default model**: GitHub Copilot CLI and VS Code Copilot default to the Copilot catalog model `github-copilot/gpt-5.6-sol` instead of an OpenAI ID Copilot does not list.
 - **Quick panel hook rendering crash**: Fixed a React Error Boundary crash (`Rendered more hooks than during previous render`) in the quick panel caused by hook definitions placed after conditional readiness checks.
 - **Scrollable page bottom gap & sidebar alignment**: Standardized bottom padding across Overview, Settings, Browser, and Compare pages to 24px, perfectly matching the sidebar's bottom stats card and removing trailing whitespace gaps.
 - **Full-height empty comparison state**: Wrapped the session comparison view in a full-height container so the empty state canvas fills the viewport consistently with the rest of the application.

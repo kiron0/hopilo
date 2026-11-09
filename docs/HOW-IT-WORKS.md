@@ -58,6 +58,26 @@ Copy renders a session into one handoff message for the AI you continue in. **Fu
 
 The copy/export dialog opens an **Exact preview** using the same backend preparation and renderer as the output. **Select messages** keeps individual turns, identified by both source and message ID; files referenced only by removed turns are removed too. The preview updates after options settle, and Copy/Export waits for it. A SHA-256 check rejects execution when the reviewed text has changed. Token counts remain estimates. Preview text is capped at 4 MiB; choose fewer sessions/messages or a shorter text level for larger handoffs. JSON and bundles preserve the selected normalized turns independently of the text level; bundle preview shows normalized JSON, not the ZIP bytes or binary contents. The HTML viewer honors text level and tool-detail settings, and includes handoff notes.
 
+## Context window limits
+
+Size suggestions use 80% of the destination model's context window. Built-in limits cover a default model per destination, so this works offline. **Settings › Model limits** lets you pick another model per destination or enter a manual limit.
+
+**Refresh catalog** downloads `https://models.dev/api.json` only when clicked and keeps text models from the providers behind Hopilo's destinations. Other providers in the catalog are skipped, and a saved catalog from an older version is trimmed to the same list when it loads. The input limit is used when it is smaller than the context limit. The result is saved as `model-limits.json` in the library folder; a failed refresh keeps the saved catalog. No chats or keys are sent.
+
+| Catalog provider | Destinations | Default model |
+| --- | --- | --- |
+| `anthropic` | Claude, Claude Code | `claude-sonnet-5-5` |
+| `openai` | Codex CLI | `gpt-5.6` |
+| `google` | Gemini, Gemini CLI, Antigravity | `gemini-3.1-pro-preview` |
+| `github-copilot` | GitHub Copilot CLI, VS Code Copilot | `gpt-5.6-sol` |
+| `deepseek` | DeepSeek | `deepseek-v4-pro` |
+| `xai` | Grok | `grok-4.7` |
+| `perplexity` | Perplexity | `sonar-pro` |
+| `alibaba` | Qwen Code | `qwen3-coder-plus` |
+| `moonshotai` | Kimi CLI | `kimi-k3.1-pro` |
+
+Destinations that run models from any provider (Cursor, OpenCode, Cline, Roo Code, Kilo Code, Factory Droid, Pi, Goose, Zed, Aider, Other AI) start with an unknown limit: choose a model from the catalog or enter a limit.
+
 ## Conversation and files
 
 Conversations load 40 turns initially and append 40 more as you scroll. **Load more messages** also works with keyboard navigation or when intersection observation is unavailable. Earlier turns stay mounted; deep-search navigation expands through the matching turn. Text highlighting remains bounded, and content visibility reduces painting for offscreen messages. Very deep jumps can still mount many turns.

@@ -89,7 +89,7 @@ export function ModelLimitSettings() {
   return <div className="space-y-4 py-4" aria-busy={syncing}>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="max-w-xl"><div className="text-[13px] font-medium">Context window limits</div>
-        <p className="mt-1 text-[12px] text-faint">Size suggestions use 80% of the destination model's context window. Common models are built in. Refresh to search every model in the models.dev catalog; no chats or keys are sent.</p>
+        <p className="mt-1 text-[12px] text-faint">Size suggestions use 80% of the destination model's context window. Common models are built in. Refresh loads models.dev limits only for the providers behind your destinations; no chats or keys are sent.</p>
       </div>
       <Button size="sm" disabled={syncing} onClick={() => void sync()} icon={syncing ? <Loader2 aria-hidden size={14} className="animate-spin" /> : <RefreshCw aria-hidden size={14} />}>{syncing ? "Refreshing…" : "Refresh catalog"}</Button>
     </div>

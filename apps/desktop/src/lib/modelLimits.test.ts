@@ -9,6 +9,13 @@ describe("destination model limits", () => {
     expect(resolveDestinationModel("gemini").style).toBe("contextFirst");
     expect(resolveDestinationModel("cursor")).toMatchObject({ window: null, available: null, source: "unknown" });
   });
+  it("maps every supported destination provider to a bundled default", () => {
+    expect(resolveDestinationModel("copilot-cli")).toMatchObject({ providerId: "github-copilot", id: "gpt-5.6-sol", window: 922_000, source: "default" });
+    expect(resolveDestinationModel("vscode-copilot").providerId).toBe("github-copilot");
+    expect(resolveDestinationModel("perplexity")).toMatchObject({ providerId: "perplexity", id: "sonar-pro", window: 200_000 });
+    expect(resolveDestinationModel("qwen-code")).toMatchObject({ providerId: "alibaba", id: "qwen3-coder-plus", window: 1_048_576 });
+    expect(resolveDestinationModel("kimi-cli")).toMatchObject({ providerId: "moonshotai", id: "kimi-k3.1-pro", window: 1_048_576 });
+  });
   it("prefers manual limit, then saved window, then bundled limit", () => {
     expect(resolveDestinationModel("other", { other: { providerId: "lab", modelId: "m", window: 100_000 } })).toMatchObject({ window: 100_000, available: 80_000, source: "selected" });
     expect(resolveDestinationModel("other", { other: { providerId: "lab", modelId: "m", window: 100_000, manualLimit: 50_000 } })).toMatchObject({ window: 50_000, source: "manual" });

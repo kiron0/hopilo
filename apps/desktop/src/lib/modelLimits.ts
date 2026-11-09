@@ -20,13 +20,18 @@ export const BUNDLED: ModelLimit[] = [
   { providerId: "deepseek", providerName: "DeepSeek", id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", window: 1_048_576 },
   { providerId: "deepseek", providerName: "DeepSeek", id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", window: 1_048_576 },
   { providerId: "xai", providerName: "xAI", id: "grok-4.7", name: "Grok 4.7", window: 500_000 },
+  { providerId: "perplexity", providerName: "Perplexity", id: "sonar-pro", name: "Sonar Pro", window: 200_000 },
+  { providerId: "alibaba", providerName: "Alibaba", id: "qwen3-coder-plus", name: "Qwen3 Coder Plus", window: 1_048_576 },
+  { providerId: "moonshotai", providerName: "Moonshot AI", id: "kimi-k3.1-pro", name: "Kimi K3.1 Pro", window: 1_048_576 },
+  { providerId: "github-copilot", providerName: "GitHub Copilot", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", window: 922_000 },
 ];
 
 const DEFAULTS: Record<string, string> = {
   claude: "anthropic/claude-sonnet-5-5", "claude-code": "anthropic/claude-sonnet-5-5",
-  codex: "openai/gpt-5.6", "copilot-cli": "openai/gpt-5.6", "vscode-copilot": "openai/gpt-5.6",
+  codex: "openai/gpt-5.6", "copilot-cli": "github-copilot/gpt-5.6-sol", "vscode-copilot": "github-copilot/gpt-5.6-sol",
   gemini: "google/gemini-3.1-pro-preview", "gemini-cli": "google/gemini-3.1-pro-preview", antigravity: "google/gemini-3.1-pro-preview",
-  deepseek: "deepseek/deepseek-v4-pro", grok: "xai/grok-4.7",
+  deepseek: "deepseek/deepseek-v4-pro", grok: "xai/grok-4.7", perplexity: "perplexity/sonar-pro",
+  "qwen-code": "alibaba/qwen3-coder-plus", "kimi-cli": "moonshotai/kimi-k3.1-pro",
 };
 
 export const validLimit = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0 && v <= 100_000_000;

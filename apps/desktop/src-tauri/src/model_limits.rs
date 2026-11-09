@@ -13,6 +13,8 @@ const FILE: &str = "model-limits.json";
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_MODELS: usize = 50_000;
 const PAGE: usize = 40;
+const PROVIDERS: &[&str] =
+    &["anthropic", "openai", "google", "deepseek", "xai", "perplexity", "alibaba", "moonshotai", "github-copilot"];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +53,9 @@ fn parse_catalog(body: &str) -> Result<Vec<ModelLimit>, String> {
     let providers = json.as_object().ok_or("Catalog must contain provider objects")?;
     let mut models = vec![];
     for (provider, data) in providers {
+        if !PROVIDERS.contains(&provider.as_str()) {
+            continue;
+        }
         let Some(entries) = data.get("models").and_then(|v| v.as_object()) else { continue };
         let provider_name = data.get("name").and_then(|v| v.as_str()).unwrap_or(provider);
         for (id, value) in entries {
@@ -113,10 +118,11 @@ fn catalog(app: &AppHandle) -> CmdResult<Arc<Catalog>> {
     if let Some(catalog) = slot.as_ref() {
         return Ok(catalog.clone());
     }
-    let loaded = match std::fs::read(file(app)?) {
+    let mut loaded: Catalog = match std::fs::read(file(app)?) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
         Err(_) => Catalog::default(),
     };
+    loaded.models.retain(|m| PROVIDERS.contains(&m.provider_id.as_str()));
     let loaded = Arc::new(loaded);
     *slot = Some(loaded.clone());
     Ok(loaded)
@@ -164,22 +170,32 @@ mod tests {
     use super::*;
 
     const CATALOG: &str = r#"{
-        "lab":{"name":"Lab","models":{
+        "anthropic":{"name":"Anthropic","models":{
             "org/model-v1":{"name":"Model","limit":{"context":128000,"input":120000,"output":8000}},
             "no-limit":{"limit":{"context":0}},
             "audio":{"modalities":{"output":["audio"]},"limit":{"context":10000}}}},
-        "other":{"models":{"org/model-v1":{"limit":{"context":64000}}}}
+        "openai":{"models":{"org/model-v1":{"limit":{"context":64000}}}},
+        "openrouter":{"name":"OpenRouter","models":{"org/model-v1":{"limit":{"context":32000}}}}
     }"#;
 
     #[test]
     fn keeps_text_models_and_uses_the_smaller_input_limit() {
         let models = parse_catalog(CATALOG).unwrap();
         assert_eq!(models.len(), 2);
-        assert_eq!((models[0].provider_id.as_str(), models[0].window), ("lab", 120000));
-        assert_eq!((models[1].provider_name.as_str(), models[1].window), ("other", 64000));
+        assert_eq!((models[0].provider_id.as_str(), models[0].window), ("anthropic", 120000));
+        assert_eq!((models[1].provider_name.as_str(), models[1].window), ("openai", 64000));
         for bad in ["{}", "[]", "<html>Sign in</html>"] {
             assert!(parse_catalog(bad).is_err());
         }
+    }
+
+    #[test]
+    fn loads_only_destination_providers() {
+        assert!(parse_catalog(r#"{"openrouter":{"models":{"m":{"limit":{"context":1000}}}}}"#).is_err());
+        let models = parse_catalog(CATALOG).unwrap();
+        assert!(models.iter().all(|m| PROVIDERS.contains(&m.provider_id.as_str())));
+        let providers: std::collections::HashSet<_> = PROVIDERS.iter().collect();
+        assert_eq!(providers.len(), PROVIDERS.len());
     }
 
     #[test]
@@ -195,7 +211,7 @@ mod tests {
             });
         }
         let catalog = Catalog { updated_at: None, models };
-        let page = search(&catalog, "LAB model");
+        let page = search(&catalog, "ANTHROPIC model");
         assert_eq!((page.matches, page.models[0].id.as_str()), (1, "org/model-v1"));
         let page = search(&catalog, "bulk");
         assert_eq!((page.total, page.matches, page.models.len()), (102, 100, PAGE));
