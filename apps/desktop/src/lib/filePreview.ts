@@ -2,7 +2,15 @@ import { api, type Attachment } from "./api";
 
 export type FileKind = "image" | "pdf" | "html" | "audio" | "video" | "text" | "binary";
 const MIME: Record<string, string> = { pdf: "application/pdf", html: "text/html", htm: "text/html", mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", ogg: "audio/ogg", opus: "audio/ogg", mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", ogv: "video/ogg" };
-const TEXT = new Set(["txt", "md", "markdown", "json", "jsonl", "csv", "tsv", "log", "xml", "css", "js", "jsx", "ts", "tsx", "py", "rs", "go", "sh", "sql", "toml", "yaml", "yml", "ini", "svg"]);
+const CODE = new Set(["js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rs", "go", "java", "kt", "kts", "swift", "c", "h", "cpp", "cc", "hpp", "cs", "rb", "php", "css", "scss", "sql", "toml", "yaml", "yml", "ini", "sh", "bash", "zsh", "lua", "dart", "scala", "r", "vue", "svelte", "graphql", "gql", "diff", "patch"]);
+const CODE_NAMES: Record<string, string> = { dockerfile: "dockerfile", makefile: "makefile" };
+const TEXT = new Set(["txt", "md", "markdown", "json", "jsonl", "csv", "tsv", "log", "xml", "svg", ...CODE]);
+export function codeLanguage(fileName: string): string | undefined {
+  const base = fileName.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (CODE_NAMES[base]) return CODE_NAMES[base];
+  const ext = base.includes(".") ? base.split(".").pop()! : "";
+  return CODE.has(ext) ? ext : undefined;
+}
 export function previewMime(file: Attachment) {
   const ext = file.fileName.split(".").pop()?.toLowerCase() ?? "";
   return MIME[ext] ?? file.mediaType ?? "application/octet-stream";

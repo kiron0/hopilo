@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseHTML } from "linkedom";
 import { api, type Attachment } from "./api";
-import { fileKind, loadFilePreview, safeHtmlPreview } from "./filePreview";
+import { codeLanguage, fileKind, loadFilePreview, safeHtmlPreview } from "./filePreview";
 const file: Attachment = { id: "a", fileName: "test.bin", sha256: "sha", size: 10, mediaType: "application/octet-stream", text: null, originPath: null };
 it("recognizes PDF/HTML/audio/video even when old metadata says binary", () => {
   for (const [name, kind] of [["test.pdf", "pdf"], ["test.HTML", "html"], ["song.mp3", "audio"], ["clip.mov", "video"], ["code.ts", "text"]]) expect(fileKind({ ...file, fileName: name })).toBe(kind);
@@ -14,6 +14,14 @@ it("strips HTML capabilities, network references and embedded browsing contexts"
   expect(safe).toContain("default-src 'none'"); expect(safe).toContain("form-action 'none'");
   vi.unstubAllGlobals();
 });
+describe("code file language", () => {
+  it("maps source files to a highlight language and leaves plain text alone", () => {
+    const cases: [string, string | undefined][] = [["src/App.TSX", "tsx"], ["main.rs", "rs"], ["build/Dockerfile", "dockerfile"], ["Makefile", "makefile"], ["notes.txt", undefined], ["README", undefined]];
+    for (const [name, language] of cases) expect(codeLanguage(name)).toBe(language);
+    expect(fileKind({ id: "1", fileName: "Main.kt", mediaType: "application/octet-stream", sha256: "x", size: 1, originPath: null, text: null })).toBe("text");
+  });
+});
+
 describe("bounded preview loading", () => {
   it("clips text/binary prefixes and aborts without another IPC request", async () => {
     const read = vi.spyOn(api, "readFilePreview").mockResolvedValue(new Uint8Array([1, 2, 3, 4]).buffer);

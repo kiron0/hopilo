@@ -189,6 +189,7 @@ mod tests {
             "sql", "yaml", "toml", "xml", "markdown", "diff", "dockerfile", "makefile", "ini", "lua", "dart", "scala", "r", "vue", "svelte", "graphql",
         ]
         .into_iter()
+        .chain(["js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rs", "kt", "kts", "h", "cc", "hpp", "cs", "rb", "yml", "sh", "zsh", "gql", "patch"])
         .filter(|l| syntax(&assets().syntaxes, l).is_none())
         .collect();
         assert!(missing.is_empty(), "missing grammars: {missing:?}");
