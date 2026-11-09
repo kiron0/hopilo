@@ -96,16 +96,25 @@ fn draft_renders_requested_level() {
     let list = h.handle(&json!({"type": "session.list", "requestId": "l"}));
     assert_eq!(list["result"][0]["id"], sid.as_str());
 
-    let rec = h.handle(&json!({"type": "handoff.record", "requestId": "h", "ids": [sid], "target": "claude", "status": "drafted"}));
+    let rec = h.handle(
+        &json!({"type": "handoff.record", "requestId": "h", "ids": [sid], "target": "claude", "status": "drafted"}),
+    );
     assert_eq!(rec["ok"], true);
     assert_eq!(h.store.list_handoffs(1).unwrap()[0].status, "drafted");
-    assert!(h.handle(&json!({"type": "session.getDraft", "requestId": "x", "ids": ["../etc"]}))["error"]["code"] == "bad_request");
+    assert!(
+        h.handle(&json!({"type": "session.getDraft", "requestId": "x", "ids": ["../etc"]}))["error"]["code"]
+            == "bad_request"
+    );
 }
 
 #[test]
 fn hello_and_adapter_report_are_recorded() {
     let (_d, mut h) = host();
-    assert_eq!(h.handle(&json!({"type": "hello", "requestId": 1, "protocol": "1", "extensionVersion": "0.1.0"}))["result"]["app"], "hopilo");
+    assert_eq!(
+        h.handle(&json!({"type": "hello", "requestId": 1, "protocol": "1", "extensionVersion": "0.1.0"}))["result"]
+            ["app"],
+        "hopilo"
+    );
     h.handle(&json!({"type": "adapter.report", "requestId": 2, "provider": "gemini", "adapterVersion": "gemini-web@1", "ok": true, "messageCount": 4}));
     let s = h.store.settings().unwrap();
     assert!(s.contains_key("browser.lastSeen"));
@@ -176,7 +185,9 @@ fn browser_draft_honors_file_exclusions_and_custom_secret_rules() {
     ]);
     let captured = h.handle(&req);
     let id = captured["result"]["sourceId"].as_str().unwrap();
-    h.store.set_setting("redaction", &json!({ "keywords": ["InternalProject"], "excludePaths": ["private.txt"] })).unwrap();
+    h.store
+        .set_setting("redaction", &json!({ "keywords": ["InternalProject"], "excludePaths": ["private.txt"] }))
+        .unwrap();
     let draft = h.handle(&json!({ "type": "session.getDraft", "ids": [id], "level": "full" }));
     assert_eq!(draft["ok"], true, "{draft}");
     let text = draft["result"]["text"].as_str().unwrap();

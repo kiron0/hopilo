@@ -73,12 +73,20 @@ impl CapturedFile {
     }
 
     pub fn block(&self) -> Block {
-        Block::File { name: self.name.clone(), media_type: self.media_type.clone(), sha256: self.sha256(), size: self.bytes.len() as u64 }
+        Block::File {
+            name: self.name.clone(),
+            media_type: self.media_type.clone(),
+            sha256: self.sha256(),
+            size: self.bytes.len() as u64,
+        }
     }
 
     pub fn attachment(&self) -> Attachment {
         let texty = self.media_type.starts_with("text/")
-            || matches!(self.media_type.as_str(), "application/json" | "application/xml" | "application/x-yaml" | "application/javascript");
+            || matches!(
+                self.media_type.as_str(),
+                "application/json" | "application/xml" | "application/x-yaml" | "application/javascript"
+            );
         Attachment {
             id: crate::new_id(),
             file_name: self.name.clone(),
@@ -153,10 +161,7 @@ impl Message {
 
     pub fn is_tool_only(&self) -> bool {
         !self.blocks.is_empty()
-            && self
-                .blocks
-                .iter()
-                .all(|b| matches!(b, Block::ToolCall { .. } | Block::ToolResult { .. }))
+            && self.blocks.iter().all(|b| matches!(b, Block::ToolCall { .. } | Block::ToolResult { .. }))
     }
 }
 
@@ -315,7 +320,8 @@ mod tests {
         assert!(value.get("is_error").is_none());
 
         let legacy: Block =
-            serde_json::from_value(serde_json::json!({"type": "toolResult", "output": "ok", "is_error": true})).unwrap();
+            serde_json::from_value(serde_json::json!({"type": "toolResult", "output": "ok", "is_error": true}))
+                .unwrap();
         assert!(matches!(legacy, Block::ToolResult { is_error: true, .. }));
     }
 }

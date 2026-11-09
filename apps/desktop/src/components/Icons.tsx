@@ -313,6 +313,10 @@ export const FileDown = ({ size = 18, className, style, ...rest }: IconProps) =>
 );
 export const FileUp = make([DOC, FOLD, "M12 17v-6m-2.5 2.5L12 11l2.5 2.5"], DOC);
 export const FileImage = make([DOC, FOLD, c(10, 11.5, 1.4), "m5.8 18 3.4-3.2 2.6 2.4 2-1.7 2.9 2.5"], DOC);
+export const FilePdf = make([DOC, FOLD, "M8 17c3-5 3-7 3-7s-1 7 5 7c-4-3-8 0-8 0"], DOC);
+export const FileCode = make([DOC, FOLD, "m9 12-2 2 2 2m6-4 2 2-2 2"], DOC);
+export const FileAudio = make([DOC, FOLD, "M13 11v6", "M13 11l3-1", c(11.5, 17, 1.5)], DOC);
+export const FileVideo = make([DOC, FOLD, "m10 11 5 3-5 3z"], DOC);
 export const FileArchive = make([DOC, FOLD, "M10 4.5v1.2M10 7.5v1.2M10 10.5v1.2", rr(8.6, 13.5, 2.8, 3.5, 0.9)], DOC);
 export const FolderPlus = make(
   ["M3.5 7a2 2 0 0 1 2-2h3.6l2 2h7.4a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z", "M12 10.5V16m-2.75-2.75h5.5"],

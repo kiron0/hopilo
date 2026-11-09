@@ -1,14 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use hopilo_core::{
-    new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind,
-};
+use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::text::{strip_injected, title_from};
 use crate::{
-    file_meta, home, jsonl_files, omitted, par_scan, open_lines, AdapterError, Capture, DiscoveredSession,
+    file_meta, home, jsonl_files, omitted, open_lines, par_scan, AdapterError, Capture, DiscoveredSession,
     LocalAgentAdapter, Result,
 };
 
@@ -100,7 +98,8 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
                         model = msg.get("model").and_then(Value::as_str).map(str::to_string);
                     }
                     if want_prompt {
-                        first_prompt = first_text(&msg).map(|t| title_from(&slash_command(&t))).filter(|t| !t.is_empty());
+                        first_prompt =
+                            first_text(&msg).map(|t| title_from(&slash_command(&t))).filter(|t| !t.is_empty());
                     }
                 }
             }
@@ -114,7 +113,9 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
     Some(DiscoveredSession {
         adapter: "claude-code".into(),
         path: path.display().to_string(),
-        title: title.or(first_prompt).unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>())),
+        title: title
+            .or(first_prompt)
+            .unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>())),
         session_id,
         project,
         model,
@@ -138,15 +139,19 @@ fn slash_command(text: &str) -> std::borrow::Cow<'_, str> {
     let Some(name) = tag(text, "command-name") else { return text.into() };
     let args = tag(text, "command-args").unwrap_or("");
     let name = if name.starts_with('/') { name.to_string() } else { format!("/{name}") };
-    if args.is_empty() { name.into() } else { format!("{name} {args}").into() }
+    if args.is_empty() {
+        name.into()
+    } else {
+        format!("{name} {args}").into()
+    }
 }
 
 fn first_text(msg: &Value) -> Option<String> {
     match msg.get("content")? {
         Value::String(s) => Some(s.clone()),
-        Value::Array(blocks) => blocks.iter().find_map(|b| {
-            (b.get("type")?.as_str()? == "text").then(|| b.get("text")?.as_str().map(str::to_string))?
-        }),
+        Value::Array(blocks) => blocks
+            .iter()
+            .find_map(|b| (b.get("type")?.as_str()? == "text").then(|| b.get("text")?.as_str().map(str::to_string))?),
         _ => None,
     }
 }
@@ -274,10 +279,8 @@ fn read_session(path: &Path) -> Result<Capture> {
                             blocks.push(Block::ToolCall { name, input });
                         }
                         "tool_result" => {
-                            let name = b
-                                .get("tool_use_id")
-                                .and_then(Value::as_str)
-                                .and_then(|id| tool_names.get(id).cloned());
+                            let name =
+                                b.get("tool_use_id").and_then(Value::as_str).and_then(|id| tool_names.get(id).cloned());
                             let (output, n) = strip_injected(&tool_result_text(b.get("content")));
                             t.reminders += n;
                             blocks.push(Block::ToolResult {
@@ -295,7 +298,9 @@ fn read_session(path: &Path) -> Result<Capture> {
                                 }
                                 None => {
                                     t.images += 1;
-                                    blocks.push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                                    blocks.push(Block::Missing {
+                                        description: format!("{kind} shared in the conversation"),
+                                    });
                                 }
                             }
                         }
@@ -349,7 +354,8 @@ fn read_session(path: &Path) -> Result<Capture> {
 
     let mut missing = Vec::new();
     if t.compacted {
-        missing.push("Earlier history was compacted by Claude Code; only its summary remains in the session file".into());
+        missing
+            .push("Earlier history was compacted by Claude Code; only its summary remains in the session file".into());
     }
     if t.unreadable > 0 {
         missing.push(format!("{} unreadable line(s) in the session file", t.unreadable));
@@ -385,7 +391,11 @@ fn recover_block_file(b: &Value, kind: &str, n: usize) -> Option<hopilo_core::Ca
     let named = b.get("title").or_else(|| b.get("name")).and_then(Value::as_str).map(str::to_string);
     let media = src.get("media_type").and_then(Value::as_str).unwrap_or("");
     match src.get("type").and_then(Value::as_str)? {
-        "base64" => hopilo_core::CapturedFile::from_base64(named.unwrap_or_else(|| format!("{kind}-{n}")), media, src.get("data").and_then(Value::as_str)?),
+        "base64" => hopilo_core::CapturedFile::from_base64(
+            named.unwrap_or_else(|| format!("{kind}-{n}")),
+            media,
+            src.get("data").and_then(Value::as_str)?,
+        ),
         "text" => {
             let data = src.get("data").and_then(Value::as_str)?;
             Some(hopilo_core::CapturedFile {

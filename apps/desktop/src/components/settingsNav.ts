@@ -1,3 +1,4 @@
+import { deviceNoun } from "../lib/platform";
 import type { ReactNode } from "react";
 import { Boxes, Info, Pencil, Power, ShieldCheck, type IconProps } from "./Icons";
 
@@ -16,6 +17,7 @@ const SECTION_GROUP: Record<string, SettingsGroup> = {
   customize: "customize",
   appearance: "customize",
   handoff: "customize",
+  "model-limits": "customize",
   templates: "customize",
   shortcut: "general",
   redaction: "data",
@@ -29,3 +31,11 @@ const SECTION_GROUP: Record<string, SettingsGroup> = {
 export function settingsGroupFor(section: string | undefined): SettingsGroup {
   return (section && SECTION_GROUP[section]) || "general";
 }
+
+export const SETTINGS_SUBTITLES: Record<SettingsGroup, string> = {
+  general: "Startup and window behavior. Changes save immediately.",
+  customize: "Window canvas, theme and animations, and what Copy puts on the clipboard. Changes save immediately.",
+  sources: `Coding agents Hopilo reads on this ${deviceNoun}. Their files are only read, never changed.`,
+  data: `What Hopilo can see and send, and the one folder on this ${deviceNoun} where your library lives.`,
+  about: "Hopilo: every AI session in one place.",
+};

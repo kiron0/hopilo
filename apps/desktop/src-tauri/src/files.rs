@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, Attachment};
 use hopilo_pack_format::sha256_hex;
@@ -12,10 +12,62 @@ const MAX_FOLDER_DEPTH: usize = 3;
 const SKIP_DIRS: &[&str] = &["node_modules", ".git", "target", "dist", "build", ".venv", "__pycache__"];
 
 const TEXT_EXTS: &[&str] = &[
-    "txt", "md", "markdown", "json", "jsonl", "csv", "tsv", "log", "yaml", "yml", "toml", "xml", "html", "htm",
-    "css", "scss", "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rs", "go", "java", "kt", "swift", "c", "h",
-    "cc", "cpp", "hpp", "cs", "rb", "php", "sh", "zsh", "bash", "fish", "sql", "ini", "cfg", "conf", "graphql",
-    "proto", "lua", "dart", "scala", "r", "vue", "svelte", "gradle", "properties", "tex", "rst",
+    "txt",
+    "md",
+    "markdown",
+    "json",
+    "jsonl",
+    "csv",
+    "tsv",
+    "log",
+    "yaml",
+    "yml",
+    "toml",
+    "xml",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
+    "ts",
+    "tsx",
+    "py",
+    "rs",
+    "go",
+    "java",
+    "kt",
+    "swift",
+    "c",
+    "h",
+    "cc",
+    "cpp",
+    "hpp",
+    "cs",
+    "rb",
+    "php",
+    "sh",
+    "zsh",
+    "bash",
+    "fish",
+    "sql",
+    "ini",
+    "cfg",
+    "conf",
+    "graphql",
+    "proto",
+    "lua",
+    "dart",
+    "scala",
+    "r",
+    "vue",
+    "svelte",
+    "gradle",
+    "properties",
+    "tex",
+    "rst",
 ];
 const TEXT_NAMES: &[&str] = &["dockerfile", "makefile", "readme", "license", "gemfile", "procfile"];
 const SENSITIVE_NAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", ".npmrc", ".pypirc", "credentials", ".netrc"];
@@ -47,6 +99,17 @@ fn classify(path: &Path) -> (String, &'static str) {
         "svg" => image("image/svg+xml"),
         "heic" => image("image/heic"),
         "pdf" => ("application/pdf".into(), "pdf"),
+        "html" | "htm" => ("text/html".into(), "html"),
+        "mp3" => ("audio/mpeg".into(), "audio"),
+        "wav" => ("audio/wav".into(), "audio"),
+        "m4a" => ("audio/mp4".into(), "audio"),
+        "aac" => ("audio/aac".into(), "audio"),
+        "flac" => ("audio/flac".into(), "audio"),
+        "ogg" | "opus" => ("audio/ogg".into(), "audio"),
+        "mp4" | "m4v" => ("video/mp4".into(), "video"),
+        "mov" => ("video/quicktime".into(), "video"),
+        "webm" => ("video/webm".into(), "video"),
+        "ogv" => ("video/ogg".into(), "video"),
         "json" | "jsonl" => ("application/json".into(), "text"),
         "md" | "markdown" => ("text/markdown".into(), "text"),
         "csv" => ("text/csv".into(), "text"),
@@ -168,7 +231,7 @@ pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight 
     }
     match read_bounded(path) {
         Ok(bytes) => {
-            if kind == "text" && std::str::from_utf8(&bytes).is_err() {
+            if matches!(kind, "text" | "html") && std::str::from_utf8(&bytes).is_err() {
                 pf.warnings.push("Not valid UTF-8 text — kept as a file only".into());
             }
             pf.duplicate = is_known(&sha256_hex(&bytes));
@@ -197,7 +260,7 @@ pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {
         return Err(format!("{pf_name}: larger than the size limit"));
     }
     let (media_type, kind) = classify(path);
-    let text = (kind == "text" && size <= MAX_TEXT_BYTES)
+    let text = (matches!(kind, "text" | "html") && size <= MAX_TEXT_BYTES)
         .then(|| std::str::from_utf8(&bytes).ok().map(str::to_owned))
         .flatten();
     Ok((
@@ -262,5 +325,53 @@ mod tests {
         let bin = dir.path().join("n.log");
         std::fs::write(&bin, [0xff, 0xfe, 0x00]).unwrap();
         assert!(load(&bin).unwrap().0.text.is_none());
+    }
+}
+
+/// Preview bytes stay bounded and are read from content-addressed library storage.
+pub fn preview_chunk(root: &Path, sha: &str, offset: u64, length: u32) -> std::io::Result<Vec<u8>> {
+    use std::io::{Seek, SeekFrom};
+    if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) || length > 1024 * 1024 {
+        return Err(std::io::Error::other("Invalid preview reference or chunk size"));
+    }
+    let path = root.join("attachments").join(sha);
+    let meta = std::fs::symlink_metadata(&path)?;
+    if !meta.is_file() || meta.len() > 64 * 1024 * 1024 || offset > meta.len() {
+        return Err(std::io::Error::other("Preview unavailable: library file is invalid or exceeds 64 MiB"));
+    }
+    let mut file = std::fs::File::open(path)?;
+    file.seek(SeekFrom::Start(offset))?;
+    let mut out = Vec::new();
+    file.take(length as u64).read_to_end(&mut out)?;
+    Ok(out)
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+    #[test]
+    fn preview_reads_only_bounded_hash_named_regular_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("attachments")).unwrap();
+        let sha = "a".repeat(64);
+        std::fs::write(dir.path().join("attachments").join(&sha), b"abcdef").unwrap();
+        assert_eq!(preview_chunk(dir.path(), &sha, 2, 3).unwrap(), b"cde");
+        assert!(preview_chunk(dir.path(), "../hopilo.db", 0, 1).is_err());
+        assert!(preview_chunk(dir.path(), &sha, 0, 1024 * 1024 + 1).is_err());
+        assert!(preview_chunk(dir.path(), &sha, 7, 1).is_err());
+        assert!(preview_chunk(dir.path(), &sha, 6, 1).unwrap().is_empty());
+        let huge = std::fs::File::create(dir.path().join("attachments").join("b".repeat(64))).unwrap();
+        huge.set_len(64 * 1024 * 1024 + 1).unwrap();
+        assert!(preview_chunk(dir.path(), &"b".repeat(64), 0, 1).is_err());
+        #[cfg(unix)]
+        {
+            let link = "c".repeat(64);
+            std::os::unix::fs::symlink(
+                dir.path().join("attachments").join(&sha),
+                dir.path().join("attachments").join(&link),
+            )
+            .unwrap();
+            assert!(preview_chunk(dir.path(), &link, 0, 1).is_err());
+        }
     }
 }

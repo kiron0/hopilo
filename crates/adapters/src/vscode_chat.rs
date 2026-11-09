@@ -1,11 +1,13 @@
-
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
 use serde_json::Value;
 
 use crate::text::title_from;
-use crate::{file_meta, home, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
+use crate::{
+    file_meta, home, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter,
+    Result,
+};
 
 pub struct VsCodeChat;
 
@@ -29,7 +31,8 @@ impl LocalAgentAdapter for VsCodeChat {
         if let Some(a) = std::env::var_os("APPDATA") {
             bases.push(PathBuf::from(a));
         }
-        let all: Vec<PathBuf> = bases.iter().flat_map(|b| EDITORS.iter().map(move |e| b.join(e).join("User"))).collect();
+        let all: Vec<PathBuf> =
+            bases.iter().flat_map(|b| EDITORS.iter().map(move |e| b.join(e).join("User"))).collect();
         let present: Vec<PathBuf> = all.iter().filter(|p| p.is_dir()).cloned().collect();
         if present.is_empty() {
             all.into_iter().take(1).collect()
@@ -48,7 +51,8 @@ impl LocalAgentAdapter for VsCodeChat {
             let Ok(rd) = std::fs::read_dir(dir) else { return };
             for f in rd.flatten() {
                 let p = f.path();
-                let ok = f.file_type().is_ok_and(|t| t.is_file()) && p.extension().is_some_and(|e| e == "json" || e == "jsonl");
+                let ok = f.file_type().is_ok_and(|t| t.is_file())
+                    && p.extension().is_some_and(|e| e == "json" || e == "jsonl");
                 if ok {
                     files.push(p);
                 }
@@ -175,7 +179,8 @@ fn load(path: &Path) -> Result<Value> {
     if path.extension().is_some_and(|e| e == "jsonl") {
         return replay(path);
     }
-    let text = std::fs::read_to_string(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
+    let text = hopilo_core::limits::read_text(path)
+        .map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
     serde_json::from_str(&text).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))
 }
 
@@ -185,7 +190,7 @@ fn millis(v: Option<&Value>) -> Option<String> {
 
 fn workspace_folder(session: &Path) -> Option<String> {
     let ws = session.parent()?.parent()?.join("workspace.json");
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(ws).ok()?).ok()?;
+    let v: Value = serde_json::from_str(&hopilo_core::limits::read_text(&ws).ok()?).ok()?;
     let uri = v.get("folder").or_else(|| v.get("workspace")).and_then(Value::as_str)?;
     let raw = uri.strip_prefix("file://").unwrap_or(uri);
     Some(crate::text::percent_decode(raw))
@@ -225,7 +230,10 @@ fn response_blocks(parts: &[Value], t: &mut Tally) -> Vec<Block> {
                 }
             }
             Some("inlineReference") => {
-                let name = p.get("name").and_then(Value::as_str).or_else(|| p.pointer("/inlineReference/path").and_then(Value::as_str));
+                let name = p
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .or_else(|| p.pointer("/inlineReference/path").and_then(Value::as_str));
                 if let Some(n) = name {
                     text.push('`');
                     text.push_str(n);
@@ -247,7 +255,10 @@ fn response_blocks(parts: &[Value], t: &mut Tally) -> Vec<Block> {
                     .or_else(|| p.get("invocationMessage").and_then(message_text).map(str::to_string))
                     .unwrap_or_default();
                 blocks.push(Block::ToolCall { name: name.clone(), input });
-                let out = p.get("pastTenseMessage").and_then(message_text).or_else(|| p.pointer("/resultDetails/output").and_then(Value::as_str));
+                let out = p
+                    .get("pastTenseMessage")
+                    .and_then(message_text)
+                    .or_else(|| p.pointer("/resultDetails/output").and_then(Value::as_str));
                 if let Some(o) = out {
                     blocks.push(Block::ToolResult { name: Some(name), output: o.to_string(), is_error: false });
                 }
@@ -263,7 +274,10 @@ fn response_blocks(parts: &[Value], t: &mut Tally) -> Vec<Block> {
 
 fn read_session(path: &Path) -> Result<Capture> {
     let doc = load(path)?;
-    let requests = doc.get("requests").and_then(Value::as_array).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
+    let requests = doc
+        .get("requests")
+        .and_then(Value::as_array)
+        .ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
     let source_id = new_id();
     let mut messages = Vec::new();
     let mut t = Tally::default();
@@ -272,7 +286,8 @@ fn read_session(path: &Path) -> Result<Capture> {
 
     for r in requests {
         let ts = millis(r.get("timestamp"));
-        if let Some(text) = r.pointer("/message/text").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(text) = r.pointer("/message/text").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
+        {
             if first_prompt.is_none() {
                 first_prompt = Some(title_from(text));
             }
@@ -366,7 +381,9 @@ mod tests {
         let cap = VsCodeChat.read(Path::new(&found[0].path)).unwrap();
         assert_eq!(cap.messages.len(), 2);
         assert_eq!(cap.messages[1].blocks[0].plain_text(), "Sure, done.");
-        assert!(matches!(&cap.messages[1].blocks[1], Block::ToolCall { name, input } if name == "run_in_terminal" && input == "npm test"));
+        assert!(
+            matches!(&cap.messages[1].blocks[1], Block::ToolCall { name, input } if name == "run_in_terminal" && input == "npm test")
+        );
     }
 
     #[test]
@@ -374,7 +391,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cs = dir.path().join("globalStorage").join("emptyWindowChatSessions");
         std::fs::create_dir_all(&cs).unwrap();
-        let doc = serde_json::json!({"requests":[{"message":{"text":"why is it slow"},"response":[{"value":"Because."}]}]});
+        let doc =
+            serde_json::json!({"requests":[{"message":{"text":"why is it slow"},"response":[{"value":"Because."}]}]});
         std::fs::write(cs.join("a.json"), doc.to_string()).unwrap();
         std::fs::write(cs.join("b.json"), r#"{"requests":[]}"#).unwrap();
         let found = VsCodeChat.discover(dir.path()).unwrap();

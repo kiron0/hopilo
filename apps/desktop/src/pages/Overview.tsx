@@ -31,16 +31,14 @@ const BUBBLE_PALETTE = [
   { c1: "#ff8fc8", c2: "#c48cff", sh: "220, 120, 200" },
 ];
 
-function SourcesMap({ sessions, loading }: { sessions: SessionRow[]; loading: boolean }) {
+function SourcesMap({ counts, loading }: { counts: Record<string, number>; loading: boolean }) {
   const navigate = useApp((s) => s.navigate);
   const setListView = useApp((s) => s.setListView);
   const bubbles = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of sessions) counts.set(s.provider, (counts.get(s.provider) ?? 0) + 1);
-    const list = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, SLOTS.length);
+    const list = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, SLOTS.length);
     const max = Math.max(1, ...list.map(([, n]) => n));
     return list.map(([id, n], i) => ({ id, n, slot: SLOTS[i], size: 62 + Math.sqrt(n / max) * (i === 0 ? 68 : 42) }));
-  }, [sessions]);
+  }, [counts]);
 
   return (
     <Card className="card-w flex flex-col p-5">
@@ -262,7 +260,7 @@ function RecentRow({ row, onCopy }: { row: SessionRow; onCopy: (id: string) => v
       <button
         type="button"
         className="min-w-0 flex-1 text-left"
-        onMouseEnter={() => prefetch(sessionLoader(row.id), [row.id])}
+        onMouseEnter={() => prefetch(sessionLoader(row.id), ["session", row.id])}
         onClick={() => navigate({ page: "sessions", id: row.id })}
       >
         <div className="truncate font-medium">{row.title}</div>
@@ -300,14 +298,15 @@ const BANNER_SNOOZE_MS = 24 * 60 * 60 * 1000;
 export function Overview() {
   const navigate = useApp((s) => s.navigate);
   const settings = useApp((s) => s.settings);
-  const stats = useLoad(() => api.stats());
-  const sessions = useLoad(() => api.listSessions());
+  const stats = useLoad(() => api.stats(), ["stats"]);
+  const since = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+  const sessions = useLoad(() => api.querySessions({ limit: 4, since }), ["overview-sessions", since]);
   const [adding, setAdding] = useState(false);
   const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const s = stats.data;
   const loading = sessions.loading && !sessions.data;
-  const all = useMemo(() => sessions.data ?? [], [sessions.data]);
+  const all = useMemo(() => sessions.data?.rows ?? [], [sessions.data]);
 
   const bannerDismissedAt = settings.bannerDismissedAt ?? (typeof window !== "undefined" ? Number(localStorage.getItem("hopilo_banner_dismissed_at") || 0) : 0);
   const isDismissed = bannerDismissedAt > 0 && now >= bannerDismissedAt && now - bannerDismissedAt < BANNER_SNOOZE_MS;
@@ -333,12 +332,11 @@ export function Overview() {
 
   const recent = useMemo(() => [...all].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)), [all]);
   const latest = recent[0];
-  const agents = all.filter((r) => r.kind === "local-agent").length;
-  const webRows = all.filter((r) => r.kind === "browser-chat");
-  const web = webRows.length;
-  const startOfDay = new Date().setHours(0, 0, 0, 0);
-  const webToday = webRows.filter((r) => Date.parse(r.updatedAt) >= startOfDay).length;
-  const tools = new Set(all.map((r) => r.provider)).size;
+  const agents = sessions.data?.counts.agents ?? 0;
+  const web = sessions.data?.counts.web ?? 0;
+  const webToday = sessions.data?.counts.webToday ?? 0;
+  const tools = sessions.data?.providers.length ?? 0;
+  const total = sessions.data?.counts.total ?? 0;
 
   return (
     <div className="space-y-5">
@@ -385,7 +383,7 @@ export function Overview() {
           </div>
           <h1 className="text-[24px] font-normal text-muted">Ready to continue</h1>
           <div className="mt-1 flex items-baseline gap-2">
-            {loading ? <Skeleton className="my-1.5 h-[60px] w-20 rounded-2xl" /> : <span className="font-display text-[64px] leading-[1.05] font-semibold tabular-nums">{all.length}</span>}
+            {loading ? <Skeleton className="my-1.5 h-[60px] w-20 rounded-2xl" /> : <span className="font-display text-[64px] leading-[1.05] font-semibold tabular-nums">{total}</span>}
             <span className="font-display text-[22px] font-medium text-accent">sessions</span>
           </div>
           <p className="mt-2 max-w-md text-muted">Pick up any conversation in another AI. Hopilo copies it as one message you paste; nothing is ever sent for you.</p>
@@ -393,7 +391,7 @@ export function Overview() {
             <button
               type="button"
               disabled={!latest}
-              onMouseEnter={() => latest && prefetch(sessionLoader(latest.id), [latest.id])}
+              onMouseEnter={() => latest && prefetch(sessionLoader(latest.id), ["session", latest.id])}
               onClick={() => {
                 if (!latest) return;
                 navigate({ page: "sessions", id: latest.id });
@@ -421,11 +419,11 @@ export function Overview() {
             </button>
           </div>
           <div className="mt-5 flex items-center gap-2 font-mono text-[11px] text-faint">
-            <span className={cx("h-1.5 w-1.5 rounded-full", all.length ? "bg-success" : "bg-faint")} />
+            <span className={cx("h-1.5 w-1.5 rounded-full", total ? "bg-success" : "bg-faint")} />
             {loading ? <Skeleton className="inline-block h-3 w-16 rounded" /> : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · 100% offline
           </div>
         </Card>
-        <SourcesMap sessions={all} loading={loading} />
+        <SourcesMap counts={sessions.data?.providerCounts ?? {}} loading={loading} />
       </section>
 
       <section aria-label="At a glance" className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use hopilo_core::{
-    new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind,
-};
+use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
 use rusqlite::OpenFlags;
 use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, jsonl_files, omitted, par_scan, open_lines, session_stem, AdapterError, Capture, DiscoveredSession,
-    LocalAgentAdapter, Result,
+    file_meta, home, jsonl_files, omitted, open_lines, par_scan, session_stem, AdapterError, Capture,
+    DiscoveredSession, LocalAgentAdapter, Result,
 };
 
 pub struct Codex;
@@ -25,9 +23,7 @@ impl LocalAgentAdapter for Codex {
     }
 
     fn default_roots(&self) -> Vec<PathBuf> {
-        let base = std::env::var_os("CODEX_HOME")
-            .map(PathBuf::from)
-            .or_else(|| home().map(|h| h.join(".codex")));
+        let base = std::env::var_os("CODEX_HOME").map(PathBuf::from).or_else(|| home().map(|h| h.join(".codex")));
         base.map(|b| vec![b.join("sessions"), b.join("archived_sessions")]).unwrap_or_default()
     }
 
@@ -82,7 +78,9 @@ fn thread_names(base: &Path) -> HashMap<String, String> {
     if let Ok(lines) = open_lines(&base.join("session_index.jsonl")) {
         for line in lines.map_while(|l| l.ok()) {
             let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
-            if let (Some(id), Some(name)) = (v.get("id").and_then(Value::as_str), v.get("thread_name").and_then(Value::as_str)) {
+            if let (Some(id), Some(name)) =
+                (v.get("id").and_then(Value::as_str), v.get("thread_name").and_then(Value::as_str))
+            {
                 let name = name.trim();
                 if !name.is_empty() {
                     out.insert(id.to_string(), title_from(name));
@@ -108,9 +106,7 @@ fn thread_names(base: &Path) -> HashMap<String, String> {
                          FROM threads
                          WHERE trim(name) != '' OR trim(title) != ''",
                     ) {
-                        if let Ok(rows) = stmt.query_map([], |r| {
-                            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                        }) {
+                        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
                             for (id, name) in rows.flatten() {
                                 out.entry(id).or_insert_with(|| title_from(&name));
                             }
@@ -153,13 +149,10 @@ fn is_injected_user_text(t: &str) -> bool {
 
 fn output_text(v: Option<&Value>) -> String {
     match v {
-        Some(Value::String(s)) => {
-
-            serde_json::from_str::<Value>(s)
-                .ok()
-                .and_then(|inner| inner.get("output").and_then(Value::as_str).map(str::to_string))
-                .unwrap_or_else(|| s.clone())
-        }
+        Some(Value::String(s)) => serde_json::from_str::<Value>(s)
+            .ok()
+            .and_then(|inner| inner.get("output").and_then(Value::as_str).map(str::to_string))
+            .unwrap_or_else(|| s.clone()),
         Some(Value::Object(o)) => o
             .get("content")
             .and_then(Value::as_str)
@@ -232,7 +225,11 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
                         source_id: source_id.clone(),
                         role: Role::System,
                         created_at: ts,
-                        blocks: vec![Block::text(if quick { String::new() } else { format!("Codex compaction summary:\n\n{summary}") })],
+                        blocks: vec![Block::text(if quick {
+                            String::new()
+                        } else {
+                            format!("Codex compaction summary:\n\n{summary}")
+                        })],
                     });
                 }
                 continue;
@@ -243,7 +240,13 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
 
         let id = item.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(new_id);
         let push = |messages: &mut Vec<Message>, role, blocks| {
-            messages.push(Message { id: id.clone(), source_id: source_id.clone(), role, created_at: ts.clone(), blocks });
+            messages.push(Message {
+                id: id.clone(),
+                source_id: source_id.clone(),
+                role,
+                created_at: ts.clone(),
+                blocks,
+            });
         };
         match item.get("type").and_then(Value::as_str).unwrap_or("") {
             "message" => {
@@ -272,7 +275,10 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
                                 blocks.push(Block::Missing { description: "image shared in the conversation".into() });
                                 continue;
                             }
-                            let url = c.get("image_url").and_then(|u| u.as_str().or_else(|| u.get("url").and_then(Value::as_str))).unwrap_or("");
+                            let url = c
+                                .get("image_url")
+                                .and_then(|u| u.as_str().or_else(|| u.get("url").and_then(Value::as_str)))
+                                .unwrap_or("");
                             let n = t.files.len() + 1;
                             let recovered = if url.starts_with("data:") {
                                 hopilo_core::CapturedFile::from_base64(format!("image-{n}"), "", url)
@@ -286,7 +292,9 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
                                 }
                                 None => {
                                     t.images += 1;
-                                    blocks.push(Block::Missing { description: "image shared in the conversation".into() });
+                                    blocks.push(Block::Missing {
+                                        description: "image shared in the conversation".into(),
+                                    });
                                 }
                             }
                         }
@@ -315,7 +323,10 @@ fn read_rollout(path: &Path, quick: bool) -> Result<Capture> {
                     match kind {
                         "function_call" => pretty_args(item.get("arguments").and_then(Value::as_str).unwrap_or("")),
                         "custom_tool_call" => item.get("input").and_then(Value::as_str).unwrap_or("").to_string(),
-                        _ => item.get("action").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default(),
+                        _ => item
+                            .get("action")
+                            .map(|a| serde_json::to_string_pretty(a).unwrap_or_default())
+                            .unwrap_or_default(),
                     }
                 };
                 push(&mut messages, Role::Assistant, vec![Block::ToolCall { name, input }]);
@@ -388,10 +399,7 @@ mod tests {
         assert_eq!(cap.source.project.as_deref(), Some("/work/api"));
         assert_eq!(cap.source.model.as_deref(), Some("gpt-5.5-codex"));
         let roles: Vec<Role> = cap.messages.iter().map(|m| m.role).collect();
-        assert_eq!(
-            roles,
-            vec![Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::Tool, Role::Assistant]
-        );
+        assert_eq!(roles, vec![Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::Tool, Role::Assistant]);
         match &cap.messages[2].blocks[0] {
             Block::ToolResult { name, output, .. } => {
                 assert_eq!(name.as_deref(), Some("shell"));

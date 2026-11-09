@@ -51,7 +51,8 @@ fn folder_fingerprint(root: &Path, depth: usize) -> u64 {
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
     if let Some(parent) = root.parent() {
-        for name in ["conversation_summaries.db", "session_index.jsonl", "state_5.sqlite", "threads.db", "opencode.db"] {
+        for name in ["conversation_summaries.db", "session_index.jsonl", "state_5.sqlite", "threads.db", "opencode.db"]
+        {
             for suffix in ["", "-wal"] {
                 let f = parent.join(format!("{name}{suffix}"));
                 if let Ok(md) = f.metadata() {
@@ -147,7 +148,8 @@ fn discover_all(app: &AppHandle) -> Vec<DiscoveredSession> {
             }
             let fp = folder_fingerprint(&root, a.scan_depth());
             let key = (a.id().to_string(), root.clone());
-            let cached = state.discovery.lock().ok().and_then(|c| c.get(&key).filter(|(f, _)| *f == fp).map(|(_, v)| v.clone()));
+            let cached =
+                state.discovery.lock().ok().and_then(|c| c.get(&key).filter(|(f, _)| *f == fp).map(|(_, v)| v.clone()));
             let sessions = match cached {
                 Some(v) => v,
                 None => {
@@ -177,11 +179,8 @@ fn checked_session_path(adapter: &dyn hopilo_adapters::LocalAgentAdapter, path: 
         None => (path, None),
     };
     let real = std::fs::canonicalize(file).map_err(|e| format!("{file}: {e}"))?;
-    let allowed = adapter
-        .default_roots()
-        .iter()
-        .filter_map(|r| std::fs::canonicalize(r).ok())
-        .any(|root| real.starts_with(root));
+    let allowed =
+        adapter.default_roots().iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|root| real.starts_with(root));
     if !allowed {
         return Err("That file is outside the agent's session folder".into());
     }
@@ -203,7 +202,10 @@ fn read_session(adapter_id: &str, path: &str) -> CmdResult<(Source, Vec<Message>
     Ok((source, messages, cap.files))
 }
 
-pub(crate) fn store_captured_files(store: &mut Store, files: &[hopilo_core::CapturedFile]) -> CmdResult<Vec<Attachment>> {
+pub(crate) fn store_captured_files(
+    store: &mut Store,
+    files: &[hopilo_core::CapturedFile],
+) -> CmdResult<Vec<Attachment>> {
     files.iter().map(|f| store.insert_attachment(&f.attachment(), &f.bytes).map(|(a, _)| a).map_err(err)).collect()
 }
 
@@ -224,6 +226,9 @@ pub(crate) enum SyncMode {
 }
 
 pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
+    if cfg!(debug_assertions) && std::env::var_os("HOPILO_TEST_NO_SYNC").is_some() {
+        return SyncResult::default();
+    }
     use std::sync::TryLockError;
     let state = app.state::<AppState>();
     let _guard = match mode {
@@ -243,8 +248,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     }
     let mut result = SyncResult::default();
     const ANTIGRAVITY_MEDIA_MIGRATION: &str = "migration.antigravityMediaV1";
-    let backfill_antigravity =
-        state.setting(ANTIGRAVITY_MEDIA_MIGRATION).and_then(|v| v.as_bool()) != Some(true);
+    let backfill_antigravity = state.setting(ANTIGRAVITY_MEDIA_MIGRATION).and_then(|v| v.as_bool()) != Some(true);
     let mut antigravity_backfill_failed = false;
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
     let found = discover_all(app);
@@ -254,7 +258,13 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     for d in found {
         let prior = known.get(&d.path);
         let force_backfill = backfill_antigravity && d.adapter == "antigravity";
-        if prior.is_some_and(|p| p.hidden || (!force_backfill && p.unchanged_since(&d.modified_at) && p.project == d.project && (p.title_edited || p.title == d.title))) {
+        if prior.is_some_and(|p| {
+            p.hidden
+                || (!force_backfill
+                    && p.unchanged_since(&d.modified_at)
+                    && p.project == d.project
+                    && (p.title_edited || p.title == d.title))
+        }) {
             continue;
         }
         let saved = read_session(&d.adapter, &d.path).and_then(|(source, messages, files)| {
@@ -265,7 +275,11 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
         });
         match saved {
             Ok(_) => {
-                if prior.is_some() { result.updated += 1; } else { result.added += 1; }
+                if prior.is_some() {
+                    result.updated += 1;
+                } else {
+                    result.added += 1;
+                }
                 pending = true;
             }
             Err(_) => {
@@ -304,6 +318,14 @@ pub async fn list_sessions(app: AppHandle) -> CmdResult<Vec<SessionRow>> {
 }
 
 #[tauri::command]
+pub async fn query_sessions(
+    app: AppHandle,
+    query: hopilo_database::SessionQuery,
+) -> CmdResult<hopilo_database::SessionPage> {
+    blocking(app, move |_, state| with_store(&state, |s| s.query_sessions(&query).map_err(err))).await
+}
+
+#[tauri::command]
 pub async fn list_hidden_sessions(app: AppHandle) -> CmdResult<Vec<SessionRow>> {
     blocking(app, |_, state| with_store(&state, |s| s.list_hidden_sessions().map_err(err))).await
 }
@@ -324,7 +346,7 @@ pub struct SessionDetail {
     row: SessionRow,
     source: Source,
     messages: Vec<Message>,
-    files: Vec<Attachment>,
+    files: Vec<hopilo_database::SessionFile>,
     token_estimate: usize,
 }
 
@@ -334,7 +356,7 @@ pub async fn get_session(app: AppHandle, id: String) -> CmdResult<SessionDetail>
         let (mut row, source, messages, files) = with_store(&state, |s| {
             let row = s.session_row(&id).map_err(err)?;
             let (source, messages) = s.get_source(&id).map_err(err)?;
-            let files = s.session_files(&messages);
+            let files = s.session_file_entries(&id, &messages).map_err(err)?;
             Ok((row, source, messages, files))
         })?;
         row.file_count = files.len() as i64;
@@ -365,6 +387,17 @@ pub async fn remove_session(app: AppHandle, id: String) -> CmdResult<()> {
     .await
 }
 
+#[tauri::command]
+pub async fn permanently_delete_sessions(app: AppHandle, ids: Vec<String>) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        let _sync = state.sync_lock.lock().map_err(err)?;
+        with_store(&state, |s| s.permanently_delete_sessions(&ids).map_err(err))?;
+        notify(app);
+        Ok(())
+    })
+    .await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportListing {
@@ -375,10 +408,9 @@ pub struct ExportListing {
 #[tauri::command]
 pub async fn list_chat_export(path: String) -> CmdResult<ExportListing> {
     tauri::async_runtime::spawn_blocking(move || {
-        let parsed = hopilo_adapters::exports::parse_export(Path::new(&path)).map_err(err)?;
-        let mut conversations: Vec<_> = parsed.conversations.into_iter().map(|(c, _)| c).collect();
+        let (provider, mut conversations) = hopilo_adapters::exports::list_export(Path::new(&path)).map_err(err)?;
         conversations.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        Ok(ExportListing { provider: parsed.provider.into(), conversations })
+        Ok(ExportListing { provider, conversations })
     })
     .await
     .map_err(err)?
@@ -388,8 +420,8 @@ pub async fn list_chat_export(path: String) -> CmdResult<ExportListing> {
 pub async fn import_chat_export(app: AppHandle, path: String, ids: Vec<String>) -> CmdResult<Vec<ImportOutcome>> {
     let a2 = app.clone();
     let out = tauri::async_runtime::spawn_blocking(move || {
-        let parsed = hopilo_adapters::exports::parse_export(Path::new(&path)).map_err(err)?;
-        let wanted: HashSet<&String> = ids.iter().collect();
+        let wanted: HashSet<String> = ids.into_iter().collect();
+        let parsed = hopilo_adapters::exports::parse_export_selected(Path::new(&path), &wanted).map_err(err)?;
         let state = a2.state::<AppState>();
         let mut outcomes = Vec::new();
         for (meta, cap) in parsed.conversations {
@@ -464,8 +496,8 @@ pub async fn import_handoff_file(app: AppHandle, path: String) -> CmdResult<Vec<
 pub(crate) fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str) -> CmdResult<Vec<String>> {
     let p = Path::new(path);
     let is_json = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
-    let (pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, Vec<u8>>) = if is_json {
-        let text = std::fs::read_to_string(p).map_err(err)?;
+    let (pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, std::sync::Arc<Vec<u8>>>) = if is_json {
+        let text = hopilo_core::limits::read_text(p).map_err(err)?;
         (hopilo_pack_format::from_json(&text).map_err(err)?, Default::default())
     } else {
         let f = std::fs::File::open(p).map_err(err)?;
@@ -522,7 +554,11 @@ pub async fn add_files(app: AppHandle, session: Option<String>, paths: Vec<Strin
         for p in paths {
             match files::load(Path::new(&p)) {
                 Ok((att, bytes)) => match with_store(&state, |s| s.insert_attachment(&att, &bytes).map_err(err)) {
-                    Ok((a, _)) => stored.push(a),
+                    Ok((mut a, _)) => {
+                        // Deduplication reuses bytes, while this upload keeps its own name.
+                        a.file_name = att.file_name;
+                        stored.push(a);
+                    }
                     Err(e) => errors.push(e),
                 },
                 Err(e) => errors.push(e),
@@ -539,6 +575,22 @@ pub async fn add_files(app: AppHandle, session: Option<String>, paths: Vec<Strin
     .map_err(err)??;
     notify(&app);
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn remove_session_file(
+    app: AppHandle,
+    id: String,
+    message_id: String,
+    sha: String,
+    name: String,
+) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        with_store(&state, |s| s.remove_session_file(&id, &message_id, &sha, &name).map_err(err))?;
+        notify(app);
+        Ok(())
+    })
+    .await
 }
 
 fn is_sha256(sha: &str) -> bool {
@@ -604,6 +656,21 @@ pub async fn preview_file(app: AppHandle, sha: String) -> CmdResult<String> {
 }
 
 #[tauri::command]
+pub async fn read_file_preview(
+    app: AppHandle,
+    sha: String,
+    offset: u64,
+    length: u32,
+) -> CmdResult<tauri::ipc::Response> {
+    blocking(app, move |_, state| {
+        let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
+        let bytes = files::preview_chunk(&root, &sha, offset, length).map_err(err)?;
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+}
+
+#[tauri::command]
 pub fn open_url(app: AppHandle, url: String) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
     if !is_external_url(&url) {
@@ -631,11 +698,61 @@ pub fn open_folder(app: AppHandle, path: String) -> CmdResult<()> {
 }
 
 const LAUNCHABLE_EXTS: &[&str] = &[
-    "app", "command", "tool", "terminal", "sh", "bash", "zsh", "csh", "ksh", "fish", "pkg", "mpkg", "dmg",
-    "scpt", "scptd", "applescript", "workflow", "action", "prefpane", "webloc", "inetloc", "fileloc", "url",
-    "exe", "com", "bat", "cmd", "msi", "msix", "appx", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh",
-    "hta", "scr", "pif", "lnk", "reg", "cpl", "jar", "desktop", "appimage", "run", "deb", "rpm", "py", "pyw",
-    "pl", "rb", "php",
+    "app",
+    "command",
+    "tool",
+    "terminal",
+    "sh",
+    "bash",
+    "zsh",
+    "csh",
+    "ksh",
+    "fish",
+    "pkg",
+    "mpkg",
+    "dmg",
+    "scpt",
+    "scptd",
+    "applescript",
+    "workflow",
+    "action",
+    "prefpane",
+    "webloc",
+    "inetloc",
+    "fileloc",
+    "url",
+    "exe",
+    "com",
+    "bat",
+    "cmd",
+    "msi",
+    "msix",
+    "appx",
+    "ps1",
+    "psm1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "hta",
+    "scr",
+    "pif",
+    "lnk",
+    "reg",
+    "cpl",
+    "jar",
+    "desktop",
+    "appimage",
+    "run",
+    "deb",
+    "rpm",
+    "py",
+    "pyw",
+    "pl",
+    "rb",
+    "php",
 ];
 
 fn is_launchable(name: &str) -> bool {
@@ -653,11 +770,17 @@ pub async fn open_file(app: AppHandle, sha: String) -> CmdResult<()> {
 fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let (a, bytes) = stored_file(state, sha)?;
-    let name: String = a
-        .file_name
-        .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
-        .collect();
+    let name: String =
+        a.file_name
+            .chars()
+            .map(|c| {
+                if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
     let name = name.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
     let dir = app.path().app_cache_dir().map_err(err)?.join("open").join(&sha[..sha.len().min(16)]);
     std::fs::create_dir_all(&dir).map_err(err)?;
@@ -671,9 +794,13 @@ fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> Cm
 
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> CmdResult<()> {
     use std::io::Write;
+    write_atomic_with(path, |file| file.write_all(bytes).map_err(err))
+}
+
+pub(crate) fn write_atomic_with(path: &Path, write: impl FnOnce(&mut std::fs::File) -> CmdResult<()>) -> CmdResult<()> {
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(err)?;
-    tmp.write_all(bytes).map_err(err)?;
+    write(tmp.as_file_mut())?;
     tmp.as_file().sync_all().map_err(err)?;
     tmp.persist(path).map_err(err)?;
     Ok(())
@@ -692,18 +819,12 @@ pub async fn import_text(
 
 #[tauri::command]
 pub async fn list_handoffs(app: AppHandle, limit: Option<i64>) -> CmdResult<Vec<HandoffRow>> {
-    blocking(app, move |_, state| {
-        with_store(&state, |s| s.list_handoffs(limit.unwrap_or(50)).map_err(err))
-    })
-    .await
+    blocking(app, move |_, state| with_store(&state, |s| s.list_handoffs(limit.unwrap_or(50)).map_err(err))).await
 }
 
 #[tauri::command]
 pub async fn recent_activity(app: AppHandle, limit: Option<i64>) -> CmdResult<Vec<ActivityRow>> {
-    blocking(app, move |_, state| {
-        with_store(&state, |s| s.recent_activity(limit.unwrap_or(30)).map_err(err))
-    })
-    .await
+    blocking(app, move |_, state| with_store(&state, |s| s.recent_activity(limit.unwrap_or(30)).map_err(err))).await
 }
 
 #[tauri::command]
@@ -713,18 +834,12 @@ pub async fn stats(app: AppHandle) -> CmdResult<Stats> {
 
 #[tauri::command]
 pub async fn search(app: AppHandle, query: String) -> CmdResult<Vec<SearchHit>> {
-    blocking(app, move |_, state| {
-        with_store(&state, |s| s.search_kind(&query, "source", 20).map_err(err))
-    })
-    .await
+    blocking(app, move |_, state| with_store(&state, |s| s.search_kind(&query, "source", 20).map_err(err))).await
 }
 
 #[tauri::command]
 pub async fn get_settings(app: AppHandle) -> CmdResult<HashMap<String, serde_json::Value>> {
-    blocking(app, move |_, state| {
-        with_store(&state, |s| s.settings().map_err(err))
-    })
-    .await
+    blocking(app, move |_, state| with_store(&state, |s| s.settings().map_err(err))).await
 }
 
 #[tauri::command]
@@ -796,7 +911,10 @@ pub async fn browser_status(app: AppHandle) -> CmdResult<BrowserStatus> {
             browsers: crate::browser::targets(),
             last_seen: settings.get("browser.lastSeen").and_then(|v| v.as_str()).map(str::to_string),
             extension_version: settings.get("browser.extensionVersion").and_then(|v| v.as_str()).map(str::to_string),
-            adapters: settings.into_iter().filter_map(|(k, v)| k.strip_prefix("adapter.").map(|p| (p.to_string(), v))).collect(),
+            adapters: settings
+                .into_iter()
+                .filter_map(|(k, v)| k.strip_prefix("adapter.").map(|p| (p.to_string(), v)))
+                .collect(),
         })
     })
     .await
@@ -831,6 +949,90 @@ pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdRes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deleted_hidden_session_returns_only_when_discovered_in_an_existing_source() {
+        use hopilo_adapters::{codex::Codex, LocalAgentAdapter};
+        let dir = tempfile::tempdir().unwrap();
+        let sessions = dir.path().join("sessions");
+        std::fs::create_dir(&sessions).unwrap();
+        let source_file = sessions.join("rollout-source.jsonl");
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../fixtures/codex/rollout-2026-11-01T09-00-00-sample.jsonl");
+        std::fs::copy(fixture, &source_file).unwrap();
+        let original = std::fs::read(&source_file).unwrap();
+        let mut store = Store::open(&dir.path().join("library")).unwrap();
+        let capture = Codex.read(&source_file).unwrap();
+        let id = store.upsert_session(&capture.source, &capture.messages, None).unwrap().source_id;
+        store.remove_session(&id).unwrap();
+        store.permanently_delete_sessions(&[id]).unwrap();
+        assert!(store.list_sessions().unwrap().is_empty());
+        assert!(store.session_origins().unwrap().is_empty());
+        let discovered = Codex.discover(&sessions).unwrap();
+        assert_eq!(discovered.len(), 1);
+        let capture = Codex.read(Path::new(&discovered[0].path)).unwrap();
+        let imported =
+            store.upsert_session(&capture.source, &capture.messages, Some(&discovered[0].modified_at)).unwrap();
+        assert_eq!(store.list_sessions().unwrap().len(), 1);
+        assert_eq!(std::fs::read(&source_file).unwrap(), original);
+        store.remove_session(&imported.source_id).unwrap();
+        store.permanently_delete_sessions(&[imported.source_id]).unwrap();
+        // Only this disposable source fixture is removed; the app never deletes originals.
+        std::fs::remove_file(&source_file).unwrap();
+        assert!(Codex.discover(&sessions).unwrap().is_empty());
+        assert!(store.list_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn chatgpt_import_export_reimport_flow_preserves_branch_and_source_file() {
+        use hopilo_core::render::RenderOptions;
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../fixtures/exports/chatgpt-conversations.json");
+        let before = std::fs::read(&path).unwrap();
+        let (provider, list) = hopilo_adapters::exports::list_export(&path).unwrap();
+        assert_eq!(provider, "chatgpt");
+        assert_eq!(list.len(), 1);
+        let selected = HashSet::from([list[0].id.clone()]);
+        let parsed = hopilo_adapters::exports::parse_export_selected(&path, &selected).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let (meta, capture) = &parsed.conversations[0];
+        let id = store.upsert_session(&capture.source, &capture.messages, Some(&meta.updated_at)).unwrap().source_id;
+        assert!(store
+            .upsert_session(&capture.source, &capture.messages, Some(&meta.updated_at))
+            .unwrap()
+            .duplicate_of
+            .is_some());
+        let pack = store.compose(std::slice::from_ref(&id)).unwrap();
+        let text = hopilo_core::render::render_handoff_prompt(&pack, &RenderOptions::default());
+        assert!(text.contains("composite index"));
+        assert!(!text.contains("Abandoned first answer"));
+        let dest = dir.path().join("export.hopilo");
+        write_atomic_with(&dest, |file| {
+            hopilo_pack_format::write_handoff(&pack, &RenderOptions::default(), &|_| None, file).map_err(err)
+        })
+        .unwrap();
+        let imported = hopilo_pack_format::read_handoff(std::fs::File::open(dest).unwrap()).unwrap();
+        let restored_dir = tempfile::tempdir().unwrap();
+        let mut restored = Store::open(restored_dir.path()).unwrap();
+        let ids = restored.adopt_pack(&imported.pack).unwrap();
+        assert_eq!(restored.get_source(&ids[0]).unwrap().1, capture.messages);
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+
+    #[test]
+    fn failed_streamed_export_leaves_previous_destination_intact() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export.json");
+        std::fs::write(&path, "previous export").unwrap();
+        assert!(write_atomic_with(&path, |file| {
+            file.write_all(b"incomplete").map_err(err)?;
+            Err("simulated failure".into())
+        })
+        .is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"previous export");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn atomic_exports_replace_destination_without_touching_part_file() {

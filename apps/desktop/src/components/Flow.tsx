@@ -1,3 +1,6 @@
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ownWindowLabel } from "../lib/hooks";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../lib/store";
 
@@ -150,8 +153,10 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
         clearTimeout(retry);
       };
     }
+    const shaders: WebGLShader[] = [];
     const compile = (type: number, src: string) => {
       const s = gl.createShader(type)!;
+      shaders.push(s);
       gl.shaderSource(s, src);
       gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
@@ -169,9 +174,16 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     );
     gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
     gl.linkProgram(prog);
+    shaders.forEach((shader) => gl.deleteShader(shader));
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
       console.error("Program link error:", gl.getProgramInfoLog(prog));
-      return;
+      gl.deleteProgram(prog);
+      return () => {
+        running = false;
+        canvas.removeEventListener("webglcontextlost", onLost);
+        cancelAnimationFrame(recover);
+        clearTimeout(retry);
+      };
     }
     gl.useProgram(prog);
     const buffer = gl.createBuffer();
@@ -204,7 +216,10 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    const reduce = motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reduce = motion === "reduced" || motionQuery.matches;
+    let windowVisible = true;
+    const visible = () => windowVisible && document.visibilityState !== "hidden";
     const initialMoods = live.current.dark ? DARK_MOODS : MOODS;
     const initialPlume = live.current.dark ? DARK_PLUME : PLUME;
     const colors = (mode === "mist" ? initialMoods[0] : initialPlume).map((c) => [...c] as RGB);
@@ -214,12 +229,12 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     let lastDraw = 0;
 
     const schedule = () => {
-      if (running && !reduce && raf === 0) raf = requestAnimationFrame(frame);
+      if (running && visible() && !reduce && raf === 0) raf = requestAnimationFrame(frame);
     };
 
     const frame = (now: number) => {
       raf = 0;
-      if (!running || gl.isContextLost()) return;
+      if (!running || !visible() || gl.isContextLost()) return;
       if (!reduce && now - lastDraw < 1000 / 30) {
         schedule();
         return;
@@ -265,14 +280,38 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     raf = requestAnimationFrame(frame);
     const redraw = () => {
       last = performance.now();
+      if (!visible()) { cancelAnimationFrame(raf); raf = 0; return; }
       if (reduce) raf ||= requestAnimationFrame(frame);
       else schedule();
     };
+    const onMotion = () => {
+      reduce = motion === "reduced" || motionQuery.matches;
+      cancelAnimationFrame(raf); raf = 0;
+      redraw();
+    };
+    motionQuery.addEventListener("change", onMotion);
+    const label = ownWindowLabel();
+    let disposed = false;
+    const unlisten = listen<boolean>("hopilo://visibility", ({ payload }) => {
+      if (disposed) return;
+      windowVisible = payload !== false;
+      redraw();
+    }, label ? { target: label } : undefined).catch(() => () => undefined);
+    if ("__TAURI_INTERNALS__" in window && !(window as { __HOPILO_MOCK__?: boolean }).__HOPILO_MOCK__) {
+      getCurrentWindow().isVisible().then((shown) => {
+        if (disposed) return;
+        windowVisible = shown;
+        redraw();
+      }).catch(() => undefined);
+    }
     kick.current = redraw;
     document.addEventListener("visibilitychange", redraw);
     window.addEventListener("focus", redraw);
 
     return () => {
+      disposed = true;
+      unlisten.then((off) => off()).catch(() => undefined);
+      motionQuery.removeEventListener("change", onMotion);
       running = false;
       kick.current = () => undefined;
       cancelAnimationFrame(raf);

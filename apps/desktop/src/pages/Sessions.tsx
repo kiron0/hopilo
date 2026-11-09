@@ -1,6 +1,8 @@
+import { ActionMenu } from "../components/ActionMenu";
+import { FilePreview, FileThumbnail } from "../components/FilePreview";
+import { findTranscriptMatches } from "../lib/transcriptSearch";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isMac, modKey } from "../lib/platform";
-import { createPortal } from "react-dom";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   AlertTriangle,
@@ -10,7 +12,6 @@ import {
   ChevronRight,
   Copy,
   Download,
-  FileImage,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -20,7 +21,6 @@ import {
   LayoutGrid,
   List,
   MessagesSquare,
-  MoreHorizontal,
   Paperclip,
   Pin,
   Plus,
@@ -36,7 +36,7 @@ import {
 import { api, errorText, type Attachment, type SessionRow } from "../lib/api";
 import { pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
-import { prefetch, patchCachedSession, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
+import { invalidateQuery, prefetch, patchCachedSession, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
 import { target, TARGETS } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
@@ -124,23 +124,6 @@ function PinButton({ pinned, onToggle, compact }: { pinned: boolean; onToggle: (
   );
 }
 
-function matches(r: SessionRow, f: Filter) {
-  switch (f) {
-    case "all":
-      return true;
-    case "agents":
-      return r.kind === "local-agent";
-    case "web":
-      return r.kind === "browser-chat";
-    case "added":
-      return r.kind !== "local-agent" && r.kind !== "browser-chat";
-    case "pinned":
-      return r.pinned;
-    case "hidden":
-      return true;
-  }
-}
-
 function meta(r: SessionRow) {
   return [
     provider(r.provider).label,
@@ -180,14 +163,13 @@ function FilterSelect({ label, value, options, onChange, className = "w-36" }: {
 
 function SessionList() {
   const { q, filter, provider: providerFilter, model: modelFilter, resource: resourceFilter, page, selected: picked } = useApp((s) => s.listView);
-  const { data, error, loading, reload } = useLoad(() => (filter === "hidden" ? api.listHiddenSessions() : api.listSessions()), [filter]);
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
   const settings = useApp((s) => s.settings);
   const setListView = useApp((s) => s.setListView);
   const setQ = (v: string) => setListView({ q: v, page: 0 });
   const debouncedQ = useDebouncedValue(q);
-  const setFilter = (v: Filter) => setListView({ filter: v, page: 0 });
+  const setFilter = (v: Filter) => setListView({ filter: v, page: 0, selected: [] });
   const setPage = (v: number) => setListView({ page: v });
   const selected = useMemo(() => new Set(picked), [picked]);
   const setSelected = (n: Set<string>) => setListView({ selected: [...n] });
@@ -196,13 +178,24 @@ function SessionList() {
   const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [confirmRestore, setConfirmRestore] = useState<{ id: string; title: string } | null>(null);
   const [confirmRestoreBulk, setConfirmRestoreBulk] = useState<string[] | null>(null);
+  const [confirmPurge, setConfirmPurge] = useState<string[] | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [purgeError, setPurgeError] = useState("");
   const limitChoice = useApp((s) => s.listView.limit);
   const hideUnanswered = useApp((s) => s.listView.hideUnanswered);
   const [listRef, autoPageSize] = useFitRows<HTMLDivElement>(52, 10);
   const togglePin = (r: SessionRow) => void setPinned(r.id, !r.pinned, r.title);
   const automaticPageSize = settings.sessionLayout === "thumbnails" ? 12 : settings.sessionGroup === "none" ? autoPageSize : 10;
-  const pageSize = Math.max(10, limitChoice === "auto" ? automaticPageSize : limitChoice);
+  const pageSize = Math.min(200, Math.max(10, limitChoice === "auto" ? automaticPageSize : limitChoice));
 
+  const query = { q: debouncedQ, filter, provider: providerFilter, model: modelFilter, resource: resourceFilter,
+    hideUnanswered, offset: page * pageSize, limit: pageSize,
+    searchProviders: TARGETS.filter((t) => t.label.toLowerCase().includes(debouncedQ.trim().toLowerCase())).map((t) => t.id) };
+  const { data, error, loading, reload } = useLoad(() => api.querySessions(query), ["session-page", query]);
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const pg = Math.floor((data?.offset ?? 0) / pageSize);
+  const pageRows = rows;
   const onLimitChange = (lim: number | "auto") => setListView({ limit: lim, page: 0 });
 
   const sync = async (manual: boolean) => {
@@ -232,27 +225,6 @@ function SessionList() {
     if (Date.now() - lastSync > SYNC_EVERY_MS) sync(false);
   }, []);
 
-  const rows = useMemo(() => {
-    const needle = debouncedQ.trim().toLowerCase();
-    const filtered = (data ?? []).filter(
-      (r) =>
-        (filter === "pinned" ? r.pinned : matches(r, filter)) &&
-        (providerFilter === "all" || r.provider === providerFilter) &&
-        (modelFilter === "all" || (r.model?.trim() || "__unknown") === modelFilter) &&
-        (resourceFilter === "all" || (resourceFilter === "with-files" ? r.fileCount > 0 : r.fileCount === 0)) &&
-        !(hideUnanswered && isUnanswered(r)) &&
-        (!needle ||
-          r.title.toLowerCase().includes(needle) ||
-          (r.project ?? "").toLowerCase().includes(needle) ||
-          (r.model ?? "").toLowerCase().includes(needle) ||
-          provider(r.provider).label.toLowerCase().includes(needle) ||
-          r.tags.some((t) => t.includes(needle))),
-    );
-    if (filter === "hidden") return filtered;
-    return filtered.slice().sort((a, b) => {
-      return Number(b.pinned) - Number(a.pinned);
-    });
-  }, [data, debouncedQ, filter, providerFilter, modelFilter, resourceFilter, hideUnanswered]);
   const providerOptions = useMemo<SelectOption[]>(() => {
     const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
     const targets = TARGETS.filter((t) => t.id !== "other")
@@ -265,7 +237,7 @@ function SessionList() {
       }));
     list.push(...targets);
     const known = new Set(TARGETS.map((t) => t.id));
-    const extra = new Set((data ?? []).map((r) => r.provider).filter((id) => id && !known.has(id)));
+    const extra = new Set((data?.providers ?? []).filter((id) => id && !known.has(id)));
     if (providerFilter !== "all" && !known.has(providerFilter)) extra.add(providerFilter);
     if (extra.size > 0) {
       for (const id of [...extra].sort()) {
@@ -278,9 +250,9 @@ function SessionList() {
       }
     }
     return list;
-  }, [data, providerFilter]);
+  }, [data?.providers, providerFilter]);
   const modelOptions = useMemo<SelectOption[]>(() => {
-    const models = new Set((data ?? []).map((r) => r.model?.trim() || "__unknown"));
+    const models = new Set(data?.models ?? []);
     if (modelFilter !== "all") models.add(modelFilter);
     return [
       { value: "all", label: "All models", icon: <SparkIcon size={14} className="text-muted" /> },
@@ -290,7 +262,7 @@ function SessionList() {
         icon: <Bot size={14} className="text-muted" />,
       })),
     ];
-  }, [data, modelFilter]);
+  }, [data?.models, modelFilter]);
   const resourceOptions: SelectOption[] = useMemo(
     () => [
       { value: "all", label: "All resources", icon: <Paperclip size={14} className="text-muted" /> },
@@ -308,14 +280,11 @@ function SessionList() {
     ],
     [],
   );
-  const unanswered = useMemo(() => (data ?? []).filter(isUnanswered).length, [data]);
-  const pg = Math.min(page, Math.max(0, Math.ceil(rows.length / pageSize) - 1));
-  const pageRows = useMemo(() => rows.slice(pg * pageSize, pg * pageSize + pageSize), [rows, pg, pageSize]);
+  const unanswered = data?.counts.unanswered ?? 0;
   const groups = useMemo(() => groupSessions(pageRows, settings.sessionGroup), [pageRows, settings.sessionGroup]);
   const hasQueryOrFilter = q || filter !== "all" || providerFilter !== "all" || modelFilter !== "all" || resourceFilter !== "all" || hideUnanswered;
   const clearFilters = () => setListView({ q: "", filter: "all", provider: "all", model: "all", resource: "all", hideUnanswered: false, page: 0 });
-  const known = useMemo(() => new Set((data ?? []).map((r) => r.id)), [data]);
-  const ids = [...selected].filter((id) => known.has(id));
+  const ids = [...selected];
 
   const toggle = (id: string) => {
     const n = new Set(selected);
@@ -327,14 +296,15 @@ function SessionList() {
     setHandoff({ ids: list, action: "copy" });
   };
   const openSession = (r: SessionRow) => {
-    prefetch(sessionLoader(r.id), [r.id]);
+    prefetch(sessionLoader(r.id), ["session", r.id]);
     navigate({ page: "sessions", id: r.id });
   };
   const sessionAction = (r: SessionRow, on: boolean) =>
     filter === "hidden" ? (
-      <Button size="sm" variant="secondary" icon={<RotateCcw size={13} />} onClick={() => setConfirmRestore({ id: r.id, title: r.title })}>
-        Restore
-      </Button>
+      <>
+        <Button size="sm" variant="secondary" icon={<RotateCcw size={13} />} onClick={() => setConfirmRestore({ id: r.id, title: r.title })}>Restore</Button>
+        <IconButton label={`Permanently delete ${r.title}`} onClick={() => { setConfirmPurge([r.id]); setPurgeError(""); }}><Trash2 size={14} /></IconButton>
+      </>
     ) : (
       <Button size="sm" variant={on ? "secondary" : "primary"} icon={<Copy size={13} />} onClick={() => copy([r.id])} title={`Copy for ${target(settings.defaultTarget).label}`}>
         Copy
@@ -363,8 +333,8 @@ function SessionList() {
           type="button"
           draggable
           onDragStart={(e) => e.dataTransfer.setData("text/plain", `hopilo://session/${r.id}`)}
-          onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])}
-          onFocus={() => prefetch(sessionLoader(r.id), [r.id])}
+          onMouseEnter={() => prefetch(sessionLoader(r.id), ["session", r.id])}
+          onFocus={() => prefetch(sessionLoader(r.id), ["session", r.id])}
           onClick={() => openSession(r)}
           className="min-w-0 flex-1 text-left"
         >
@@ -384,7 +354,7 @@ function SessionList() {
         <div className="flex items-start gap-3">
           <Checkbox label={`Select ${r.title}`} checked={on} onChange={() => toggle(r.id)} />
           <ProviderBadge id={r.provider} size={34} />
-          <button type="button" onMouseEnter={() => prefetch(sessionLoader(r.id), [r.id])} onFocus={() => prefetch(sessionLoader(r.id), [r.id])} onClick={() => openSession(r)} className="min-w-0 flex-1 text-left">
+          <button type="button" onMouseEnter={() => prefetch(sessionLoader(r.id), ["session", r.id])} onFocus={() => prefetch(sessionLoader(r.id), ["session", r.id])} onClick={() => openSession(r)} className="min-w-0 flex-1 text-left">
             {titleLine(r)}
             <span className="mt-1 block truncate text-[12px] text-muted" title={r.project ?? undefined}>{basename(r.project) || "No folder"}</span>
           </button>
@@ -612,15 +582,15 @@ function SessionList() {
             })}
           </div>
           <div className="shrink-0 border-t border-line bg-surface-2 px-4 py-2.5">
-            {ids.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2">
+            {ids.length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="text-[12.5px] font-medium">{plural(ids.length, "session")} selected</span>
                 <Button size="sm" variant="ghost" icon={<X size={13} />} onClick={() => setSelected(new Set())}>
                   Clear
                 </Button>
                 <div className="flex-1" />
                 {filter === "hidden" ? (
-                  <Button
+                  <><Button
                     size="sm"
                     variant="secondary"
                     icon={<RotateCcw size={13} />}
@@ -628,6 +598,7 @@ function SessionList() {
                   >
                     Restore {plural(ids.length, "session")}
                   </Button>
+                  <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => { setConfirmPurge(ids); setPurgeError(""); }}>Permanently delete {plural(ids.length, "session")}</Button></>
                 ) : (
                   <>
                     {ids.length === 2 && (
@@ -644,18 +615,17 @@ function SessionList() {
                   </>
                 )}
               </div>
-            ) : (
+            )}
               <Pagination
                 page={pg}
                 pageSize={pageSize}
-                total={rows.length}
+                total={total}
                 onPage={setPage}
                 noun="session"
                 limitOptions={["auto", 10, 25, 50, 100] as const}
                 currentLimit={limitChoice}
                 onLimitChange={onLimitChange}
               />
-            )}
           </div>
         </Card>
       )}
@@ -686,6 +656,16 @@ function SessionList() {
           }}
         />
       )}
+      {confirmPurge && <AlertDialog title={`Permanently delete ${plural(confirmPurge.length, "session")}?`}
+        description={<>This permanently deletes these hidden sessions from Hopilo and cannot be undone. Original agent files stay on disk. If their source is still configured and available, sync can import these sessions again. Remove the original source or its configuration to stop re-import. Saved snapshots and shared file bytes remain.{purgeError && <span role="alert" className="mt-2 block text-danger">{purgeError}</span>}</>}
+        confirmLabel="Permanently delete" loading={purging} onClose={() => setConfirmPurge(null)} onConfirm={async () => {
+          setPurging(true); setPurgeError("");
+          try {
+            await api.permanentlyDeleteSessions(confirmPurge);
+            setConfirmPurge(null); setSelected(new Set()); invalidateQuery(); useApp.getState().bump(); reload();
+            toast({ kind: "success", text: "Hidden sessions permanently deleted." });
+          } catch (error) { setPurgeError(errorText(error)); } finally { setPurging(false); }
+        }} />}
       {confirmRestoreBulk && (
         <AlertDialog
           title={`Restore ${plural(confirmRestoreBulk.length, "session")}`}
@@ -714,38 +694,13 @@ function SessionList() {
   );
 }
 
-function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={alt}
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-4 backdrop-blur-md cursor-zoom-out select-none"
-    >
-      <img
-        src={url}
-        alt={alt}
-        onClick={onClose}
-        className="max-h-full max-w-full object-contain rounded shadow-2xl"
-      />
-    </div>,
-    document.body
-  );
-}
-
-function FilesTab({ files }: { files: Attachment[] }) {
+export function FilesTab({ files, sessionId }: { files: Attachment[]; sessionId: string }) {
   const toast = useApp((s) => s.toast);
-  const [preview, setPreview] = useState<{ file: Attachment; url: string } | null>(null);
+  const [preview, setPreview] = useState<Attachment | null>(null);
   const [infoFile, setInfoFile] = useState<Attachment | null>(null);
+  const [removeFile, setRemoveFile] = useState<Attachment | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState("");
 
   if (files.length === 0)
     return (
@@ -753,52 +708,29 @@ function FilesTab({ files }: { files: Attachment[] }) {
         <EmptyState icon={<Paperclip size={20} />} title="No files" body="Files shared in this conversation show up here. Add more with Add files." />
       </div>
     );
-  const images = files.filter((file) => file.mediaType.startsWith("image/"));
-  const documents = files.filter((file) => !file.mediaType.startsWith("image/"));
   return (
     <div className="min-h-0 flex-1 space-y-5 overflow-auto p-5">
-      {images.length > 0 && (
-        <section aria-label="Images">
-          <ul className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-            {images.map((file) => (
-              <ImageTile
-                key={file.id}
-                file={file}
-                onOpen={(url) => setPreview({ file, url })}
-                onInfo={() => setInfoFile(file)}
-              />
-            ))}
-          </ul>
-        </section>
-      )}
-      {documents.length > 0 && (
-        <ul className="divide-y divide-line rounded-2xl border border-line">
-          {documents.map((f) => (
-            <li key={f.id} className="flex items-center gap-3 px-3.5 py-2.5">
-              <FileText size={16} className="shrink-0 text-faint" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium" data-selectable>{f.fileName}</div>
-                <div className="font-mono text-[11px] text-faint">
-                  {bytes(f.size)} · {f.mediaType || "file"} · {f.text != null ? "included as text when copied" : "attach it yourself when you paste"}
-                </div>
-              </div>
-              <Button size="sm" variant="ghost" icon={<FolderOpen size={13} />} onClick={() => api.openFile(f.sha256).then(() => toast({ kind: "success", text: `Opened ${f.fileName}` })).catch((e) => toast({ kind: "error", text: `Couldn't open ${f.fileName}: ${errorText(e)}` }))}>
-                Open
-              </Button>
-              <Button size="sm" icon={<Download size={13} />} onClick={() => saveFileAs(f.sha256, f.fileName)}>
-                Save
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {preview && (
-        <ImageLightbox
-          url={preview.url}
-          alt={preview.file.fileName}
-          onClose={() => setPreview(null)}
-        />
-      )}
+      <ul aria-label="Session files" className="grid grid-cols-[repeat(auto-fill,minmax(min(240px,100%),1fr))] gap-3">
+        {files.map((file) => <FileTile key={file.id} file={file}
+          onOpen={() => setPreview(file)}
+          onInfo={() => setInfoFile(file)}
+          onRemove={file.manualMessageId ? () => { setRemoveFile(file); setRemoveError(""); } : undefined}
+        />)}
+      </ul>
+      {removeFile && <AlertDialog title="Delete added file?"
+        description={<>Delete “{removeFile.fileName}” from this session? Its upload message is removed when no files remain in it. Original files, other sessions and saved snapshots stay intact.{removeError && <span role="alert" className="mt-2 block text-danger">{removeError}</span>}</>}
+        confirmLabel="Delete file" loading={removing} onClose={() => setRemoveFile(null)} onConfirm={async () => {
+          if (!removeFile.manualMessageId) return;
+          setRemoving(true); setRemoveError("");
+          try {
+            await api.removeSessionFile(sessionId, removeFile.manualMessageId, removeFile.sha256, removeFile.fileName);
+            setRemoveFile(null); setInfoFile(null); setPreview(null);
+            invalidateQuery(); useApp.getState().bump();
+            toast({ kind: "success", text: `Deleted ${removeFile.fileName} from this session.` });
+          } catch (error) { setRemoveError(errorText(error)); }
+          finally { setRemoving(false); }
+        }} />}
+      {preview && <FilePreview file={preview} onClose={() => setPreview(null)} />}
       {infoFile && (
         <Modal
           title="File info"
@@ -809,11 +741,7 @@ function FilesTab({ files }: { files: Attachment[] }) {
                 size="sm"
                 variant="ghost"
                 icon={<FolderOpen size={13} />}
-                onClick={() =>
-                  api
-                    .openFile(infoFile.sha256)
-                    .catch((e) => toast({ kind: "error", text: errorText(e) }))
-                }
+                onClick={() => { setPreview(infoFile); setInfoFile(null); }}
               >
                 Open
               </Button>
@@ -872,105 +800,39 @@ function FilesTab({ files }: { files: Attachment[] }) {
   );
 }
 
-function ImageTile({
-  file,
-  onOpen,
-  onInfo,
-}: {
-  file: Attachment;
-  onOpen: (url: string) => void;
-  onInfo: () => void;
+function FileTile({ file, onOpen, onInfo, onRemove }: {
+  file: Attachment; onOpen: () => void; onInfo: () => void; onRemove?: () => void;
 }) {
   const tileRef = useRef<HTMLLIElement>(null);
   const [near, setNear] = useState(false);
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
   useEffect(() => {
-    const tile = tileRef.current;
-    if (!tile || typeof IntersectionObserver === "undefined") {
-      setNear(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry?.isIntersecting) return;
-        setNear(true);
-        observer.disconnect();
-      },
-      { rootMargin: "300px" },
-    );
-    observer.observe(tile);
-    return () => observer.disconnect();
+    if (!tileRef.current || typeof IntersectionObserver === "undefined") { setNear(true); return; }
+    const observer = new IntersectionObserver(([entry]) => {
+      setNear(!!entry?.isIntersecting);
+    }, { rootMargin: "300px" });
+    observer.observe(tileRef.current); return () => observer.disconnect();
   }, []);
-  useEffect(() => {
-    if (!near) return;
-    let active = true;
-    api
-      .previewFile(file.sha256)
-      .then((value) => active && setUrl(value))
-      .catch(() => active && setFailed(true));
-    return () => {
-      active = false;
-    };
-  }, [file.sha256, near]);
-
-  return (
-    <li ref={tileRef} className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface text-left shadow-item transition hover:border-accent/40 hover:shadow-pop">
-      <button
-        type="button"
-        disabled={!url}
-        aria-label={`Preview ${file.fileName}`}
-        onClick={() => url && onOpen(url)}
-        className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-surface-2 disabled:cursor-default"
-      >
-        {url ? (
-          <img
-            src={url}
-            alt=""
-            loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-          />
-        ) : (
-          <FileImage size={24} className={failed ? "text-danger" : near ? "animate-pulse text-faint" : "text-faint"} />
-        )}
+  return <li ref={tileRef} className="group min-w-0 overflow-hidden rounded-2xl border border-line bg-surface shadow-item transition hover:border-accent/40">
+    <button type="button" aria-label={`Preview ${file.fileName}`} onClick={onOpen} className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden bg-surface-2">
+      <FileThumbnail file={file} near={near} />
+    </button>
+    <div className="flex items-center justify-between gap-1.5 px-3 py-2">
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+        <span className="block truncate text-[12.5px] font-medium text-ink">{file.fileName}</span>
+        <span className="block font-mono text-[10.5px] text-faint">{bytes(file.size)} · {file.manualMessageId ? "Added in Hopilo" : "From session"}</span>
       </button>
-      <div className="flex items-center justify-between gap-1.5 px-3 py-2">
-        <button
-          type="button"
-          disabled={!url}
-          onClick={() => url && onOpen(url)}
-          className="min-w-0 flex-1 text-left disabled:cursor-default"
-        >
-          <span className="block truncate text-[12.5px] font-medium text-ink">{file.fileName}</span>
-          <span className="block font-mono text-[10.5px] text-faint">{bytes(file.size)}</span>
-        </button>
-        <button
-          type="button"
-          title="More info"
-          aria-label={`More info for ${file.fileName}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onInfo();
-          }}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition hover:bg-surface-2 hover:text-ink focus:text-ink"
-        >
-          <MoreHorizontal size={15} />
-        </button>
-      </div>
-    </li>
-  );
-}
-
-function findOccurrences(text: string, query: string): number {
-  if (!text || !query.trim()) return 0;
-  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(escaped, "gi");
-  const matches = text.match(regex);
-  return matches ? matches.length : 0;
+      <ActionMenu label={`Actions for ${file.fileName}`} items={[
+        { label: "Open", icon: <FolderOpen size={14} />, onSelect: onOpen },
+        { label: "Download", icon: <Download size={14} />, onSelect: () => { void saveFileAs(file.sha256, file.fileName); } },
+        { label: "Details", icon: <FileText size={14} />, onSelect: onInfo },
+        ...(onRemove ? [{ label: "Delete", icon: <Trash2 size={14} />, danger: true, onSelect: onRemove }] : []),
+      ]} />
+    </div>
+  </li>;
 }
 
 function SessionPage({ id }: { id: string }) {
-  const { data, error, loading } = useLoad(sessionLoader(id), [id]);
+  const { data, error, loading } = useLoad(sessionLoader(id), ["session", id]);
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
@@ -979,64 +841,25 @@ function SessionPage({ id }: { id: string }) {
   const [matchIndex, setMatchIndex] = useState(0);
   const [activeMatchId, setActiveMatchId] = useState<string | undefined>();
   const [activeMessageId, setActiveMessageId] = useState<string | undefined>();
-  const [forceShown, setForceShown] = useState<number | undefined>();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [handoff, setHandoff] = useState<{ ids: string[]; action: HandoffAction } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const [confirmPurge, setConfirmPurge] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [purgeError, setPurgeError] = useState("");
   const [paths, setPaths] = useState<string[] | null>(null);
   const back = () => navigate({ page: "sessions" });
 
   const messages = data?.messages;
-  const matches = useMemo(() => {
-    if (!messages || !searchQuery.trim()) return [];
-    const q = searchQuery.trim();
-    const found: { matchId: string; messageId: string; messageIndex: number }[] = [];
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
-      for (let bIdx = 0; bIdx < m.blocks.length; bIdx++) {
-        const b = m.blocks[bIdx];
-        let text = "";
-        let prefix = `${m.id}-${bIdx}`;
-        switch (b.type) {
-          case "text":
-            text = b.text;
-            break;
-          case "toolCall":
-            text = b.input;
-            prefix = `${m.id}-${bIdx}-body`;
-            break;
-          case "toolResult":
-            text = b.output;
-            prefix = `${m.id}-${bIdx}-body`;
-            break;
-          case "missing":
-            text = b.description;
-            break;
-          case "file":
-            text = b.name;
-            break;
-        }
-        if (!text) continue;
-        const count = findOccurrences(text, q);
-        for (let occ = 0; occ < count; occ++) {
-          found.push({
-            matchId: `${prefix}-${occ}`,
-            messageId: m.id,
-            messageIndex: i,
-          });
-        }
-      }
-    }
-    return found;
-  }, [messages, searchQuery]);
+  const searchResults = useMemo(() => findTranscriptMatches(messages ?? [], searchQuery), [messages, searchQuery]);
+  const matches = searchResults.matches;
 
   const jumpTo = (targetIdx: number) => {
     if (matches.length === 0) return;
     const clamped = (targetIdx + matches.length) % matches.length;
     setMatchIndex(clamped);
     const target = matches[clamped];
-    setForceShown((curr) => Math.max(curr ?? 40, target.messageIndex + 20));
     setActiveMatchId(target.matchId);
     setActiveMessageId(target.messageId);
 
@@ -1063,7 +886,6 @@ function SessionPage({ id }: { id: string }) {
     setMatchIndex(0);
     if (matches.length > 0) {
       const first = matches[0];
-      setForceShown((curr) => Math.max(curr ?? 40, first.messageIndex + 20));
       setActiveMatchId(first.matchId);
       setActiveMessageId(first.messageId);
       const scrollToTarget = () => {
@@ -1146,6 +968,7 @@ function SessionPage({ id }: { id: string }) {
         actions={
           <>
             <StatusBadge status={source.captureStatus} />
+            {row.hidden && <Button size="sm" variant="danger" icon={<Trash2 size={14} />} onClick={() => { setConfirmPurge(true); setPurgeError(""); }}>Permanently delete</Button>}
             {!row.hidden && <PinButton pinned={row.pinned} onToggle={togglePin} />}
             {!row.hidden && (
               <IconButton label="Compare with another session" onClick={() => navigate({ page: "compare", a: id })}>
@@ -1225,7 +1048,7 @@ function SessionPage({ id }: { id: string }) {
               {search && (
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="font-mono text-[11px] text-faint select-none">
-                    {matches.length ? `${matchIndex + 1}/${matches.length}` : "0/0"}
+                    {matches.length ? `${matchIndex + 1}/${matches.length}${searchResults.truncated ? "+" : ""}` : "0/0"}
                   </span>
                   <div className="flex items-center border-l border-line pl-1 text-faint">
                     <button
@@ -1292,11 +1115,10 @@ function SessionPage({ id }: { id: string }) {
               activeMatchId={activeMatchId}
               activeMessageId={activeMessageId}
               searchQuery={searchQuery}
-              forceShown={forceShown}
             />
           </div>
         ) : (
-          <FilesTab files={files} />
+          <FilesTab files={files} sessionId={id} />
         )}
       </Card>
       {handoff && <HandoffModal ids={handoff.ids} action={handoff.action} onClose={() => setHandoff(null)} />}
@@ -1315,6 +1137,12 @@ function SessionPage({ id }: { id: string }) {
           onConfirm={remove}
         />
       )}
+      {confirmPurge && <AlertDialog title="Permanently delete hidden session?" description={<>Permanently delete “{row.title}” from Hopilo? This cannot be undone. Original agent files, saved snapshots and shared file bytes remain. If its source is still configured and available, sync can import it again. Remove the original source or its configuration to stop re-import.{purgeError && <span role="alert" className="mt-2 block text-danger">{purgeError}</span>}</>}
+        confirmLabel="Permanently delete" loading={purging} onClose={() => setConfirmPurge(false)} onConfirm={async () => {
+          setPurging(true); setPurgeError("");
+          try { await api.permanentlyDeleteSessions([id]); invalidateQuery(); useApp.getState().bump(); back(); }
+          catch (error) { setPurgeError(errorText(error)); } finally { setPurging(false); }
+        }} />}
       {confirmRestore && (
         <AlertDialog
           title="Restore session"

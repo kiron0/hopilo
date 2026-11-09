@@ -2,15 +2,18 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use hopilo_core::render::estimate_tokens;
-use hopilo_core::{now_rfc3339, new_id, Attachment, Block, Message, Pack, Source};
+use hopilo_core::{new_id, now_rfc3339, Attachment, Block, Message, Pack, Source};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
+pub mod backup;
 mod cache;
 mod migrations;
+mod session_query;
 mod sessions;
 
-pub use sessions::{SessionPatch, SessionRow};
+pub use session_query::{SessionPage, SessionQuery};
+pub use sessions::{SessionFile, SessionPatch, SessionRow};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -33,6 +36,12 @@ pub struct Store {
 }
 
 fn tune(conn: &Connection) -> rusqlite::Result<()> {
+    conn.create_scalar_function(
+        "hopilo_lower",
+        1,
+        rusqlite::functions::FunctionFlags::SQLITE_UTF8 | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| Ok(ctx.get::<String>(0)?.to_lowercase()),
+    )?;
     conn.execute_batch(
         "PRAGMA synchronous = NORMAL;
          PRAGMA temp_store = MEMORY;
@@ -214,18 +223,13 @@ fn legacy_blocks(blocks: &[Block]) -> Vec<LegacyBlock<'_>> {
         .map(|b| match b {
             Block::Text { text } => LegacyBlock::Text { text },
             Block::ToolCall { name, input } => LegacyBlock::ToolCall { name, input },
-            Block::ToolResult { name, output, is_error } => LegacyBlock::ToolResult {
-                name: name.as_deref(),
-                output,
-                is_error: *is_error,
-            },
+            Block::ToolResult { name, output, is_error } => {
+                LegacyBlock::ToolResult { name: name.as_deref(), output, is_error: *is_error }
+            }
             Block::Missing { description } => LegacyBlock::Missing { description },
-            Block::File { name, media_type, sha256, size } => LegacyBlock::File {
-                name,
-                media_type,
-                sha256,
-                size: *size,
-            },
+            Block::File { name, media_type, sha256, size } => {
+                LegacyBlock::File { name, media_type, sha256, size: *size }
+            }
         })
         .collect()
 }
@@ -445,7 +449,16 @@ impl Store {
             tx.execute(
                 "INSERT INTO attachments (id, file_name, media_type, size, sha256, origin_path, text, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![att.id, att.file_name, att.media_type, att.size as i64, att.sha256, att.origin_path, att.text, now_rfc3339()],
+                params![
+                    att.id,
+                    att.file_name,
+                    att.media_type,
+                    att.size as i64,
+                    att.sha256,
+                    att.origin_path,
+                    att.text,
+                    now_rfc3339()
+                ],
             )?;
             index(&tx, "attachment", &att.id, &att.file_name, att.text.as_deref().unwrap_or(""))?;
             event(&tx, "attachment", Some(&att.id), &format!("Added file {}", att.file_name))?;
@@ -622,7 +635,9 @@ impl Store {
     pub fn get_pack(&self, pack_id: &str, version: Option<u32>) -> Result<Pack> {
         let (title, latest): (String, i64) = self
             .conn
-            .query_row("SELECT title, latest_version FROM packs WHERE id = ?1", [pack_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT title, latest_version FROM packs WHERE id = ?1", [pack_id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .optional()?
             .ok_or_else(|| DbError::NotFound(format!("pack {pack_id}")))?;
         let v = version.map(i64::from).unwrap_or(latest);
@@ -683,7 +698,14 @@ impl Store {
         Ok(new)
     }
 
-    pub fn add_relation(&mut self, from: &str, from_v: Option<u32>, to: &str, to_v: Option<u32>, kind: &str) -> Result<()> {
+    pub fn add_relation(
+        &mut self,
+        from: &str,
+        from_v: Option<u32>,
+        to: &str,
+        to_v: Option<u32>,
+        kind: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT INTO pack_relations (from_pack, from_version, to_pack, to_version, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![from, from_v, to, to_v, kind, now_rfc3339()],
@@ -713,10 +735,13 @@ impl Store {
     }
 
     pub fn set_tags(&mut self, pack_id: &str, tags: &[String]) -> Result<()> {
-        let mut clean: Vec<String> = tags.iter().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty() && t.len() <= 40).collect();
+        let mut clean: Vec<String> =
+            tags.iter().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty() && t.len() <= 40).collect();
         clean.sort();
         clean.dedup();
-        let n = self.conn.execute("UPDATE packs SET tags = ?2 WHERE id = ?1", params![pack_id, serde_json::to_string(&clean)?])?;
+        let n = self
+            .conn
+            .execute("UPDATE packs SET tags = ?2 WHERE id = ?1", params![pack_id, serde_json::to_string(&clean)?])?;
         if n == 0 {
             return Err(DbError::NotFound(format!("pack {pack_id}")));
         }
@@ -726,8 +751,11 @@ impl Store {
     pub fn audit(&self) -> Result<AuditReport> {
         let database: String = self.conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
         let mut report = AuditReport { database, ..Default::default() };
-        let mut stmt = self.conn.prepare_cached("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))?;
+        let mut stmt =
+            self.conn.prepare_cached("SELECT pack_id, version, snapshot_json, content_hash FROM pack_versions")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+        })?;
         for row in rows {
             let (pid, v, json, hash) = row?;
             report.versions_checked += 1;
@@ -735,7 +763,9 @@ impl Store {
                 Ok(p) => {
                     let current = content_hash(&p.messages)?;
                     if current != hash && legacy_content_hash(&p.messages)? != hash {
-                        report.version_problems.push(format!("{} v{v}: content does not match its recorded hash", p.title));
+                        report
+                            .version_problems
+                            .push(format!("{} v{v}: content does not match its recorded hash", p.title));
                     }
                 }
                 Err(_) => report.version_problems.push(format!("pack {pid} v{v}: snapshot is unreadable")),
@@ -756,7 +786,14 @@ impl Store {
         Ok(report)
     }
 
-    pub fn record_handoff(&mut self, pack_id: &str, version: u32, target: &str, method: &str, status: &str) -> Result<String> {
+    pub fn record_handoff(
+        &mut self,
+        pack_id: &str,
+        version: u32,
+        target: &str,
+        method: &str,
+        status: &str,
+    ) -> Result<String> {
         let id = new_id();
         let tx = self.conn.transaction()?;
         tx.execute(
@@ -860,9 +897,10 @@ impl Store {
                 |r| r.get(0),
             )?)
         };
-        let blob_bytes: i64 = self.conn.query_row("SELECT COALESCE(SUM(size), 0) FROM attachments", [], |r| r.get(0))?;
-        let storage_bytes = blob_bytes.max(0) as u64
-            + std::fs::metadata(self.root.join("hopilo.db")).map(|m| m.len()).unwrap_or(0);
+        let blob_bytes: i64 =
+            self.conn.query_row("SELECT COALESCE(SUM(size), 0) FROM attachments", [], |r| r.get(0))?;
+        let storage_bytes =
+            blob_bytes.max(0) as u64 + std::fs::metadata(self.root.join("hopilo.db")).map(|m| m.len()).unwrap_or(0);
         Ok(Stats {
             source_count: count("SELECT COUNT(*) FROM sources WHERE hidden = 0")?,
             pinned_count: count("SELECT COUNT(*) FROM sources WHERE hidden = 0 AND pinned = 1")?,
@@ -881,7 +919,19 @@ impl Store {
 
     pub fn wipe(&mut self) -> Result<()> {
         let tx = self.conn.transaction()?;
-        for t in ["messages", "sources", "pack_versions", "pack_version_sources", "pack_relations", "packs", "handoffs", "attachments", "activity_events", "search_index"] {
+        for t in [
+            "manual_file_messages",
+            "messages",
+            "sources",
+            "pack_versions",
+            "pack_version_sources",
+            "pack_relations",
+            "packs",
+            "handoffs",
+            "attachments",
+            "activity_events",
+            "search_index",
+        ] {
             tx.execute(&format!("DELETE FROM {t}"), [])?;
         }
         tx.commit()?;

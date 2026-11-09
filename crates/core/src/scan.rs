@@ -238,7 +238,9 @@ impl Redactor {
                     .chain(s.missing_items.iter().map(String::as_str))
             }))
         {
-            if out.len() >= LIMIT { break; }
+            if out.len() >= LIMIT {
+                break;
+            }
             self.scan_text(text, "context", &mut out);
         }
         for a in &pack.attachments {
@@ -285,7 +287,9 @@ impl Redactor {
                         *input = self.redact_text(input);
                     }
                     crate::model::Block::ToolResult { name, output, .. } => {
-                        if let Some(name) = name { *name = self.redact_text(name); }
+                        if let Some(name) = name {
+                            *name = self.redact_text(name);
+                        }
                         *output = self.redact_text(output);
                     }
                     crate::model::Block::Missing { description } => *description = self.redact_text(description),
@@ -295,7 +299,9 @@ impl Redactor {
         }
         pack.title = self.redact_text(&pack.title);
         let context = &mut pack.context;
-        for text in context.note.iter_mut()
+        for text in context
+            .note
+            .iter_mut()
             .chain(context.goal.iter_mut())
             .chain(context.current_state.iter_mut())
             .chain(context.decisions.iter_mut())
@@ -307,7 +313,9 @@ impl Redactor {
         }
         for source in &mut pack.sources {
             source.title = self.redact_text(&source.title);
-            for text in source.origin.iter_mut()
+            for text in source
+                .origin
+                .iter_mut()
                 .chain(source.project.iter_mut())
                 .chain(source.model.iter_mut())
                 .chain(source.missing_items.iter_mut())
@@ -317,7 +325,9 @@ impl Redactor {
         }
         for a in &mut pack.attachments {
             a.file_name = self.redact_text(&a.file_name);
-            if let Some(path) = &mut a.origin_path { *path = self.redact_text(path); }
+            if let Some(path) = &mut a.origin_path {
+                *path = self.redact_text(path);
+            }
             if let Some(t) = &mut a.text {
                 *t = self.redact_text(t);
             }
@@ -325,23 +335,26 @@ impl Redactor {
     }
 
     pub fn is_excluded(&self, a: &Attachment) -> bool {
-        self.excludes.iter().any(|g| {
-            glob_match(g, &a.file_name) || a.origin_path.as_deref().is_some_and(|p| path_matches(g, p))
-        })
+        self.excludes
+            .iter()
+            .any(|g| glob_match(g, &a.file_name) || a.origin_path.as_deref().is_some_and(|p| path_matches(g, p)))
     }
 
     pub fn drop_excluded(&self, pack: &mut Pack) -> Vec<String> {
         if self.excludes.is_empty() {
             return Vec::new();
         }
-        let (dropped, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut pack.attachments).into_iter().partition(|a| self.is_excluded(a));
+        let (dropped, kept): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut pack.attachments).into_iter().partition(|a| self.is_excluded(a));
         pack.attachments = kept;
         let gone: HashSet<&str> = dropped.iter().map(|a| a.sha256.as_str()).collect();
         for m in &mut pack.messages {
             for b in &mut m.blocks {
                 if let crate::model::Block::File { name, sha256, .. } = b {
                     if gone.contains(sha256.as_str()) {
-                        *b = crate::model::Block::Missing { description: format!("{name} (left out by your exclusion rules)") };
+                        *b = crate::model::Block::Missing {
+                            description: format!("{name} (left out by your exclusion rules)"),
+                        };
                     }
                 }
             }
@@ -415,7 +428,9 @@ pub fn test_rule(pattern: &str, keyword: bool, sample: &str) -> RuleTest {
         compile_pattern(pattern)
     };
     match re {
-        Ok(re) => RuleTest { matches: re.find_iter(sample).take(20).map(|m| m.as_str().to_string()).collect(), error: None },
+        Ok(re) => {
+            RuleTest { matches: re.find_iter(sample).take(20).map(|m| m.as_str().to_string()).collect(), error: None }
+        }
         Err(e) => RuleTest { matches: vec![], error: Some(e) },
     }
 }
@@ -491,7 +506,12 @@ mod tests {
     fn custom_rules_keywords_and_ignore() {
         let rules = RedactionRules {
             patterns: vec![
-                CustomPattern { id: "1".into(), name: "Internal token".into(), pattern: r"acme_[a-z0-9]{8}".into(), enabled: true },
+                CustomPattern {
+                    id: "1".into(),
+                    name: "Internal token".into(),
+                    pattern: r"acme_[a-z0-9]{8}".into(),
+                    enabled: true,
+                },
                 CustomPattern { id: "2".into(), name: "Broken".into(), pattern: "(".into(), enabled: true },
             ],
             keywords: vec!["Project Falcon".into()],
@@ -511,7 +531,8 @@ mod tests {
 
     #[test]
     fn connection_strings_are_caught() {
-        assert!(redact_text("DATABASE_URL=postgres://app:hunter22@db.internal:5432/app").contains("[REDACTED: Connection string]"));
+        assert!(redact_text("DATABASE_URL=postgres://app:hunter22@db.internal:5432/app")
+            .contains("[REDACTED: Connection string]"));
     }
 
     #[test]

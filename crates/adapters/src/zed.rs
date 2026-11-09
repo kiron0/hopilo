@@ -11,6 +11,12 @@ pub struct Zed;
 
 const DB_NAME: &str = "threads.db";
 
+fn decode_record(data: &[u8], kind: &str) -> std::io::Result<Vec<u8>> {
+    let reader: Box<dyn std::io::Read + '_> =
+        if kind == "zstd" { Box::new(zstd::stream::read::Decoder::new(data)?) } else { Box::new(data) };
+    hopilo_core::limits::read_bounded(reader, hopilo_core::limits::DOCUMENT_BYTES)
+}
+
 fn open_ro(db: &Path) -> Result<Connection> {
     Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| AdapterError::Io { path: db.display().to_string(), source: std::io::Error::other(e) })
@@ -48,21 +54,19 @@ impl LocalAgentAdapter for Zed {
     }
 
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
-        let db = if root.is_file() {
-            root.to_path_buf()
-        } else {
-            root.join(DB_NAME)
-        };
+        let db = if root.is_file() { root.to_path_buf() } else { root.join(DB_NAME) };
         if !db.is_file() {
             return Ok(vec![]);
         }
         let size = std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
         let conn = open_ro(&db)?;
         let mut stmt = conn
-            .prepare("SELECT id, summary, updated_at, folder_paths, data_type, data FROM threads ORDER BY updated_at DESC")
+            .prepare(
+                "SELECT id, summary, updated_at, folder_paths, data_type, data FROM threads WHERE length(data) <= ?1 ORDER BY updated_at DESC",
+            )
             .map_err(sql_err(&db))?;
 
-        let mut rows = stmt.query([]).map_err(sql_err(&db))?;
+        let mut rows = stmt.query([hopilo_core::limits::DOCUMENT_BYTES]).map_err(sql_err(&db))?;
         let mut out = Vec::new();
         while let Some(row) = rows.next().map_err(sql_err(&db))? {
             let id: String = row.get(0).map_err(sql_err(&db))?;
@@ -72,13 +76,9 @@ impl LocalAgentAdapter for Zed {
             let data_type: String = row.get(4).map_err(sql_err(&db))?;
             let data: Vec<u8> = row.get(5).map_err(sql_err(&db))?;
 
-            let decompressed = if data_type == "zstd" {
-                match zstd::decode_all(&data[..]) {
-                    Ok(bytes) => bytes,
-                    Err(_) => continue,
-                }
-            } else {
-                data
+            let decompressed = match decode_record(&data, &data_type) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
             };
 
             let Ok(json): std::result::Result<Value, _> = serde_json::from_slice(&decompressed) else {
@@ -91,7 +91,8 @@ impl LocalAgentAdapter for Zed {
                 continue;
             }
 
-            let project = folder_paths.and_then(|p| p.lines().next().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
+            let project =
+                folder_paths.and_then(|p| p.lines().next().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
 
             out.push(DiscoveredSession {
                 adapter: "zed".into(),
@@ -112,11 +113,11 @@ impl LocalAgentAdapter for Zed {
         let (db, id) = split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
         let conn = open_ro(&db)?;
         let mut stmt = conn
-            .prepare("SELECT summary, updated_at, folder_paths, data_type, data FROM threads WHERE id = ?1")
+            .prepare("SELECT summary, updated_at, folder_paths, data_type, data FROM threads WHERE id = ?1 AND length(data) <= ?2")
             .map_err(sql_err(&db))?;
 
         let row = stmt
-            .query_row([&id], |r| {
+            .query_row(rusqlite::params![&id, hopilo_core::limits::DOCUMENT_BYTES], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
@@ -128,16 +129,14 @@ impl LocalAgentAdapter for Zed {
             .map_err(sql_err(&db))?;
 
         let (summary, updated_at, folder_paths, data_type, data) = row;
-        let decompressed = if data_type == "zstd" {
-            zstd::decode_all(&data[..]).map_err(|e| AdapterError::Io { path: db.display().to_string(), source: std::io::Error::other(e) })?
-        } else {
-            data
-        };
+        let decompressed = decode_record(&data, &data_type)
+            .map_err(|e| AdapterError::Io { path: db.display().to_string(), source: e })?;
 
         let json: Value = serde_json::from_slice(&decompressed)
             .map_err(|_| AdapterError::Unrecognized(format!("{}#{} (invalid JSON)", db.display(), id)))?;
 
-        let project = folder_paths.and_then(|p| p.lines().next().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
+        let project =
+            folder_paths.and_then(|p| p.lines().next().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
         let title = json.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).unwrap_or(&summary);
 
         let source_id = new_id();
@@ -151,7 +150,13 @@ impl LocalAgentAdapter for Zed {
                         for item in content {
                             if let Some(t) = item.get("Text").and_then(Value::as_str) {
                                 text_parts.push(t.to_string());
-                            } else if let Some(mention) = item.get("Mention").and_then(|m| m.get("uri")).and_then(|u| u.get("File")).and_then(|f| f.get("abs_path")).and_then(Value::as_str) {
+                            } else if let Some(mention) = item
+                                .get("Mention")
+                                .and_then(|m| m.get("uri"))
+                                .and_then(|u| u.get("File"))
+                                .and_then(|f| f.get("abs_path"))
+                                .and_then(Value::as_str)
+                            {
                                 text_parts.push(format!("`{mention}`"));
                             }
                         }
@@ -174,7 +179,9 @@ impl LocalAgentAdapter for Zed {
                         for item in content {
                             if let Some(t) = item.get("Text").and_then(Value::as_str) {
                                 text_parts.push(t.to_string());
-                            } else if let Some(thinking) = item.get("Thinking").and_then(|th| th.get("text")).and_then(Value::as_str) {
+                            } else if let Some(thinking) =
+                                item.get("Thinking").and_then(|th| th.get("text")).and_then(Value::as_str)
+                            {
                                 text_parts.push(format!("> {thinking}\n\n"));
                             }
                         }

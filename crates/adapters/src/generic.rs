@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -6,7 +5,10 @@ use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCou
 use serde_json::Value;
 
 use crate::text::{strip_injected, title_from};
-use crate::{file_meta, home, is_jsonl, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
+use crate::{
+    file_meta, home, is_jsonl, omitted, open_lines, session_stem, AdapterError, Capture, DiscoveredSession,
+    LocalAgentAdapter, Result,
+};
 
 pub struct ChatLogAgent {
     pub id: &'static str,
@@ -65,33 +67,30 @@ impl LocalAgentAdapter for ChatLogAgent {
         let mut files = Vec::new();
         dir_files(root, self.depth, self.accept, &mut files);
         Ok(crate::par_scan(&files, |p| {
-                {
-                    let cap = read_log(self, p).ok()?;
-                    let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
-                    if count == 0 {
-                        return None;
-                    }
-                    let (size_bytes, modified_at) = file_meta(p).ok()?;
-                    Some(DiscoveredSession {
-                        adapter: self.id.into(),
-                        path: p.display().to_string(),
-                        session_id: self.session_id(p),
-                        title: cap.source.title,
-                        project: cap.source.project,
-                        model: cap.source.model,
-                        modified_at,
-                        size_bytes,
-                        message_count: count,
-                    })
-                }
-            }))
+            let cap = read_log(self, p).ok()?;
+            let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
+            if count == 0 {
+                return None;
+            }
+            let (size_bytes, modified_at) = file_meta(p).ok()?;
+            Some(DiscoveredSession {
+                adapter: self.id.into(),
+                path: p.display().to_string(),
+                session_id: self.session_id(p),
+                title: cap.source.title,
+                project: cap.source.project,
+                model: cap.source.model,
+                modified_at,
+                size_bytes,
+                message_count: count,
+            })
+        }))
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
         read_log(self, path)
     }
 }
-
 
 fn named(p: &Path, n: &str) -> bool {
     p.file_name().is_some_and(|f| f == n)
@@ -118,7 +117,9 @@ pub const DROID: ChatLogAgent = ChatLogAgent {
 pub const PI: ChatLogAgent = ChatLogAgent {
     id: "pi",
     name: "Pi",
-    roots: || env_or_home("PI_CODING_AGENT_DIR", &[".pi", "agent"]).map(|b| vec![b.join("sessions")]).unwrap_or_default(),
+    roots: || {
+        env_or_home("PI_CODING_AGENT_DIR", &[".pi", "agent"]).map(|b| vec![b.join("sessions")]).unwrap_or_default()
+    },
     depth: 2,
     accept: is_jsonl,
 };
@@ -197,7 +198,11 @@ fn extension_tasks(ext_id: &str, extra: Option<PathBuf>) -> Vec<PathBuf> {
         out.push(e);
     }
     if out.is_empty() {
-        if let Some(first) = editor_user_dirs().into_iter().find(|u| u.parent().is_some_and(Path::is_dir)).or_else(|| editor_user_dirs().into_iter().next()) {
+        if let Some(first) = editor_user_dirs()
+            .into_iter()
+            .find(|u| u.parent().is_some_and(Path::is_dir))
+            .or_else(|| editor_user_dirs().into_iter().next())
+        {
             out.push(first.join("globalStorage").join(ext_id).join("tasks"));
         }
     }
@@ -227,11 +232,15 @@ pub const ROO_CODE: ChatLogAgent = ChatLogAgent {
 pub const KILO_CODE: ChatLogAgent = ChatLogAgent {
     id: "kilo-code",
     name: "Kilo Code",
-    roots: || extension_tasks("kilocode.kilo-code", home().map(|h| h.join(".kilocode").join("cli").join("global").join("tasks"))),
+    roots: || {
+        extension_tasks(
+            "kilocode.kilo-code",
+            home().map(|h| h.join(".kilocode").join("cli").join("global").join("tasks")),
+        )
+    },
     depth: 1,
     accept: cline_task,
 };
-
 
 #[derive(Default)]
 struct Tally {
@@ -243,7 +252,8 @@ struct Tally {
     files: Vec<hopilo_core::CapturedFile>,
 }
 
-const CONTEXT_TAGS: [&str; 7] = ["environment_details", "user_info", "additional_data", "env", "project_layout", "rules", "attached_files"];
+const CONTEXT_TAGS: [&str; 7] =
+    ["environment_details", "user_info", "additional_data", "env", "project_layout", "rules", "attached_files"];
 const QUERY_TAGS: [&str; 3] = ["task", "user_query", "feedback"];
 
 fn strip_tag_blocks(text: &str, tag: &str, removed: &mut usize) -> String {
@@ -338,9 +348,14 @@ fn recover_file_part(part: &Value, n: usize) -> Option<hopilo_core::CapturedFile
     if let Some(data) = first_str(part, &["/source/data", "/data"]) {
         return hopilo_core::CapturedFile::from_base64(name, mime, data);
     }
-    let url = first_str(part, &["/image_url/url", "/image_url", "/url", "/uri", "/source/url", "/source/path", "/path"])?;
+    let url =
+        first_str(part, &["/image_url/url", "/image_url", "/url", "/uri", "/source/url", "/source/path", "/path"])?;
     if url.starts_with("data:") {
-        return hopilo_core::CapturedFile::from_base64(if name == "file" { format!("file-{n}") } else { name.to_string() }, mime, url);
+        return hopilo_core::CapturedFile::from_base64(
+            if name == "file" { format!("file-{n}") } else { name.to_string() },
+            mime,
+            url,
+        );
     }
     crate::text::read_local_file(url).map(|mut file| {
         if name != "file" {
@@ -366,23 +381,42 @@ fn parts_to_blocks(role: Role, content: &Value, names: &mut HashMap<String, Stri
                 let kind = p.get("type").and_then(Value::as_str).unwrap_or("");
                 match kind {
                     "tool_use" | "toolCall" | "tool-call" | "tool_call" | "function_call" | "toolRequest" => {
-                        let name = first_str(p, &["/name", "/toolName", "/function/name", "/toolCall/value/name", "/toolCall/name"])
-                            .unwrap_or("tool")
-                            .to_string();
+                        let name = first_str(
+                            p,
+                            &["/name", "/toolName", "/function/name", "/toolCall/value/name", "/toolCall/name"],
+                        )
+                        .unwrap_or("tool")
+                        .to_string();
                         if let Some(id) = first_str(p, &["/id", "/toolCallId", "/call_id"]) {
                             names.insert(id.to_string(), name.clone());
                         }
-                        let input = ["/input", "/arguments", "/args", "/function/arguments", "/toolCall/value/arguments", "/toolCall/arguments"]
-                            .iter()
-                            .find_map(|k| p.pointer(k));
+                        let input = [
+                            "/input",
+                            "/arguments",
+                            "/args",
+                            "/function/arguments",
+                            "/toolCall/value/arguments",
+                            "/toolCall/arguments",
+                        ]
+                        .iter()
+                        .find_map(|k| p.pointer(k));
                         blocks.push(Block::ToolCall { name, input: args_text(input) });
                     }
                     "tool_result" | "toolResult" | "tool-result" | "function_call_output" | "toolResponse" => {
                         let id = first_str(p, &["/tool_use_id", "/toolCallId", "/call_id", "/id"]);
-                        let name = first_str(p, &["/toolName", "/name"]).map(str::to_string).or_else(|| id.and_then(|i| names.get(i).cloned()));
-                        let out = ["/content", "/result", "/output", "/toolResult/value", "/toolResult"].iter().find_map(|k| p.pointer(k));
-                        let is_error = p.get("is_error").or_else(|| p.get("isError")).and_then(Value::as_bool).unwrap_or(false);
-                        blocks.push(Block::ToolResult { name, output: out.map(value_text).unwrap_or_default(), is_error });
+                        let name = first_str(p, &["/toolName", "/name"])
+                            .map(str::to_string)
+                            .or_else(|| id.and_then(|i| names.get(i).cloned()));
+                        let out = ["/content", "/result", "/output", "/toolResult/value", "/toolResult"]
+                            .iter()
+                            .find_map(|k| p.pointer(k));
+                        let is_error =
+                            p.get("is_error").or_else(|| p.get("isError")).and_then(Value::as_bool).unwrap_or(false);
+                        blocks.push(Block::ToolResult {
+                            name,
+                            output: out.map(value_text).unwrap_or_default(),
+                            is_error,
+                        });
                     }
                     "thinking" | "reasoning" | "redacted_thinking" => t.thinking += 1,
                     "image" | "image_url" | "input_image" | "file" | "document" => {
@@ -393,7 +427,8 @@ fn parts_to_blocks(role: Role, content: &Value, names: &mut HashMap<String, Stri
                             }
                             None => {
                                 t.media += 1;
-                                blocks.push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                                blocks
+                                    .push(Block::Missing { description: format!("{kind} shared in the conversation") });
                             }
                         }
                     }
@@ -433,14 +468,28 @@ struct Meta {
 
 fn note_meta(v: &Value, m: &mut Meta) {
     if m.title.is_none() {
-        m.title = first_str(v, &["/title", "/description", "/summary", "/data/title"]).map(title_from).filter(|s| !s.is_empty());
+        m.title = first_str(v, &["/title", "/description", "/summary", "/data/title"])
+            .map(title_from)
+            .filter(|s| !s.is_empty());
     }
     if m.project.is_none() {
-        m.project = first_str(v, &["/cwd", "/working_dir", "/workingDirectory", "/workspace", "/data/context/cwd", "/data/cwd", "/context/cwd"])
-            .map(str::to_string);
+        m.project = first_str(
+            v,
+            &[
+                "/cwd",
+                "/working_dir",
+                "/workingDirectory",
+                "/workspace",
+                "/data/context/cwd",
+                "/data/cwd",
+                "/context/cwd",
+            ],
+        )
+        .map(str::to_string);
     }
     if m.model.is_none() {
-        m.model = first_str(v, &["/model", "/modelId", "/data/selectedModel", "/data/model", "/data/newModel"]).map(str::to_string);
+        m.model = first_str(v, &["/model", "/modelId", "/data/selectedModel", "/data/model", "/data/newModel"])
+            .map(str::to_string);
     }
 }
 
@@ -463,7 +512,11 @@ struct Entry {
 fn timestamp(v: &Value) -> Option<String> {
     first_str(v, &["/timestamp", "/created_at", "/createdAt", "/message/timestamp"]).map(str::to_string).or_else(|| {
         let n = v.get("created").or_else(|| v.get("timestamp")).and_then(Value::as_i64)?;
-        let dt = if n > 10_000_000_000 { chrono::DateTime::from_timestamp_millis(n) } else { chrono::DateTime::from_timestamp(n, 0) };
+        let dt = if n > 10_000_000_000 {
+            chrono::DateTime::from_timestamp_millis(n)
+        } else {
+            chrono::DateTime::from_timestamp(n, 0)
+        };
         dt.map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
     })
 }
@@ -474,9 +527,15 @@ fn as_message(v: &Value) -> Option<Entry> {
 
     if let (Some(kind), Some(data)) = (v.get("type").and_then(Value::as_str), v.get("data")) {
         match kind {
-            "user.message" => return Some(entry(Role::User, data.get("content").cloned().unwrap_or(Value::Null), None)),
+            "user.message" => {
+                return Some(entry(Role::User, data.get("content").cloned().unwrap_or(Value::Null), None))
+            }
             "assistant.message" => {
-                return Some(entry(Role::Assistant, data.get("content").cloned().unwrap_or(Value::Null), data.get("toolRequests").cloned()))
+                return Some(entry(
+                    Role::Assistant,
+                    data.get("content").cloned().unwrap_or(Value::Null),
+                    data.get("toolRequests").cloned(),
+                ))
             }
             "tool.execution_complete" => {
                 let part = serde_json::json!([{
@@ -514,8 +573,9 @@ fn as_message(v: &Value) -> Option<Entry> {
 fn read_entries(path: &Path, t: &mut Tally) -> Result<Vec<Value>> {
     let io = |source| AdapterError::Io { path: path.display().to_string(), source };
     if path.extension().is_some_and(|e| e == "json") {
-        let text = std::fs::read_to_string(path).map_err(io)?;
-        let v: Value = serde_json::from_str(&text).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))?;
+        let text = hopilo_core::limits::read_text(path).map_err(io)?;
+        let v: Value =
+            serde_json::from_str(&text).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))?;
         return match v {
             Value::Array(items) => Ok(items),
             Value::Object(mut o) => {
@@ -686,7 +746,9 @@ mod tests {
         let p = write(dir.path(), "h/sess/context.jsonl", &body);
         let cap = KIMI.read(&p).unwrap();
         assert_eq!(cap.messages.len(), 4);
-        assert!(matches!(&cap.messages[2].blocks[0], Block::ToolResult { name: Some(n), output, .. } if n == "shell" && output == "a.txt"));
+        assert!(
+            matches!(&cap.messages[2].blocks[0], Block::ToolResult { name: Some(n), output, .. } if n == "shell" && output == "a.txt")
+        );
         assert_eq!(KIMI.session_id(&p), "sess");
         assert_eq!(cap.source.omitted.iter().find(|o| o.what == "system prompts").map(|o| o.count), Some(1));
     }
@@ -706,7 +768,9 @@ mod tests {
         assert_eq!(cap.source.model.as_deref(), Some("gpt-5"));
         assert_eq!(cap.source.project.as_deref(), Some("/w"));
         assert_eq!(cap.messages.len(), 3);
-        assert!(matches!(&cap.messages[2].blocks[0], Block::ToolResult { name: Some(n), output, .. } if n == "bash" && output == "x"));
+        assert!(
+            matches!(&cap.messages[2].blocks[0], Block::ToolResult { name: Some(n), output, .. } if n == "bash" && output == "x")
+        );
         assert_eq!(COPILOT_CLI.session_id(&p), "abc");
     }
 

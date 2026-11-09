@@ -1,4 +1,3 @@
-
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
@@ -20,7 +19,8 @@ impl LocalAgentAdapter for CursorCli {
     }
 
     fn default_roots(&self) -> Vec<PathBuf> {
-        let base = std::env::var_os("CURSOR_CONFIG_DIR").map(PathBuf::from).or_else(|| home().map(|h| h.join(".cursor")));
+        let base =
+            std::env::var_os("CURSOR_CONFIG_DIR").map(PathBuf::from).or_else(|| home().map(|h| h.join(".cursor")));
         base.map(|b| vec![b.join("chats")]).unwrap_or_default()
     }
 
@@ -124,8 +124,17 @@ fn blocks_for(role: Role, content: &Value, t: &mut Tally) -> Vec<Block> {
                 match p.get("type").and_then(Value::as_str).unwrap_or("") {
                     "text" => text(p.get("text").and_then(Value::as_str).unwrap_or(""), &mut blocks),
                     "tool-call" | "tool_call" | "tool_use" => blocks.push(Block::ToolCall {
-                        name: p.get("toolName").or_else(|| p.get("name")).and_then(Value::as_str).unwrap_or("tool").to_string(),
-                        input: p.get("args").or_else(|| p.get("input")).map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default(),
+                        name: p
+                            .get("toolName")
+                            .or_else(|| p.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("tool")
+                            .to_string(),
+                        input: p
+                            .get("args")
+                            .or_else(|| p.get("input"))
+                            .map(|a| serde_json::to_string_pretty(a).unwrap_or_default())
+                            .unwrap_or_default(),
                     }),
                     "tool-result" | "tool_result" => {
                         let r = p.get("result").or_else(|| p.get("content")).cloned().unwrap_or(Value::Null);
@@ -150,7 +159,8 @@ fn blocks_for(role: Role, content: &Value, t: &mut Tally) -> Vec<Block> {
 }
 
 fn read_store(db: &Path) -> Result<Capture> {
-    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(sql(db))?;
+    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        .map_err(sql(db))?;
     let meta = conn
         .query_row("SELECT value FROM meta WHERE key = '0' OR key = 'meta' LIMIT 1", [], |r| bytes(r, 0))
         .ok()

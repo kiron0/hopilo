@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, ChevronRight, FileImage, FileText, MessagesSquare, Wrench } from "./Icons";
 import type { Block, Message } from "../lib/api";
 import { bytes, formatFullDateTime, humanizeDateTime } from "../lib/format";
-import { Checkbox, cx, EmptyState } from "./ui";
+import { Button, Checkbox, cx, EmptyState } from "./ui";
 
 const ROLE_LABEL = { user: "User", assistant: "Assistant", system: "System", tool: "Tool" } as const;
 
@@ -20,35 +20,27 @@ function HighlightedText({
   if (!query || !query.trim()) return <>{text}</>;
   const trimmed = query.trim();
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  const parts = text.split(regex);
-  if (parts.length <= 1) return <>{text}</>;
-  let occIdx = 0;
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (regex.test(part)) {
-          const matchId = matchPrefix ? `${matchPrefix}-${occIdx++}` : undefined;
-          const isActive = matchId != null && activeMatchId === matchId;
-          return (
-            <mark
-              key={i}
-              id={matchId ? `match-${matchId}` : undefined}
-              className={cx(
-                "rounded-[3px] px-0.5 transition-colors select-text",
-                isActive
-                  ? "bg-amber-400 text-black font-semibold ring-2 ring-amber-500 shadow-sm"
-                  : "bg-amber-400/25 text-inherit",
-              )}
-            >
-              {part}
-            </mark>
-          );
-        }
-        return part;
-      })}
-    </>
-  );
+  const regex = new RegExp(escaped, "gi");
+  const active = matchPrefix && activeMatchId?.startsWith(`${matchPrefix}-`) ? Number(activeMatchId.slice(matchPrefix.length + 1)) : 0;
+  const first = Math.max(0, (Number.isFinite(active) ? active : 0) - 50);
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let occurrence = 0;
+  let match: RegExpExecArray | null;
+  while (occurrence < first + 100 && (match = regex.exec(text))) {
+    const index = occurrence++;
+    if (index < first) continue;
+    const matchId = matchPrefix ? `${matchPrefix}-${index}` : undefined;
+    const isActive = matchId != null && activeMatchId === matchId;
+    parts.push(text.slice(cursor, match.index));
+    parts.push(<mark key={index} id={matchId ? `match-${matchId}` : undefined}
+      className={cx("rounded-[3px] px-0.5 transition-colors select-text", isActive
+        ? "bg-amber-400 text-black font-semibold ring-2 ring-amber-500 shadow-sm" : "bg-amber-400/25 text-inherit")}>{match[0]}</mark>);
+    cursor = regex.lastIndex;
+  }
+  parts.push(text.slice(cursor));
+  return <>{parts}</>;
+
 }
 
 function ToolBlock({
@@ -161,7 +153,6 @@ export function Transcript({
   activeMatchId,
   activeMessageId,
   searchQuery,
-  forceShown,
 }: {
   messages: Message[];
   selected?: Set<string>;
@@ -169,34 +160,21 @@ export function Transcript({
   activeMatchId?: string;
   activeMessageId?: string;
   searchQuery?: string;
-  forceShown?: number;
 }) {
   const [shown, setShown] = useState(PAGE);
-
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const visible = messages.slice(0, shown);
   useEffect(() => {
-    if (forceShown && forceShown > shown) {
-      setShown(forceShown);
-    }
-  }, [forceShown, shown]);
-
-  const visible = messages.length > shown ? messages.slice(0, shown) : messages;
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
+    if (!activeMessageId) return;
+    const index = messages.findIndex((m) => m.id === activeMessageId);
+    if (index >= 0) setShown((count) => Math.max(count, Math.ceil((index + 1) / PAGE) * PAGE));
+  }, [activeMessageId, messages]);
   useEffect(() => {
-    if (shown >= messages.length) return;
-    const el = sentinelRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setShown((curr) => Math.min(messages.length, curr + PAGE));
-        }
-      },
-      { rootMargin: "600px 0px" },
-    );
-
-    observer.observe(el);
+    if (shown >= messages.length || !sentinelRef.current || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) setShown((count) => Math.min(messages.length, count + PAGE));
+    }, { rootMargin: "600px 0px" });
+    observer.observe(sentinelRef.current);
     return () => observer.disconnect();
   }, [shown, messages.length]);
 
@@ -250,9 +228,9 @@ export function Transcript({
           );
         })}
       </ol>
-      {messages.length > shown && (
-        <div ref={sentinelRef} className="h-4 w-full" aria-hidden="true" />
-      )}
+      {shown < messages.length && <div ref={sentinelRef} className="py-3 text-center">
+        <Button size="sm" variant="ghost" onClick={() => setShown((count) => Math.min(messages.length, count + PAGE))}>Load more messages</Button>
+      </div>}
     </>
   );
 }

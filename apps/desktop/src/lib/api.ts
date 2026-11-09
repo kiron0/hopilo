@@ -1,3 +1,4 @@
+import type { LimitCache } from "./modelLimits";
 import { invoke } from "@tauri-apps/api/core";
 
 export type Role = "user" | "assistant" | "system" | "tool";
@@ -48,6 +49,7 @@ export interface Attachment {
   sha256: string;
   originPath: string | null;
   text: string | null;
+  manualMessageId?: string | null;
 }
 
 export interface AdapterInfo {
@@ -92,6 +94,16 @@ export interface SessionDetail {
   messages: Message[];
   files: Attachment[];
   tokenEstimate: number;
+}
+
+export interface SessionQuery {
+  q?: string; filter?: string; provider?: string; model?: string; folder?: string;
+  resource?: string; hideUnanswered?: boolean; offset?: number; limit?: number;
+  ids?: string[]; exclude?: string[]; searchProviders?: string[]; since?: string;
+}
+export interface SessionPage {
+  providerCounts: Record<string, number>; rows: SessionRow[]; total: number; offset: number; providers: string[]; models: string[]; folders: string[];
+  counts: { hidden: number; total: number; pinned: number; agents: number; web: number; webToday: number; unanswered: number };
 }
 
 export interface Finding {
@@ -201,7 +213,14 @@ export interface HandoffPreflight {
   minimal: LevelStats;
 }
 
+export interface MessageRef { sourceId: string; id: string }
+export interface HandoffPreview { text: string; hash: string; tokenEstimate: number; messageCount: number; format: string; truncated?: boolean }
+export interface BackupReport { createdAt: string; files: number; sessions: number; verified: boolean }
+export interface BackupStatus { unlocked: boolean; directory: string | null; hours: number | null; lastResult: string | null }
+
 export interface CopyOptions {
+  selected?: MessageRef[];
+  reviewed?: { format: string; hash: string };
   markdown?: boolean;
   target?: string;
   toolDetail?: ToolDetail;
@@ -236,7 +255,7 @@ export interface FilePreflight {
   name: string;
   size: number;
   mediaType: string;
-  kind: "text" | "image" | "pdf" | "binary";
+  kind: "text" | "image" | "pdf" | "html" | "audio" | "video" | "binary";
   accepted: boolean;
   duplicate: boolean;
   warnings: string[];
@@ -326,12 +345,24 @@ export interface SyncResult {
 }
 
 export const api = {
+  permanentlyDeleteSessions: (ids: string[]) => invoke<void>("permanently_delete_sessions", { ids }),
+  readFilePreview: (sha: string, offset: number, length: number) => invoke<ArrayBuffer>("read_file_preview", { sha, offset, length }),
+  removeSessionFile: (id: string, messageId: string, sha: string, name: string) => invoke<void>("remove_session_file", { id, messageId, sha, name }),
+  backupStatus: () => invoke<BackupStatus>("backup_status"),
+  createBackup: (path: string, password: string) => invoke<BackupReport>("create_backup", { path, password }),
+  verifyBackup: (path: string, password: string) => invoke<BackupReport>("verify_backup", { path, password }),
+  restoreBackup: (path: string, password: string) => invoke<{ report: BackupReport; recoveryPath: string }>("restore_backup", { path, password }),
+  unlockBackupSchedule: (directory: string, hours: number, password: string) => invoke<void>("unlock_backup_schedule", { directory, hours, password }),
+  lockBackupSchedule: () => invoke<void>("lock_backup_schedule"),
+  previewHandoff: (ids: string[], format: string, opts: CopyOptions) => invoke<HandoffPreview>("preview_handoff", { ids, format, opts }),
+  handoffMessages: (ids: string[]) => invoke<Message[]>("handoff_messages", { ids }),
   appInfo: () => invoke<AppInfo>("app_info"),
   showMainWindow: (route?: string) => invoke<void>("show_main_window", { route }),
   quit: () => invoke<void>("quit_app"),
 
   syncSessions: () => invoke<SyncResult>("sync_sessions"),
   listSessions: () => invoke<SessionRow[]>("list_sessions"),
+  querySessions: (query: SessionQuery = {}) => invoke<SessionPage>("query_sessions", { query }),
   listHiddenSessions: () => invoke<SessionRow[]>("list_hidden_sessions"),
   restoreSession: (id: string) => invoke<void>("restore_session", { id }),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
@@ -370,6 +401,8 @@ export const api = {
   search: (query: string) => invoke<SearchHit[]>("search", { query }),
 
   getSettings: () => invoke<Record<string, unknown>>("get_settings"),
+  importModelLimits: (json: string) => invoke<LimitCache>("import_model_limits", { json }),
+  syncModelLimits: () => invoke<LimitCache>("sync_model_limits"),
   setSetting: (key: string, value: unknown) => invoke<void>("set_setting", { key, value }),
   integrityCheck: () => invoke<string>("integrity_check"),
   auditLibrary: () => invoke<AuditReport>("audit_library"),

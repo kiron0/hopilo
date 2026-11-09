@@ -7,6 +7,8 @@
     "dev": "pnpm --filter @hopilo/desktop tauri dev",
     "build": "node scripts/build.mjs",
     "typecheck": "pnpm --filter @hopilo/desktop typecheck && pnpm --filter @hopilo/extension typecheck",
+    "format": "cargo fmt --all",
+    "format:check": "cargo fmt --all -- --check",
     "test": "cargo test --workspace && pnpm --filter @hopilo/desktop test && pnpm --filter @hopilo/extension test",
     "clean": "node scripts/clean.mjs",
     "ship": "node scripts/ship.mjs",

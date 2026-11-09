@@ -288,6 +288,16 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+export function PasswordInput({ label, ...props }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & { label: string }) {
+  const [visible, setVisible] = useState(false);
+  return <div className="relative">
+    <TextInput {...props} aria-label={props["aria-label"] ?? label} type={visible ? "text" : "password"} className={cx("pr-16", props.className)} />
+    <button type="button" disabled={props.disabled} aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`} aria-pressed={visible}
+      onMouseDown={(e) => e.preventDefault()} onClick={(e) => { e.preventDefault(); setVisible(!visible); }}
+      className="absolute inset-y-0 right-1 my-1 rounded-lg px-2 text-[12px] font-medium text-muted hover:bg-surface-2 focus-visible:outline-accent disabled:opacity-50">{visible ? "Hide" : "Show"}</button>
+  </div>;
+}
+
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea

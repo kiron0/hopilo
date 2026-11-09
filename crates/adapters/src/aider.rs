@@ -8,11 +8,13 @@ use crate::{omitted, AdapterError, Capture, Result};
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 pub fn read_history(path: &Path) -> Result<Capture> {
-    let size = std::fs::metadata(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?.len();
+    let size =
+        std::fs::metadata(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?.len();
     if size > MAX_BYTES {
         return Err(AdapterError::Unrecognized(format!("{} (file is too large)", path.display())));
     }
-    let text = std::fs::read_to_string(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
+    let text = hopilo_core::limits::read_text(path)
+        .map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
     if !text.contains("# aider chat started at") && !text.contains("\n#### ") && !text.starts_with("#### ") {
         return Err(AdapterError::Unrecognized(format!("{} (not an Aider chat history)", path.display())));
     }
@@ -26,7 +28,13 @@ pub fn read_history(path: &Path) -> Result<Capture> {
         if let Some((role, lines)) = cur.take() {
             let body = lines.join("\n").trim().to_string();
             if !body.is_empty() {
-                messages.push(Message { id: new_id(), source_id: source_id.clone(), role, created_at: when.clone(), blocks: vec![Block::text(body)] });
+                messages.push(Message {
+                    id: new_id(),
+                    source_id: source_id.clone(),
+                    role,
+                    created_at: when.clone(),
+                    blocks: vec![Block::text(body)],
+                });
             }
         }
     };
@@ -58,7 +66,6 @@ pub fn read_history(path: &Path) -> Result<Capture> {
                     continue;
                 }
                 if matches!(current, Some((Role::User, _))) && line.trim().is_empty() {
-
                     flush(&mut current, &mut messages, &started);
                     current = Some((Role::Assistant, vec![]));
                     continue;

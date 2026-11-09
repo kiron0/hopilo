@@ -38,73 +38,81 @@ function deferred<T>() {
 }
 
 describe("cache request races", () => {
+  it("isolates identical loader closures using explicit session keys", async () => {
+    const loader = (id: string) => () => Promise.resolve(id);
+    const a = loader("a"); const b = loader("b");
+    prefetch(a, ["session", "a"]); prefetch(b, ["session", "b"]);
+    await flush();
+    expect(readCached(a, ["session", "a"])).toBe("a");
+    expect(readCached(b, ["session", "b"])).toBe("b");
+  });
   it("ignores a response started before explicit invalidation", async () => {
     const old = deferred<string>();
     const fresh = deferred<string>();
     const loader = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
-    prefetch(loader);
+    prefetch(loader, ["test"]);
     await flush();
     invalidateQuery();
-    prefetch(loader);
+    prefetch(loader, ["test"]);
     await flush();
     fresh.resolve("fresh");
     await flush();
     old.resolve("old");
     await flush();
     expect(loader).toHaveBeenCalledTimes(2);
-    expect(readCached(loader)).toBe("fresh");
+    expect(readCached(loader, ["test"])).toBe("fresh");
   });
 
   it("does not repopulate an empty cache from an old library generation", async () => {
     const old = deferred<string>();
     const loader = () => old.promise;
-    prefetch(loader);
+    prefetch(loader, ["test"]);
     await flush();
     useApp.getState().bump();
     old.resolve("deleted session");
     await flush();
-    expect(readCached(loader)).toBeUndefined();
+    expect(readCached(loader, ["test"])).toBeUndefined();
   });
 
   it("deduplicates requests but refreshes cached prefetch after library changes", async () => {
     const loader = vi.fn().mockResolvedValueOnce("old").mockResolvedValueOnce("fresh");
-    prefetch(loader);
-    prefetch(loader);
+    prefetch(loader, ["test"]);
+    prefetch(loader, ["test"]);
     await flush();
     expect(loader).toHaveBeenCalledTimes(1);
     useApp.getState().bump();
-    prefetch(loader);
-    prefetch(loader);
+    prefetch(loader, ["test"]);
+    prefetch(loader, ["test"]);
     await flush();
     expect(loader).toHaveBeenCalledTimes(2);
-    expect(readCached(loader)).toBe("fresh");
+    expect(readCached(loader, ["test"])).toBe("fresh");
   });
 });
 
 describe("cache patching", () => {
   it("patches lists, details and pinned count once per real change", async () => {
     invalidateQuery();
-    prefetch(listLoader);
-    prefetch(detailLoader);
-    prefetch(statsLoader);
+    prefetch(listLoader, ["sessions"]);
+    prefetch(detailLoader, ["detail"]);
+    prefetch(statsLoader, ["stats"]);
     await flush();
 
     patchCachedSession("s2", { pinned: true });
     patchCachedSession("s2", { pinned: true });
     patchCachedSession("s2", { title: "Updated S2" });
 
-    const list = readCached(listLoader)!;
+    const list = readCached(listLoader, ["sessions"])!;
     expect(list.map((r) => r.id)).toEqual(["s1", "s2"]);
     expect(list[1]).toMatchObject({ pinned: true, title: "Updated S2" });
-    expect(readCached(detailLoader)!.row).toMatchObject({ pinned: true, title: "Updated S2" });
-    expect(readCached(statsLoader)!.pinnedCount).toBe(1);
+    expect(readCached(detailLoader, ["detail"])!.row).toMatchObject({ pinned: true, title: "Updated S2" });
+    expect(readCached(statsLoader, ["stats"])!.pinnedCount).toBe(1);
 
     patchCachedSession("s2", { pinned: false });
-    expect(readCached(statsLoader)!.pinnedCount).toBe(0);
+    expect(readCached(statsLoader, ["stats"])!.pinnedCount).toBe(0);
 
     patchCachedSession("missing", { pinned: true });
-    expect(readCached(statsLoader)!.pinnedCount).toBe(0);
+    expect(readCached(statsLoader, ["stats"])!.pinnedCount).toBe(0);
     invalidateQuery();
-    expect(readCached(listLoader)).toBeUndefined();
+    expect(readCached(listLoader, ["sessions"])).toBeUndefined();
   });
 });

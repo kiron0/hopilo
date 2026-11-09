@@ -1,26 +1,36 @@
 use std::io::{stdin, stdout};
 
 use hopilo_database::Store;
-use hopilo_native_host::{allowed_ids, caller_allowed, default_data_dir, fit_outgoing, read_message, write_message, Host};
+use hopilo_native_host::{
+    allowed_ids, caller_allowed, default_data_dir, fit_outgoing, read_message, write_message, Host,
+};
 use serde_json::json;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut out = stdout().lock();
     let Some(dir) = default_data_dir() else {
-        let _ = write_message(&mut out, &json!({ "ok": false, "error": { "code": "no_library", "message": "Hopilo's data folder could not be located." } }));
+        let _ = write_message(
+            &mut out,
+            &json!({ "ok": false, "error": { "code": "no_library", "message": "Hopilo's data folder could not be located." } }),
+        );
         return;
     };
     let store = match Store::open(&dir) {
         Ok(s) => s,
         Err(e) => {
-            let _ = write_message(&mut out, &json!({ "ok": false, "error": { "code": "no_library", "message": format!("Could not open the Hopilo library: {e}") } }));
+            let _ = write_message(
+                &mut out,
+                &json!({ "ok": false, "error": { "code": "no_library", "message": format!("Could not open the Hopilo library: {e}") } }),
+            );
             return;
         }
     };
     if !caller_allowed(&args, &allowed_ids(&store)) {
-
-        let _ = write_message(&mut out, &json!({ "ok": false, "error": { "code": "forbidden", "message": "This extension is not allowed to use Hopilo." } }));
+        let _ = write_message(
+            &mut out,
+            &json!({ "ok": false, "error": { "code": "forbidden", "message": "This extension is not allowed to use Hopilo." } }),
+        );
         return;
     }
     let mut host = Host { store };

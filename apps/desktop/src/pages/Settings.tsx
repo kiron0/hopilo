@@ -1,3 +1,5 @@
+import { ModelLimitSettings } from "../components/ModelLimitSettings";
+import { BackupSettings } from "../components/BackupSettings";
 import { useEffect, useState } from "react";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -14,7 +16,7 @@ import {
   RefreshCw,
   SparkIcon,
 } from "../components/Icons";
-import { SETTINGS_GROUPS, settingsGroupFor } from "../components/settingsNav";
+import { SETTINGS_GROUPS, SETTINGS_SUBTITLES, settingsGroupFor } from "../components/settingsNav";
 import { api, errorText } from "../lib/api";
 import { bytes } from "../lib/format";
 import { saveSetting, useLoad } from "../lib/hooks";
@@ -80,8 +82,8 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 export function Settings() {
   const s = useApp((st) => st.settings);
   const toast = useApp((st) => st.toast);
-  const info = useLoad(() => api.appInfo(), [], { refreshOnChange: false });
-  const stats = useLoad(() => api.stats());
+  const info = useLoad(() => api.appInfo(), ["app-info"], { refreshOnChange: false });
+  const stats = useLoad(() => api.stats(), ["stats"]);
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [confirmErase, setConfirmErase] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -125,17 +127,9 @@ export function Settings() {
     });
   }, [section]);
 
-  const subtitles: Record<typeof tab, string> = {
-    general: "Startup and window behavior. Changes save immediately.",
-    customize: "Window canvas, theme and animations, and what Copy puts on the clipboard. Changes save immediately.",
-    sources: `Coding agents Hopilo reads on this ${deviceNoun}. Their files are only read, never changed.`,
-    data: `What Hopilo can see and send, and the one folder on this ${deviceNoun} where your library lives.`,
-    about: "Hopilo: every AI session in one place.",
-  };
-
   return (
     <div className="space-y-4">
-      <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === tab)?.label ?? "Settings"} subtitle={subtitles[tab]} />
+      <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === tab)?.label ?? "Settings"} subtitle={SETTINGS_SUBTITLES[tab]} />
       <div>
         {tab === "general" && (
         <Group id="general">
@@ -260,6 +254,10 @@ export function Settings() {
           </Row>
         </Group>
 
+        <Group id="model-limits" title="Model limits">
+          <ModelLimitSettings />
+        </Group>
+
         <Group id="templates" title="Handoff intents">
           <TemplateSettings />
         </Group>
@@ -282,9 +280,10 @@ export function Settings() {
 
         {tab === "data" && (
         <>
+        <BackupSettings />
         <Group id="privacy" title="Privacy">
-          <Row label="Network" hint="100% offline. No accounts, analytics, telemetry or AI calls. Only Check for Updates contacts GitHub, when you click it.">
-            <span className="text-[12.5px] font-medium text-success">{`100% Offline · Nothing leaves your ${deviceNoun}`}</span>
+          <Row label="Network" hint="Works offline. No accounts, analytics, telemetry or AI calls. Check for Updates contacts GitHub; Sync limits fetches models.dev and public provider docs. Both run only when clicked.">
+            <span className="text-[12.5px] font-medium text-success">{`Offline by default · Chats stay on your ${deviceNoun}`}</span>
           </Row>
           <Row label="Clipboard" hint="Read only when you save the clipboard as a session. Hopilo never submits a message: copies are drafts you paste yourself.">
             <span className="text-[12.5px] text-muted">On request</span>
@@ -370,7 +369,7 @@ export function Settings() {
                     </span>
                   </div>
                   <div className="mt-0.5 text-[12px] text-muted">
-                    Universal AI Session Handoff · 100% Offline & Local-First
+                    Universal AI Session Handoff · Offline by Default & Local-First
                   </div>
                   <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
                     {updateState.status === "checking" && (
@@ -439,7 +438,7 @@ export function Settings() {
               <div className="rounded-xl border border-line bg-card p-3 shadow-item">
                 <div className="font-semibold text-[12.5px] flex items-center gap-1.5">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  <span>100% Offline</span>
+                  <span>Offline by default</span>
                 </div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
                   Everything runs locally on your device with fast storage.

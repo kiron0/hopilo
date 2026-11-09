@@ -37,7 +37,7 @@ const NAV: NavItem[] = [
 const SHORTCUT_FILTERS = new Set<SessionFilter>(["pinned", "agents", "web", "hidden"]);
 
 function LibraryCard() {
-  const stats = useLoad(() => api.stats());
+  const stats = useLoad(() => api.stats(), ["stats"]);
   const s = stats.data;
   const navigate = useApp((st) => st.navigate);
   return (
@@ -65,15 +65,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const settings = useApp((s) => s.settings);
   const setPaletteOpen = useApp((s) => s.setPaletteOpen);
   const listFilter = useApp((s) => s.listView.filter);
-  const rows = useLoad(() => api.listSessions());
-  const counts = useMemo(() => {
-    const r = rows.data ?? [];
-    return {
-      pinned: r.filter((x) => x.pinned).length,
-      agents: r.filter((x) => x.kind === "local-agent").length,
-      web: r.filter((x) => x.kind === "browser-chat").length,
-    };
-  }, [rows.data]);
+  const rows = useLoad(() => api.querySessions({ limit: 1 }), ["library-counts"]);
+  const counts = rows.data?.counts ?? { hidden: 0, pinned: 0, agents: 0, web: 0 };
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => ({ header: headerSlot, footer: footerSlot }), [headerSlot, footerSlot]);
@@ -130,7 +123,7 @@ export function Shell({ children }: { children: ReactNode }) {
       >
         <Icon size={18} active={active} className="ic" />
         <span className="flex-1 truncate text-[13px] font-medium">{label}</span>
-        {count != null && count > 0 && <span className="font-mono text-[10.5px] text-faint">{count}</span>}
+        {count != null && count >= 0 && <span className="font-mono text-[10.5px] text-faint">{count}</span>}
       </button>
     </li>
   );
@@ -200,7 +193,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 {filterLink("pinned", "Pinned", Pin as NavIcon, counts.pinned)}
                 {filterLink("agents", "Coding agents", Bot as NavIcon, counts.agents)}
                 {filterLink("web", "Web chats", Globe as NavIcon, counts.web)}
-                {filterLink("hidden", "Hidden", Archive as NavIcon)}
+                {filterLink("hidden", "Hidden", Archive as NavIcon, counts.hidden)}
               </ul>
               <div className="nav-heading">Tools</div>
               <ul className="space-y-0.5">

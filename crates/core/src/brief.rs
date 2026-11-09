@@ -10,7 +10,6 @@ use crate::model::{Block, Message, Role};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContextLevel {
-
     #[default]
     Full,
 
@@ -43,7 +42,10 @@ fn path_re() -> &'static Regex {
 
 fn error_line_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"(?i)^\s*(?:error\b|error\[|fatal:|panic|exception|traceback|\w*Error:|FAIL\b)").expect("valid error pattern"))
+    R.get_or_init(|| {
+        Regex::new(r"(?i)^\s*(?:error\b|error\[|fatal:|panic|exception|traceback|\w*Error:|FAIL\b)")
+            .expect("valid error pattern")
+    })
 }
 
 fn push_unique(list: &mut Vec<String>, seen: &mut HashSet<String>, v: String, cap: usize) {
@@ -225,12 +227,18 @@ mod tests {
     #[test]
     fn extracts_paths_commands_and_errors_verbatim() {
         let a = msg(Role::User, vec![Block::text("Fix `src/auth/login.ts` and check Cargo.toml please")]);
-        let b = msg(Role::Assistant, vec![Block::ToolCall { name: "Bash".into(), input: r#"{"command":"npm test -- login"}"#.into() }]);
+        let b = msg(
+            Role::Assistant,
+            vec![Block::ToolCall { name: "Bash".into(), input: r#"{"command":"npm test -- login"}"#.into() }],
+        );
         let c = msg(
             Role::Tool,
             vec![Block::ToolResult { name: None, output: "ok\nTypeError: x is undefined\n".into(), is_error: true }],
         );
-        let d = msg(Role::Assistant, vec![Block::ToolCall { name: "shell".into(), input: r#"{"command":["bash","-lc","cargo build"]}"#.into() }]);
+        let d = msg(
+            Role::Assistant,
+            vec![Block::ToolCall { name: "shell".into(), input: r#"{"command":["bash","-lc","cargo build"]}"#.into() }],
+        );
         let refs = key_references(&[&a, &b, &c, &d]);
         assert_eq!(refs.files, vec!["src/auth/login.ts", "Cargo.toml"]);
         assert_eq!(refs.commands, vec!["npm test -- login", "cargo build"]);
@@ -240,9 +248,24 @@ mod tests {
 
     #[test]
     fn finds_edited_files_from_tool_calls() {
-        let a = msg(Role::Assistant, vec![Block::ToolCall { name: "Edit".into(), input: r#"{"file_path":"/r/src/a.rs","old_string":"x"}"#.into() }]);
-        let b = msg(Role::Assistant, vec![Block::ToolCall { name: "apply_patch".into(), input: "*** Begin Patch\n*** Update File: src/b.rs\n*** End Patch".into() }]);
-        let c = msg(Role::Assistant, vec![Block::ToolCall { name: "Read".into(), input: r#"{"file_path":"/r/src/c.rs"}"#.into() }]);
+        let a = msg(
+            Role::Assistant,
+            vec![Block::ToolCall {
+                name: "Edit".into(),
+                input: r#"{"file_path":"/r/src/a.rs","old_string":"x"}"#.into(),
+            }],
+        );
+        let b = msg(
+            Role::Assistant,
+            vec![Block::ToolCall {
+                name: "apply_patch".into(),
+                input: "*** Begin Patch\n*** Update File: src/b.rs\n*** End Patch".into(),
+            }],
+        );
+        let c = msg(
+            Role::Assistant,
+            vec![Block::ToolCall { name: "Read".into(), input: r#"{"file_path":"/r/src/c.rs"}"#.into() }],
+        );
         assert_eq!(edited_files(&[&a, &b, &c]), vec!["/r/src/a.rs", "src/b.rs"]);
     }
 

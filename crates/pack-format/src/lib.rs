@@ -36,16 +36,18 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 pub fn sanitize_filename(title: &str) -> String {
-    let mut s: String = title
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
-        .collect();
+    let mut s: String =
+        title.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
     while s.contains("--") {
         s = s.replace("--", "-");
     }
     let s = s.trim_matches('-');
     let s: String = s.chars().take(60).collect();
-    if s.is_empty() { "context-pack".into() } else { s }
+    if s.is_empty() {
+        "context-pack".into()
+    } else {
+        s
+    }
 }
 
 pub fn export_filename(pack: &Pack, ext: &str) -> String {
@@ -64,6 +66,9 @@ pub fn to_json(pack: &Pack) -> Result<String> {
 }
 
 pub fn from_json(s: &str) -> Result<Pack> {
+    if s.len() as u64 > hopilo_core::limits::DOCUMENT_BYTES {
+        return Err(FormatError::TooLarge);
+    }
     let pack: Pack = serde_json::from_str(s)?;
     validate_attachments(&pack)?;
     Ok(pack)
@@ -111,11 +116,13 @@ fn attachment_path(a: &Attachment) -> String {
 
 fn sanitize_attachment_name(name: &str) -> String {
     let base = Path::new(name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let s: String = base
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
-        .collect();
-    if s.is_empty() || s.starts_with('.') { format!("file{s}") } else { s }
+    let s: String =
+        base.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
+    if s.is_empty() || s.starts_with('.') {
+        format!("file{s}")
+    } else {
+        s
+    }
 }
 
 pub fn write_handoff<W: Write + Seek>(
@@ -125,17 +132,44 @@ pub fn write_handoff<W: Write + Seek>(
     writer: W,
 ) -> Result<()> {
     validate_attachments(pack)?;
-    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    files.insert("conversation/normalized.json".into(), to_json(pack)?.into_bytes());
+    let mut zip = zip::ZipWriter::new(writer);
+    let mut sums = BTreeMap::new();
+    let o = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    fn entry<W: Write + Seek>(
+        zip: &mut zip::ZipWriter<W>,
+        sums: &mut BTreeMap<String, String>,
+        name: &str,
+        write: impl FnOnce(&mut DigestWriter<&mut zip::ZipWriter<W>>) -> Result<()>,
+    ) -> Result<()> {
+        zip.start_file(name, SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated))?;
+        let mut writer = DigestWriter { writer: zip, hash: Sha256::new() };
+        write(&mut writer)?;
+        sums.insert(name.to_string(), hex::encode(writer.hash.finalize()));
+        Ok(())
+    }
+    entry(&mut zip, &mut sums, "conversation/normalized.json", |w| {
+        serde_json::to_writer_pretty(w, pack)?;
+        Ok(())
+    })?;
     let transcript_opts = RenderOptions { include_attachments_inline: false, ..opts.clone() };
-    files.insert("conversation/transcript.md".into(), render_markdown(pack, &transcript_opts).into_bytes());
-    files.insert("context/full.md".into(), render_markdown(pack, opts).into_bytes());
-    files.insert("context/handoff-prompt.md".into(), render_handoff_prompt(pack, opts).into_bytes());
+    entry(&mut zip, &mut sums, "conversation/transcript.md", |w| {
+        w.write_all(render_markdown(pack, &transcript_opts).as_bytes())?;
+        Ok(())
+    })?;
+    entry(&mut zip, &mut sums, "context/full.md", |w| {
+        w.write_all(render_markdown(pack, opts).as_bytes())?;
+        Ok(())
+    })?;
+    entry(&mut zip, &mut sums, "context/handoff-prompt.md", |w| {
+        w.write_all(render_handoff_prompt(pack, opts).as_bytes())?;
+        Ok(())
+    })?;
+    let sources: std::collections::HashMap<_, _> = pack.sources.iter().map(|s| (s.source_id.as_str(), s)).collect();
     let map: Vec<_> = pack
         .messages
         .iter()
         .map(|m| {
-            let src = pack.sources.iter().find(|s| s.source_id == m.source_id);
+            let src = sources.get(m.source_id.as_str());
             SourceMapEntry {
                 message_id: &m.id,
                 source_id: &m.source_id,
@@ -144,13 +178,26 @@ pub fn write_handoff<W: Write + Seek>(
             }
         })
         .collect();
-    files.insert("provenance/source-map.json".into(), serde_json::to_vec_pretty(&map)?);
+    entry(&mut zip, &mut sums, "provenance/source-map.json", |w| {
+        serde_json::to_writer_pretty(w, &map)?;
+        Ok(())
+    })?;
+    let mut written = std::collections::HashSet::new();
     for a in &pack.attachments {
-        if let Some(b) = bytes_for(a) {
-            files.insert(attachment_path(a), b);
+        let path = attachment_path(a);
+        if !written.insert(path.clone()) {
+            continue;
+        }
+        if let Some(bytes) = bytes_for(a) {
+            if bytes.len() as u64 != a.size || !sha256_hex(&bytes).eq_ignore_ascii_case(&a.sha256) {
+                return Err(FormatError::Checksum(path));
+            }
+            entry(&mut zip, &mut sums, &path, |w| {
+                w.write_all(&bytes)?;
+                Ok(())
+            })?;
         }
     }
-
     let manifest = Manifest {
         format: ARCHIVE_FORMAT.into(),
         format_version: ARCHIVE_FORMAT_VERSION,
@@ -160,29 +207,40 @@ pub fn write_handoff<W: Write + Seek>(
         version: pack.version,
         created_at: pack.created_at.clone(),
         exported_by: concat!("hopilo ", env!("CARGO_PKG_VERSION")).into(),
-        files: files.keys().cloned().collect(),
+        files: sums.keys().cloned().collect(),
     };
-    files.insert("manifest.json".into(), serde_json::to_vec_pretty(&manifest)?);
-
-    let sums: String = files.iter().map(|(p, b)| format!("{}  {p}\n", sha256_hex(b))).collect();
-
-    let mut zip = zip::ZipWriter::new(writer);
-    let o = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    for (path, bytes) in &files {
-        zip.start_file(path.as_str(), o)?;
-        zip.write_all(bytes)?;
-    }
+    entry(&mut zip, &mut sums, "manifest.json", |w| {
+        serde_json::to_writer_pretty(w, &manifest)?;
+        Ok(())
+    })?;
     zip.start_file("checksums.sha256", o)?;
-    zip.write_all(sums.as_bytes())?;
+    for (path, hash) in sums {
+        writeln!(zip, "{hash}  {path}")?;
+    }
     zip.finish()?;
     Ok(())
+}
+
+struct DigestWriter<W> {
+    writer: W,
+    hash: Sha256,
+}
+impl<W: Write> Write for DigestWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.writer.write(buf)?;
+        self.hash.update(&buf[..n]);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
 }
 
 pub struct ImportedHandoff {
     pub manifest: Manifest,
     pub pack: Pack,
 
-    pub attachments: BTreeMap<String, Vec<u8>>,
+    pub attachments: BTreeMap<String, std::sync::Arc<Vec<u8>>>,
 }
 
 pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
@@ -197,7 +255,7 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     let mut remaining = MAX_UNPACKED_BYTES;
     let mut read = |name: &str| -> Result<Vec<u8>> {
         let mut f = zip.by_name(name).map_err(|_| FormatError::NotHandoff(format!("missing {name}")))?;
-        let limit = remaining.min(MAX_UNPACKED_BYTES);
+        let limit = remaining.min(hopilo_core::limits::DOCUMENT_BYTES);
         let capacity = usize::try_from(f.size().min(limit).min(8 * 1024 * 1024)).unwrap_or(0);
         let mut buf = Vec::with_capacity(capacity);
         f.by_ref().take(limit + 1).read_to_end(&mut buf)?;
@@ -208,10 +266,8 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
         Ok(buf)
     };
     let sums = String::from_utf8_lossy(&read("checksums.sha256")?).to_string();
-    let expected: BTreeMap<String, String> = sums
-        .lines()
-        .filter_map(|l| l.split_once("  ").map(|(h, p)| (p.to_string(), h.to_string())))
-        .collect();
+    let expected: BTreeMap<String, String> =
+        sums.lines().filter_map(|l| l.split_once("  ").map(|(h, p)| (p.to_string(), h.to_string()))).collect();
     let mut verified = |name: &str| -> Result<Vec<u8>> {
         let bytes = read(name)?;
         match expected.get(name) {
@@ -229,10 +285,18 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     let pack: Pack = serde_json::from_slice(&verified("conversation/normalized.json")?)?;
     validate_attachments(&pack)?;
     let mut attachments = BTreeMap::new();
+    let mut read_blobs = BTreeMap::new();
     for a in &pack.attachments {
         let p = attachment_path(a);
         if manifest.files.contains(&p) {
-            let bytes = verified(&p)?;
+            let bytes = match read_blobs.get(&p) {
+                Some(bytes) => std::sync::Arc::clone(bytes),
+                None => {
+                    let bytes = std::sync::Arc::new(verified(&p)?);
+                    read_blobs.insert(p.clone(), bytes.clone());
+                    bytes
+                }
+            };
             if sha256_hex(&bytes) != a.sha256 {
                 return Err(FormatError::Checksum(p));
             }
@@ -307,8 +371,32 @@ mod tests {
         buf.set_position(0);
         let back = read_handoff(buf).unwrap();
         assert_eq!(back.pack, pack);
-        assert_eq!(back.attachments.get("a1"), Some(&img));
+        assert_eq!(back.attachments.get("a1").map(|b| b.as_slice()), Some(img.as_slice()));
         assert!(back.manifest.files.iter().any(|f| f.starts_with("attachments/") && f.ends_with("-diagram.png")));
+    }
+
+    #[test]
+    fn repeated_attachment_occurrences_share_one_imported_blob() {
+        let (mut pack, img) = sample();
+        let mut repeated = pack.attachments[0].clone();
+        repeated.id = "a2".into();
+        pack.attachments.push(repeated);
+        let calls = std::cell::Cell::new(0);
+        let mut archive = Cursor::new(Vec::new());
+        write_handoff(
+            &pack,
+            &RenderOptions::default(),
+            &|_| {
+                calls.set(calls.get() + 1);
+                Some(img.clone())
+            },
+            &mut archive,
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        archive.set_position(0);
+        let imported = read_handoff(archive).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&imported.attachments["a1"], &imported.attachments["a2"]));
     }
 
     #[test]

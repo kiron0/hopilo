@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText, type SessionRow, type Stats } from "./api";
 import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type Settings, useApp } from "./store";
+import { normalizeDestinationBudgets, normalizeLimitCache } from "./modelLimits";
 import { normalizeRedaction, normalizeTemplates } from "./handoff";
 
 export function ownWindowLabel(): string | undefined {
@@ -17,6 +18,9 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
   const merged = { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
   return {
     ...merged,
+    modelLimits: normalizeLimitCache(merged.modelLimits),
+    destinationBudgets: normalizeDestinationBudgets(merged.destinationBudgets, merged.destinationModels),
+    destinationModels: merged.destinationModels && typeof merged.destinationModels === "object" ? Object.fromEntries(Object.entries(merged.destinationModels).filter(([, v]) => typeof v === "string")) : {},
     redaction: normalizeRedaction(merged.redaction),
     handoffTemplates: normalizeTemplates(merged.handoffTemplates),
     defaultIntent: typeof merged.defaultIntent === "string" && merged.defaultIntent ? merged.defaultIntent : "continue",
@@ -25,6 +29,8 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
 }
 
 function normalizeSetting(key: string, value: unknown): Partial<Settings> {
+  if (key === "destinationBudgets") return { destinationBudgets: normalizeDestinationBudgets(value) };
+  if (key === "modelLimits") return { modelLimits: normalizeLimitCache(value) };
   if (key === "redaction") return { redaction: normalizeRedaction(value) };
   if (key === "handoffTemplates") return { handoffTemplates: normalizeTemplates(value) };
   return { [key]: value } as Partial<Settings>;
@@ -70,13 +76,14 @@ export function patchCachedSession(id: string, patch: Partial<SessionRow>) {
   let before: boolean | undefined;
   const updates: [string, unknown][] = [];
   for (const [key, val] of queryCache) {
-    if (Array.isArray(val)) {
-      const idx = val.findIndex((item) => isRow(item) && item.id === id);
+    const rows = Array.isArray(val) ? val : val && typeof val === "object" && "rows" in val && Array.isArray(val.rows) ? val.rows : null;
+    if (rows) {
+      const idx = rows.findIndex((item) => isRow(item) && item.id === id);
       if (idx < 0) continue;
-      before ??= (val[idx] as SessionRow).pinned;
-      const next = val.slice();
-      next[idx] = { ...val[idx], ...patch };
-      updates.push([key, next]);
+      before ??= (rows[idx] as SessionRow).pinned;
+      const next = rows.slice();
+      next[idx] = { ...rows[idx], ...patch };
+      updates.push([key, Array.isArray(val) ? next : { ...val as object, rows: next }]);
     } else if (val && typeof val === "object" && "row" in val && isRow((val as { row: unknown }).row) && (val as { row: SessionRow }).row.id === id) {
       const row = (val as { row: SessionRow }).row;
       before ??= row.pinned;
@@ -103,14 +110,14 @@ export function invalidateQuery() {
   inflight.clear();
 }
 
-function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
+function request<T>(key: string, loader: () => Promise<T>, cache = true): Promise<T> {
   const tick = useApp.getState().tick;
   const epoch = cacheEpoch;
   const current = inflight.get(key);
   if (current && current.tick === tick) return current.promise as Promise<T>;
   const pending = Promise.resolve().then(loader)
     .then((data) => {
-      if (cacheEpoch === epoch && useApp.getState().tick === tick && inflight.get(key)?.promise === pending) remember(key, data);
+      if (cache && cacheEpoch === epoch && useApp.getState().tick === tick && inflight.get(key)?.promise === pending) remember(key, data);
       return data;
     })
     .finally(() => {
@@ -120,22 +127,27 @@ function request<T>(key: string, loader: () => Promise<T>): Promise<T> {
   return pending;
 }
 
-export function readCached<T>(loader: () => Promise<T>, deps: unknown[] = []): T | undefined {
-  return queryCache.get(loader.toString() + JSON.stringify(deps)) as T | undefined;
+export type QueryKey = readonly [string, ...unknown[]];
+
+export function readCached<T>(_loader: () => Promise<T>, query: QueryKey): T | undefined {
+  return queryCache.get(JSON.stringify(query)) as T | undefined;
 }
 
-export function prefetch<T>(loader: () => Promise<T>, deps: unknown[] = []) {
-  const key = loader.toString() + JSON.stringify(deps);
+export function prefetch<T>(loader: () => Promise<T>, query: QueryKey) {
+  const key = JSON.stringify(query);
   const tick = useApp.getState().tick;
   if (cachedTicks.get(key) === tick || inflight.get(key)?.tick === tick) return;
   request(key, loader).catch(() => undefined);
 }
 
-export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts: { refreshOnChange?: boolean } = {}) {
+export function useLoad<T>(loader: () => Promise<T>, query: QueryKey, opts: { refreshOnChange?: boolean; cache?: boolean } = {}) {
   const libraryTick = useApp((s) => s.tick);
 
   const tick = opts.refreshOnChange === false ? 0 : libraryTick;
-  const key = loader.toString() + JSON.stringify(deps);
+  const key = JSON.stringify(query);
+  const cacheResult = opts.cache !== false;
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
   const [data, setData] = useState<T | null>(() => (queryCache.get(key) as T | undefined) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => !queryCache.has(key));
@@ -149,7 +161,7 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
     shownKey.current = key;
     setError(null);
     setLoading(cached === undefined);
-    request(key, loader)
+    request(key, loaderRef.current, cacheResult)
       .then((d) => {
         if (n === seq.current) {
           setData(d);
@@ -159,7 +171,7 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
       .catch((e) => n === seq.current && setError(errorText(e)))
       .finally(() => n === seq.current && setLoading(false));
 
-  }, [key]);
+  }, [key, cacheResult]);
   useEffect(() => {
     reload();
     return () => {
@@ -176,7 +188,8 @@ export function useLoad<T>(loader: () => Promise<T>, deps: unknown[] = [], opts:
       cacheListeners.delete(sync);
     };
   }, [key]);
-  return { data, error, loading, reload };
+  const changed = shownKey.current !== key;
+  return { data: changed ? (queryCache.get(key) as T | undefined) ?? null : data, error: changed ? null : error, loading: changed ? !queryCache.has(key) : loading, reload };
 }
 
 const THEME_KEY = "hopilo.theme";
@@ -279,12 +292,13 @@ export function useBootstrap() {
   }, [setSettings, hydrateListView, bump]);
 
   useEffect(() => {
+    if (!ready) return;
     applyAppearance(settings);
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => applyAppearance(useApp.getState().settings);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, [settings.theme, settings.background, settings.motion]);
+  }, [ready, settings.theme, settings.background, settings.motion]);
 
   return ready;
 }

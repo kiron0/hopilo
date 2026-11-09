@@ -17,21 +17,6 @@ const KINDS: SelectOption[] = [
   { value: "pinned", label: "Pinned", icon: <Pin size={14} filled className="text-accent" /> },
 ];
 
-function kindMatch(r: SessionRow, k: Kind) {
-  switch (k) {
-    case "all":
-      return true;
-    case "agents":
-      return r.kind === "local-agent";
-    case "web":
-      return r.kind === "browser-chat";
-    case "added":
-      return r.kind !== "local-agent" && r.kind !== "browser-chat";
-    case "pinned":
-      return r.pinned;
-  }
-}
-
 const LIMITS = [10, 25, 50, 100] as const;
 
 export function SessionPickerModal({
@@ -49,7 +34,6 @@ export function SessionPickerModal({
   onPick: (row: SessionRow) => void;
   onClose: () => void;
 }) {
-  const { data, loading } = useLoad(() => api.listSessions());
   const [q, setQ] = useState("");
   const needle = useDebouncedValue(q).trim().toLowerCase();
   const [kind, setKind] = useState<Kind>("all");
@@ -59,54 +43,37 @@ export function SessionPickerModal({
   const [limit, setLimit] = useState<number>(25);
   const [active, setActive] = useState(0);
 
-  const all = useMemo(() => (data ?? []).filter((r) => !exclude.includes(r.id)), [data, exclude.join()]);
+  const query = { q: needle, filter: kind, provider: tool, folder, offset: page * limit, limit, exclude };
+  const { data, loading } = useLoad(() => api.querySessions(query), ["picker-sessions", query]);
   const tools = useMemo<SelectOption[]>(
     () => [
       { value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> },
-      ...[...new Set(all.map((r) => r.provider))].sort().map((p) => ({ value: p, label: provider(p).label })),
+      ...[...new Set(data?.providers ?? [])].sort().map((p) => ({ value: p, label: provider(p).label })),
     ],
-    [all],
+    [data?.providers],
   );
   const folders = useMemo<SelectOption[]>(
     () => [
       { value: "all", label: "All folders", icon: <FolderOpen size={14} className="text-muted" /> },
-      ...[...new Set(all.map((r) => r.project?.trim()).filter((p): p is string => !!p))].sort().map((p) => ({ value: p, label: basename(p) || p })),
+      ...[...new Set(data?.folders ?? [])].sort().map((p) => ({ value: p, label: basename(p) || p })),
     ],
-    [all],
+    [data?.folders],
   );
 
   useEffect(() => {
     if (data && folder !== "all" && !folders.some((f) => f.value === folder)) setFolder("all");
   }, [data, folders, folder]);
 
-  const rows = useMemo(
-    () =>
-      all
-        .filter(
-          (r) =>
-            kindMatch(r, kind) &&
-            (tool === "all" || r.provider === tool) &&
-            (folder === "all" || r.project?.trim() === folder) &&
-            (!needle ||
-              r.title.toLowerCase().includes(needle) ||
-              (r.project ?? "").toLowerCase().includes(needle) ||
-              (r.model ?? "").toLowerCase().includes(needle) ||
-              provider(r.provider).label.toLowerCase().includes(needle) ||
-              r.tags.some((t) => t.includes(needle))),
-        )
-        .slice()
-        .sort((a, b) => Number(b.pinned) - Number(a.pinned)),
-    [all, kind, tool, folder, needle],
-  );
-  const pages = Math.max(1, Math.ceil(rows.length / limit));
-  const pg = Math.min(page, pages - 1);
-  const shown = rows.slice(pg * limit, pg * limit + limit);
+  const total = data?.total ?? 0;
+  const pg = Math.floor((data?.offset ?? 0) / limit);
+  const shown = data?.rows ?? [];
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
   useEffect(() => {
     listRef.current?.scrollTo({ top: 0 });
+    setActive(0);
   }, [pg, limit]);
 
   useEffect(() => {
@@ -158,7 +125,7 @@ export function SessionPickerModal({
               Clear
             </button>
           )}
-          <span className="ml-auto font-mono text-[11px] text-faint">{plural(rows.length, "session")}</span>
+          <span className="ml-auto font-mono text-[11px] text-faint">{plural(total, "session")}</span>
         </div>
 
         <div ref={listRef} className="h-[min(52vh,460px)] overflow-y-auto overscroll-contain rounded-xl border border-line bg-card">
@@ -202,7 +169,7 @@ export function SessionPickerModal({
             </ul>
           )}
         </div>
-        <Pagination page={pg} pageSize={limit} total={rows.length} onPage={setPage} noun="session" limitOptions={LIMITS} currentLimit={limit} onLimitChange={(l) => setLimit(typeof l === "number" ? l : 25)} />
+        <Pagination page={pg} pageSize={limit} total={total} onPage={setPage} noun="session" limitOptions={LIMITS} currentLimit={limit} onLimitChange={(l) => setLimit(typeof l === "number" ? l : 25)} />
         <p className="text-[11px] text-faint">↑ ↓ to move, Enter to pick.</p>
       </div>
     </Modal>

@@ -54,6 +54,7 @@ export function App() {
 
   useEffect(() => {
     const markVisible = () => setHasBeenVisible(true);
+    if ((window as { __HOPILO_MOCK__?: boolean }).__HOPILO_MOCK__ && document.visibilityState === "visible") markVisible();
 
     getCurrentWindow()
       .isVisible()

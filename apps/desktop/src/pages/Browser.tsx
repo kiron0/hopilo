@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDashed, Download, ExternalLink, RefreshCw } from "../components/Icons";
+import { AlertTriangle, CheckCircle2, CircleDashed, Download, ExternalLink } from "../components/Icons";
 import { RELEASES_LATEST_URL, RELEASES_URL, openExternal } from "../lib/updates";
 import { api, errorText } from "../lib/api";
 import { relativeTime } from "../lib/format";
 import { isWindowShown, useLoad } from "../lib/hooks";
 import { provider } from "../lib/providers";
 import { useApp } from "../lib/store";
-import { AlertDialog, Badge, Button, Card, Checkbox, ErrorNote, PageHeader, ProviderChip, SectionLabel } from "../components/ui";
+import { AlertDialog, Badge, Button, Card, Checkbox, ErrorNote, ProviderChip, SectionLabel } from "../components/ui";
+import { BrowserHeader } from "../components/BrowserHeader";
 import { RouteSkeleton } from "../components/Skeletons";
 
 const WEB = ["claude", "gemini", "deepseek", "grok", "perplexity"];
@@ -68,8 +69,8 @@ function ReleaseSteps({ version, extensionId }: { version: string | undefined; e
 }
 
 export function Browser() {
-  const { data, error, loading, reload } = useLoad(() => api.browserStatus(), [], { refreshOnChange: false });
-  const version = useLoad(() => api.appInfo(), [], { refreshOnChange: false }).data?.version;
+  const { data, error, loading, reload } = useLoad(() => api.browserStatus(), ["browser-status"], { refreshOnChange: false });
+  const version = useLoad(() => api.appInfo(), ["app-info"], { refreshOnChange: false }).data?.version;
   const toast = useApp((s) => s.toast);
   const [picked, setPicked] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -115,11 +116,7 @@ export function Browser() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Browser"
-        subtitle="The Hopilo extension saves Claude and Gemini chats (DeepSeek, Grok and Perplexity experimentally) as sessions, with their files, and puts a session into the message box as an unsent draft. It communicates 100% offline directly with this app."
-        actions={<Button icon={<RefreshCw size={14} />} onClick={reload}>Refresh</Button>}
-      />
+      <BrowserHeader onRefresh={reload} />
 
       <Step n={1} title="Add the extension to your browser" done={isConnected}>
         {isConnected && !showInstructions ? (

@@ -5,7 +5,10 @@ use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCou
 use serde_json::Value;
 
 use crate::text::title_from;
-use crate::{file_meta, home, jsonl_files, omitted, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
+use crate::{
+    file_meta, home, jsonl_files, omitted, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter,
+    Result,
+};
 
 pub struct GeminiCli {
     id: &'static str,
@@ -14,7 +17,8 @@ pub struct GeminiCli {
     dir: &'static str,
 }
 
-pub const GEMINI_CLI: GeminiCli = GeminiCli { id: "gemini-cli", name: "Gemini CLI", env: "GEMINI_CLI_HOME", dir: ".gemini" };
+pub const GEMINI_CLI: GeminiCli =
+    GeminiCli { id: "gemini-cli", name: "Gemini CLI", env: "GEMINI_CLI_HOME", dir: ".gemini" };
 pub const QWEN_CODE: GeminiCli = GeminiCli { id: "qwen-code", name: "Qwen Code", env: "QWEN_CODE_HOME", dir: ".qwen" };
 
 impl GeminiCli {
@@ -24,7 +28,7 @@ impl GeminiCli {
 }
 
 fn project_paths(base: &Path) -> HashMap<String, String> {
-    let Ok(text) = std::fs::read_to_string(base.join("projects.json")) else { return HashMap::new() };
+    let Ok(text) = hopilo_core::limits::read_text(&base.join("projects.json")) else { return HashMap::new() };
     let Ok(v) = serde_json::from_str::<Value>(&text) else { return HashMap::new() };
     v.get("projects")
         .and_then(Value::as_object)
@@ -96,8 +100,12 @@ fn json_session_files(root: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_core::CapturedFile>, quick: bool) -> (Vec<Block>, bool) {
-
+fn parts_text(
+    content: &Value,
+    tally: &mut usize,
+    recovered: &mut Vec<hopilo_core::CapturedFile>,
+    quick: bool,
+) -> (Vec<Block>, bool) {
     match content {
         Value::String(s) if !s.trim().is_empty() => (vec![Block::text(s.trim_end())], false),
         Value::Array(parts) => {
@@ -116,7 +124,9 @@ fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_cor
                         input: if quick {
                             String::new()
                         } else {
-                            fc.get("args").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default()
+                            fc.get("args")
+                                .map(|a| serde_json::to_string_pretty(a).unwrap_or_default())
+                                .unwrap_or_default()
                         },
                     });
                 } else if let Some(fr) = p.get("functionResponse") {
@@ -135,8 +145,14 @@ fn parts_text(content: &Value, tally: &mut usize, recovered: &mut Vec<hopilo_cor
                     let n = recovered.len() + 1;
                     let f = if let Some(d) = p.get("inlineData") {
                         let mime = d.get("mimeType").and_then(Value::as_str).unwrap_or("");
-                        let name = d.get("displayName").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("file-{n}"));
-                        d.get("data").and_then(Value::as_str).and_then(|data| hopilo_core::CapturedFile::from_base64(name, mime, data))
+                        let name = d
+                            .get("displayName")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| format!("file-{n}"));
+                        d.get("data")
+                            .and_then(Value::as_str)
+                            .and_then(|data| hopilo_core::CapturedFile::from_base64(name, mime, data))
                     } else {
                         p["fileData"].get("fileUri").and_then(Value::as_str).and_then(crate::text::read_local_file)
                     };
@@ -178,8 +194,10 @@ fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
     let mut unreadable = 0;
 
     if path.extension().is_some_and(|e| e == "json") {
-        let text = std::fs::read_to_string(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
-        let v: Value = serde_json::from_str(&text).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))?;
+        let text = hopilo_core::limits::read_text(path)
+            .map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
+        let v: Value =
+            serde_json::from_str(&text).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))?;
         records = v.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
         header = Some(v);
     } else {
@@ -196,7 +214,11 @@ fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
             if let Some(set) = v.get("$set") {
                 if let Some(all) = set.get("messages").and_then(Value::as_array) {
                     records = all.clone();
-                    index = records.iter().enumerate().filter_map(|(i, r)| Some((r.get("id")?.as_str()?.to_string(), i))).collect();
+                    index = records
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, r)| Some((r.get("id")?.as_str()?.to_string(), i)))
+                        .collect();
                 }
                 continue;
             }
@@ -265,7 +287,9 @@ fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
                         input: if quick {
                             String::new()
                         } else {
-                            call.get("args").map(|a| serde_json::to_string_pretty(a).unwrap_or_default()).unwrap_or_default()
+                            call.get("args")
+                                .map(|a| serde_json::to_string_pretty(a).unwrap_or_default())
+                                .unwrap_or_default()
                         },
                     });
                     if let Some(res) = call.get("result") {
@@ -286,10 +310,22 @@ fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
                     }
                 }
                 if !blocks.is_empty() {
-                    messages.push(Message { id: id.clone(), source_id: source_id.clone(), role: Role::Assistant, created_at: created_at.clone(), blocks });
+                    messages.push(Message {
+                        id: id.clone(),
+                        source_id: source_id.clone(),
+                        role: Role::Assistant,
+                        created_at: created_at.clone(),
+                        blocks,
+                    });
                 }
                 if !results.is_empty() {
-                    messages.push(Message { id: format!("{id}-results"), source_id: source_id.clone(), role: Role::Tool, created_at, blocks: results });
+                    messages.push(Message {
+                        id: format!("{id}-results"),
+                        source_id: source_id.clone(),
+                        role: Role::Tool,
+                        created_at,
+                        blocks: results,
+                    });
                 }
             }
             _ => info += 1,
@@ -338,7 +374,8 @@ mod tests {
     use super::*;
 
     fn fixture() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/gemini-cli/tmp/demo/chats/session-2026-11-01T10-00-sample.jsonl")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/gemini-cli/tmp/demo/chats/session-2026-11-01T10-00-sample.jsonl")
     }
 
     #[test]

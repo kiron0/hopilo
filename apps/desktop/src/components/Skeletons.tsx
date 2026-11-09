@@ -1,5 +1,8 @@
-import type { Route } from "../lib/store";
-import { Card, cx, Skeleton } from "./ui";
+import { BrowserHeader } from "./BrowserHeader";
+import { isLinux } from "../lib/platform";
+import { useApp, type Route } from "../lib/store";
+import { SETTINGS_GROUPS, SETTINGS_SUBTITLES, settingsGroupFor } from "./settingsNav";
+import { Card, cx, PageHeader, SectionLabel, Skeleton } from "./ui";
 import { PageHeaderSlot, PageToolbar } from "./PageSlots";
 
 function Header({ actions = 0, title = "w-48" }: { actions?: number; title?: string }) {
@@ -61,12 +64,11 @@ export function TranscriptSkeleton({ count = 4 }: { count?: number }) {
 }
 
 export function SessionListSkeleton({ rows = 8 }: { rows?: number }) {
+  const cards = useApp((s) => s.settings.sessionLayout === "thumbnails");
   return (
     <Card className="flex min-h-0 flex-1 flex-col overflow-hidden" role="status" aria-label="Loading sessions">
-      <div className="min-h-0 flex-1 divide-y divide-line overflow-hidden">
-        {Array.from({ length: rows }, (_, i) => (
-          <RowSkeleton key={i} i={i} check />
-        ))}
+      <div className={cx("min-h-0 flex-1 overflow-hidden", cards ? "grid auto-rows-max grid-cols-1 gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" : "divide-y divide-line")}>
+        {Array.from({ length: rows }, (_, i) => cards ? <div key={i} className="space-y-3 rounded-xl border border-line p-4"><Skeleton className="h-7 w-7 rounded-lg" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-3 w-3/5" /><Skeleton className="h-8 w-full rounded-full" /></div> : <RowSkeleton key={i} i={i} check />)}
       </div>
       <div className="flex shrink-0 items-center justify-between border-t border-line bg-surface-2 px-4 py-2.5">
         <Skeleton className="h-3 w-28" />
@@ -79,20 +81,12 @@ export function SessionListSkeleton({ rows = 8 }: { rows?: number }) {
 export function SessionPageSkeleton() {
   return (
     <div className="page-fill" role="status" aria-label="Loading session">
-      <Header actions={0} title="w-80" />
-      <PageToolbar>
-        <Skeleton className="h-3 w-16" />
-        <Skeleton className="h-9.5 w-52 rounded-xl" />
-        <Skeleton className="h-8 w-[196px] rounded-full" />
-        <Skeleton className="h-9 w-20 rounded-full" />
-        <div className="flex-1" />
-        <Skeleton className="h-7.5 w-28 rounded-full" />
-        <Skeleton className="h-7.5 w-20 rounded-full" />
-        <Skeleton className="h-7.5 w-24 rounded-full" />
-      </PageToolbar>
+      <Header actions={3} title="w-80" />
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-line px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line px-4 py-2.5">
           <Skeleton className="h-8 w-[178px] rounded-full" />
+          <Skeleton className="h-8 min-w-[220px] max-w-sm flex-1 rounded-xl" />
+          <div className="flex gap-2">{[80, 110, 70, 80].map((width) => <Skeleton key={width} className="h-7.5 rounded-full" style={{ width }} />)}</div>
         </div>
         <div className="min-h-0 flex-1 overflow-hidden p-5">
           <TranscriptSkeleton count={5} />
@@ -163,6 +157,8 @@ export function SettingsRowsSkeleton({ rows = 4 }: { rows?: number }) {
 }
 
 export function RouteSkeleton({ page }: { page: Route["page"] }) {
+  const section = useApp((s) => s.route.page === "settings" ? s.route.section : undefined);
+  const group = settingsGroupFor(section);
   switch (page) {
     case "sessions":
       return (
@@ -179,14 +175,14 @@ export function RouteSkeleton({ page }: { page: Route["page"] }) {
     case "browser":
       return (
         <div className="space-y-4" role="status" aria-label="Loading">
-          <Header actions={1} />
+          <BrowserHeader />
           {[0, 1, 2].map((i) => (
             <Card key={i} className="p-5">
               <div className="flex items-center gap-3">
-                <Skeleton className="h-7 w-7 rounded-full" />
+                <Skeleton className="h-8 w-8 rounded-full" />
                 <Skeleton className="h-4 w-56" />
               </div>
-              <div className="mt-3 space-y-2 pl-10">
+              <div className="mt-3 space-y-2 pl-11">
                 <Skeleton className="h-3 w-11/12" />
                 {i < 2 && <Skeleton className="h-3 w-2/3" />}
                 {i === 1 && <Skeleton className="mt-3 h-24 w-full rounded-2xl" />}
@@ -194,30 +190,16 @@ export function RouteSkeleton({ page }: { page: Route["page"] }) {
             </Card>
           ))}
           <Skeleton className="h-2.5 w-24" />
-          <ListSkeleton rows={6} />
+          <ListSkeleton rows={5} />
         </div>
       );
-    case "settings":
-      return (
-        <div role="status" aria-label="Loading settings">
-          <Header />
-          <div>
-            <div>
-              <Card className="divide-y divide-line px-5 py-1">
-                {Array.from({ length: 4 }, (_, i) => (
-                  <div key={i} className="flex min-h-14 items-center justify-between gap-6 py-3">
-                    <div className="space-y-1.5">
-                      <Skeleton className="h-3.5 w-32" />
-                      <Skeleton className="h-2.5 w-52" />
-                    </div>
-                    <Skeleton className="h-8 w-40 rounded-full" />
-                  </div>
-                ))}
-              </Card>
-            </div>
-          </div>
-        </div>
-      );
+    case "settings": {
+      const groups = group === "general" ? [["", isLinux ? 1 : 2], ["Global shortcut", 3]] : group === "customize" ? [["Appearance", 4], ["Copy", 3], ["Handoff intents", 3]] : group === "data" ? [["Privacy", 3], ["Redaction rules", 4], ["Storage", 3]] : [["", group === "sources" ? 6 : 5]];
+      return <div className="space-y-4" role="status" aria-label="Loading settings">
+        <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === group)!.label} subtitle={SETTINGS_SUBTITLES[group]} />
+        <div>{group === "data" && <Card className="mb-0 space-y-4 p-5"><Skeleton className="h-5 w-52" /><Skeleton className="h-8 w-full" /><div className="grid gap-3 sm:grid-cols-2">{[0, 1].map((i) => <div key={i} className="space-y-2"><Skeleton className="h-3 w-28" /><Skeleton className="h-9.5 w-full rounded-xl" /><Skeleton className="h-8 w-full" /></div>)}</div><Skeleton className="h-9 w-3/4 rounded-full" /><div className="space-y-3 border-t border-line pt-4"><Skeleton className="h-4 w-48" /><Skeleton className="h-9 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-9 w-3/4 rounded-full" /></div></Card>}{groups.map(([title, rows], i) => <section key={i} className="pb-4 last:pb-0">{title && <SectionLabel>{title}</SectionLabel>}<Card className="divide-y divide-line px-5 py-1"><SettingsRowsSkeleton rows={Number(rows)} /></Card></section>)}</div>
+      </div>;
+    }
     case "compare":
       return <CompareSkeleton withHeader />;
     default:

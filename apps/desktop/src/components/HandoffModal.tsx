@@ -1,3 +1,5 @@
+import { Transcript } from "./Transcript";
+import { Select } from "./Select";
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDownIcon,
@@ -9,11 +11,11 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from "./Icons";
-import { api, type Level, type PromptStyle, type SessionOrder } from "../lib/api";
+import { api, type CopyOptions, type Level, type PromptStyle, type SessionOrder } from "../lib/api";
 import { copySessions, exportSessionsAs, FORMATS, type Format } from "../lib/actions";
 import { plural, provider, tokens } from "../lib/format";
 import { budget, fittingLevel, intentChoices, modelFor, resolveIntent, STYLES } from "../lib/handoff";
-import { useLoad } from "../lib/hooks";
+import { useDebouncedValue, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
 import { target } from "../lib/targets";
 import { Button, Checkbox, cx, Modal, Segmented, Skeleton, TargetSelect, TextArea } from "./ui";
@@ -104,7 +106,7 @@ function BudgetMeter({ used, window, label }: { used: number; window: number; la
         <span className="text-muted">
           <strong className="font-mono text-ink">~{tokens(used)}</strong> tokens · <strong className={cx("font-mono", b.tone === "over" ? "text-danger" : b.tone === "tight" ? "text-warning" : "text-success")}>{b.pct < 1 ? "<1" : Math.round(b.pct)}%</strong> of {label}
         </span>
-        <span className="font-mono text-[10.5px] text-faint">{tokens(window)} window</span>
+        <span className="font-mono text-[10.5px] text-faint">{tokens(window)} budget</span>
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label="Context window used">
         <div className={cx("h-full rounded-full transition-[width] duration-300", color)} style={{ width: `${Math.max(pct, 1.5)}%` }} />
@@ -130,10 +132,16 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const [showSecretDetails, setShowSecretDetails] = useState(false);
   const [picked, setPicked] = useState<Format[]>(loadPicked);
   const [busy, setBusy] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string> | null>(null);
+  const [previewChoice, setPreviewChoice] = useState<Format>("md");
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const messages = useLoad(() => selecting ? api.handoffMessages(ids) : Promise.resolve([]), ["handoff-messages", ids, selecting], { cache: false });
+  const messageKey = (source: string, id: string) => JSON.stringify([source, id]);
 
-  const { data, loading, error } = useLoad(() => api.preflightHandoff(ids), [ids.join()]);
-  const rows = useLoad(() => api.listSessions(), [], { refreshOnChange: false });
-  const titles = useMemo(() => new Map((rows.data ?? []).map((r) => [r.id, r])), [rows.data]);
+  const { data, loading, error } = useLoad(() => api.preflightHandoff(ids), ["preflight", ...ids]);
+  const rows = useLoad(() => api.querySessions({ ids, limit: 200 }), ["handoff-rows", ...ids], { refreshOnChange: false });
+  const titles = useMemo(() => new Map((rows.data?.rows ?? []).map((r) => [r.id, r])), [rows.data]);
 
   const findings = data?.findings ?? [];
   const hasSecrets = findings.length > 0;
@@ -143,7 +151,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const showIntent = isCopy || (action === "export" && picked.includes("txt"));
   const choices = intentChoices(settings.handoffTemplates);
   const choice = resolveIntent(intentKey, settings.handoffTemplates);
-  const model = modelFor(targetId);
+  const model = modelFor(targetId, settings.modelLimits, settings.destinationBudgets);
   const style: PromptStyle = styleChoice === "auto" ? model.style : styleChoice;
 
   useEffect(() => {
@@ -161,9 +169,9 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const fullMsgs = data?.full.messageCount || 1;
   const noteTokens = Math.ceil(note.length / 4) + (choice.instructions ? Math.ceil(choice.instructions.length / 4) : 0);
   const levelTokens = (l: Level) => (data ? (l === "full" ? data.full : l === "balanced" ? data.balanced : data.minimal).tokenEstimate + noteTokens : 0);
-  const used = levelTokens(level);
-  const fit = data ? fittingLevel({ full: levelTokens("full"), balanced: levelTokens("balanced"), minimal: levelTokens("minimal") }, model.window) : null;
-  const overBudget = !!data && budget(used, model.window).tone === "over";
+  const estimatedUsed = levelTokens(level);
+  const fit = data ? fittingLevel({ full: levelTokens("full"), balanced: levelTokens("balanced"), minimal: levelTokens("minimal") }, model.available ?? -1, false) : null;
+
 
   const conciseDelta = (lvl: Level) => {
     if (!data || lvl === "full") return null;
@@ -187,27 +195,37 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
     navigate({ page: "settings", section });
   };
 
+  const sendIds = multi && order === "selected" ? ordered : ids;
+  const selected = selectedKeys ? [...selectedKeys].map((key) => { const [sourceId, id] = JSON.parse(key) as [string, string]; return { sourceId, id }; }) : undefined;
+  const common: CopyOptions = {
+    level, excludeSecrets, ignore: excludeSecrets ? [...kept] : [], order: multi ? order : undefined,
+    intent: choice.intent, instructions: choice.instructions, note: note.trim() || undefined, style,
+    target: targetId, markdown: action === "copy-markdown", selected,
+  };
+  const previewFormat = action === "export" ? (picked.includes(previewChoice) ? previewChoice : picked[0] ?? "md") : action === "copy-markdown" ? "md" : "txt";
+  const optionsJSON = JSON.stringify(common);
+  const debouncedJSON = useDebouncedValue(optionsJSON, 200);
+  const debouncedOptions = useMemo(() => JSON.parse(debouncedJSON) as CopyOptions, [debouncedJSON]);
+  const unsettled = optionsJSON !== debouncedJSON;
+  const preview = useLoad(() => api.previewHandoff(sendIds, previewFormat, debouncedOptions), ["handoff-preview", sendIds, previewFormat, debouncedOptions, previewRevision], { cache: false });
+  const used = preview.data?.tokenEstimate ?? estimatedUsed;
+  const overBudget = !!preview.data && budget(used, model.available ?? Number.POSITIVE_INFINITY).tone === "over";
   const handleExecute = async () => {
+    if (!preview.data || unsettled || preview.loading || preview.error) return;
     setBusy(true);
-    const sendIds = multi && order === "selected" ? ordered : ids;
-    const common = {
-      level,
-      excludeSecrets,
-      ignore: excludeSecrets ? [...kept] : [],
-      order: multi ? order : undefined,
-      intent: choice.intent,
-      instructions: choice.instructions,
-      note: note.trim() || undefined,
-      style,
-    };
+    const reviewed = { format: previewFormat, hash: preview.data.hash };
     try {
       const out =
         action === "export"
-          ? await exportSessionsAs(sendIds, picked, { ...common, target: targetId })
-          : await copySessions(sendIds, { ...common, target: targetId, markdown: action === "copy-markdown" });
+          ? await exportSessionsAs(sendIds, picked, { ...common, reviewed })
+          : await copySessions(sendIds, { ...common, reviewed });
       if (out) {
         onSuccess?.();
         onClose();
+      } else {
+        // A source can change between preview and execution. Refresh for review
+        // instead of leaving a failed stale hash attached to every retry.
+        setPreviewRevision((revision) => revision + 1);
       }
     } finally {
       setBusy(false);
@@ -237,6 +255,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
       title={titleText}
       onClose={onClose}
       wide
+      dismissible={!busy}
       footer={(close) => (
         <>
           {data && action !== "export" && (
@@ -248,7 +267,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
           <Button
             variant="primary"
             busy={busy}
-            disabled={(action === "export" && picked.length === 0) || !!error}
+            disabled={(action === "export" && picked.length === 0) || !!error || !preview.data || !!preview.error || preview.loading || unsettled}
             icon={action === "export" ? <Download size={14} /> : <Copy size={14} />}
             onClick={handleExecute}
           >
@@ -258,6 +277,33 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
       )}
     >
       <div className="space-y-4">
+        <section className="space-y-2 rounded-xl border border-line p-3" aria-label="Exact handoff preview">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[13px] font-semibold">Exact preview</h3>
+            <Button size="sm" variant="secondary" onClick={() => setSelecting(!selecting)}>{selecting ? "Hide messages" : "Select messages"}</Button>
+          </div>
+          {action === "export" && picked.length > 1 && <Select label="Preview format" value={previewFormat} onChange={(value) => setPreviewChoice(value as Format)} options={picked.map((format) => ({ value: format, label: FORMATS[format].name }))} />}
+          <p className="text-[12px] text-muted">{previewFormat === "handoff" ? "Bundle normalized JSON; original files are included separately." : "Final text after selection, level, layout and redaction."} Token count is estimated.{action === "export" && picked.includes("txt") && " Intent and prompt layout apply to TXT; Markdown, HTML, JSON and bundles preserve the transcript."}</p>
+          {(preview.loading || unsettled) && <p role="status" className="text-[12px] text-muted">Updating preview…</p>}
+          {preview.error && <p role="alert" className="text-danger">{preview.error}</p>}
+          {preview.data && <TextArea aria-label="Final handoff preview" readOnly value={preview.data.text} rows={8} className="font-mono text-[11px]" />}
+          {preview.data?.truncated && <p className="text-[12px] text-muted">Preview shows the first 4 MiB. The full output is used when you continue.</p>}
+          {selecting && <>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setSelectedKeys(null)}>Keep all messages</Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedKeys(new Set())}>Clear selection</Button>
+              <span className="text-[12px] text-muted">{selectedKeys?.size ?? messages.data?.length ?? 0} selected</span>
+            </div>
+            <p className="text-[12px] text-muted">Choose messages to keep. Level and tool detail rules still apply. Files from removed messages are excluded. JSON and bundles preserve selected turns; level rules apply to rendered text.</p>
+            {messages.loading && <p role="status">Loading messages…</p>}
+            {messages.error && <p role="alert" className="text-danger">{messages.error}</p>}
+            <div className="max-h-80 overflow-auto">
+              <Transcript messages={(messages.data ?? []).map((message) => ({ ...message, id: messageKey(message.sourceId, message.id) }))}
+                selected={selectedKeys ?? new Set((messages.data ?? []).map((message) => messageKey(message.sourceId, message.id)))}
+                onToggle={(key) => setSelectedKeys((prev) => { const next = new Set(prev ?? (messages.data ?? []).map((message) => messageKey(message.sourceId, message.id))); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />
+            </div>
+          </>}
+        </section>
         {error && <div className="rounded-xl border border-danger/40 bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div>}
 
         {action !== "copy-markdown" && (
@@ -273,7 +319,9 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
                 </div>
               </div>
             </div>
-            {loading && !data ? <Skeleton className="h-6 w-full rounded" /> : data && <BudgetMeter used={used} window={model.window} label={model.label} />}
+            {loading && !data ? <Skeleton className="h-6 w-full rounded" /> : data && (model.available === null ? <p className="text-[12px] text-warning">Unknown destination model limit. Choose a model or set a manual limit for size suggestions.</p> : model.available === 0 ? <p className="text-[12px] text-warning">No token budget remains after reserve. Adjust destination budget.</p> : <BudgetMeter used={used} window={model.available} label={`${model.label} · available after reserve`} />)}
+            <p className="text-[11.5px] text-muted">{model.sourceName}{model.stale ? " · stale / unverified" : ""}{model.conflicts ? " · sources disagree" : ""}</p>
+            <button type="button" onClick={() => goSettings("model-limits")} className="text-left text-[11.5px] text-accent hover:underline">Choose model or sync context limits</button>
             {overBudget && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning-soft px-2.5 py-1.5 text-[11.5px] text-warning">
                 <span>Leaves little room for a reply. {fit && fit !== level ? `${fit[0].toUpperCase()}${fit.slice(1)} fits comfortably.` : !fit ? "Even Minimal is large for this model." : ""}</span>
@@ -305,7 +353,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
                     role="radio"
                     aria-checked={on}
                     title={c.hint}
-                    onClick={() => setIntentKey(c.key)}
+                    onClick={() => { setIntentKey(c.key); if (action === "export") setPreviewChoice("txt"); }}
                     className={cx(
                       "h-8 rounded-full border px-3 text-[12.5px] font-medium transition-colors",
                       on ? "border-accent bg-accent-soft text-accent-strong shadow-xs" : "border-line bg-card text-muted hover:border-line-strong hover:text-ink",
@@ -419,7 +467,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
             ).map((opt) => {
               const active = level === opt.key;
               const delta = conciseDelta(opt.key);
-              const tooBig = !!data && action !== "copy-markdown" && budget(levelTokens(opt.key), model.window).tone === "over";
+              const tooBig = !!data && action !== "copy-markdown" && budget(levelTokens(opt.key), model.available ?? Number.POSITIVE_INFINITY).tone === "over";
               return (
                 <button
                   key={opt.key}
@@ -608,7 +656,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
                     key={s.value}
                     type="button"
                     aria-pressed={styleChoice === s.value}
-                    onClick={() => setStyleChoice(s.value)}
+                    onClick={() => { setStyleChoice(s.value); if (action === "export") setPreviewChoice("txt"); }}
                     className={cx(
                       "rounded-xl border p-2.5 text-left transition-colors",
                       styleChoice === s.value ? "border-accent bg-accent-soft/70" : "border-line bg-surface hover:border-line-strong",

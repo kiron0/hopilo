@@ -3,10 +3,10 @@ import { budget, fittingLevel, intentChoices, modelFor, normalizeRedaction, norm
 
 describe("handoff helpers", () => {
   it("maps targets to model presets", () => {
-    expect(modelFor("claude-code").id).toBe("claude");
-    expect(modelFor("gemini").style).toBe("contextFirst");
-    expect(modelFor("codex").window).toBe(400_000);
-    expect(modelFor("unknown-tool").id).toBe("claude");
+    expect(modelFor("claude-code").window).toBeNull();
+    expect(modelFor("gemini", undefined, { gemini: { providerId: "google", modelId: "gemini-2.5-pro" } }).style).toBe("contextFirst");
+    expect(modelFor("codex", undefined, { codex: { providerId: "openai", modelId: "gpt-5" } }).window).toBe(400_000);
+    expect(modelFor("unknown-tool").window).toBeNull();
   });
 
   it("grades budget and picks the largest level that fits", () => {
@@ -35,5 +35,18 @@ describe("handoff helpers", () => {
     expect(r.patterns[0].enabled).toBe(true);
     expect(r.keywords).toEqual(["k"]);
     expect(normalizeTemplates([{ id: "a", name: 1 }, "x"])).toEqual([{ id: "a", name: "", text: "" }]);
+  });
+});
+
+describe("synced destination budgets", () => {
+  const cache = { sources: [{ id: "gpt-5", name: "OpenAI", url: "https://developers.openai.com/api/docs/models/gpt-5.md", status: "updated" as const, checkedAt: "2026-11-09", updatedAt: "2026-11-09", error: null, models: [{ id: "gpt-5", window: 400_000, inputLimit: 272_000 }, { id: "chosen-model", window: 100_000 }] }] };
+  it("uses saved input cap offline, including after failed refresh", () => {
+    expect(modelFor("codex", cache, { codex: { providerId: "openai", modelId: "gpt-5" } }).window).toBe(272_000);
+    expect(modelFor("codex", { sources: [{ ...cache.sources[0], status: "failed", error: "Offline" }] }, { codex: { providerId: "openai", modelId: "gpt-5" } }).window).toBe(272_000);
+  });
+  it("uses explicit destination model, falls back if absent", () => {
+    expect(modelFor("codex", cache, { codex: { providerId: "openai", modelId: "chosen-model" } }).window).toBe(100_000);
+    expect(modelFor("codex", cache, { codex: { providerId: "openai", modelId: "missing" } }).window).toBeNull();
+    expect(modelFor("claude-code", cache).window).toBeNull();
   });
 });

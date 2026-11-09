@@ -190,11 +190,16 @@ pub fn arrange_sources(pack: &mut Pack, order: SessionOrder) {
     let sources = std::mem::take(&mut pack.sources);
     let mut slots: Vec<Option<_>> = sources.into_iter().map(Some).collect();
     pack.sources = keyed.iter().filter_map(|(_, _, i)| slots[*i].take()).collect();
-    let position: BTreeMap<String, usize> = pack.sources.iter().enumerate().map(|(i, s)| (s.source_id.clone(), i)).collect();
+    let position: BTreeMap<String, usize> =
+        pack.sources.iter().enumerate().map(|(i, s)| (s.source_id.clone(), i)).collect();
     pack.messages.sort_by_key(|m| position.get(&m.source_id).copied().unwrap_or(usize::MAX));
     pack.title = match pack.sources.as_slice() {
         [one] => one.title.clone(),
-        many => format!("{} sessions: {}", many.len(), many.iter().map(|s| s.title.as_str()).collect::<Vec<_>>().join(" + ")),
+        many => format!(
+            "{} sessions: {}",
+            many.len(),
+            many.iter().map(|s| s.title.as_str()).collect::<Vec<_>>().join(" + ")
+        ),
     };
 }
 
@@ -261,7 +266,13 @@ mod tests {
     }
 
     fn msg(id: &str, sid: &str, at: &str, text: &str) -> Message {
-        Message { id: id.into(), source_id: sid.into(), role: Role::User, created_at: Some(at.into()), blocks: vec![Block::text(text)] }
+        Message {
+            id: id.into(),
+            source_id: sid.into(),
+            role: Role::User,
+            created_at: Some(at.into()),
+            blocks: vec![Block::text(text)],
+        }
     }
 
     fn pack() -> Pack {
@@ -315,15 +326,28 @@ mod tests {
     #[test]
     fn intents_and_styles_shape_the_prompt() {
         let p = pack();
-        let review = render_framed(&p, &RenderOptions::default(), &Framing { intent: Intent::Review, ..Default::default() });
+        let review =
+            render_framed(&p, &RenderOptions::default(), &Framing { intent: Intent::Review, ..Default::default() });
         assert!(review.contains("careful senior engineer"));
         assert!(review.contains("<previous_sessions>"));
-        let md = render_framed(&p, &RenderOptions::default(), &Framing { style: PromptStyle::Markdown, note: Some("use pnpm".into()), ..Default::default() });
+        let md = render_framed(
+            &p,
+            &RenderOptions::default(),
+            &Framing { style: PromptStyle::Markdown, note: Some("use pnpm".into()), ..Default::default() },
+        );
         assert!(md.contains("===== BEGIN PREVIOUS SESSION ====="));
         assert!(md.contains("Also, from me: use pnpm"));
-        let last = render_framed(&p, &RenderOptions::default(), &Framing { style: PromptStyle::ContextFirst, intent: Intent::Summary, ..Default::default() });
+        let last = render_framed(
+            &p,
+            &RenderOptions::default(),
+            &Framing { style: PromptStyle::ContextFirst, intent: Intent::Summary, ..Default::default() },
+        );
         assert!(last.trim_end().ends_with("Don't continue the work; just summarize."));
-        let custom = render_framed(&p, &RenderOptions::default(), &Framing { intent: Intent::Custom, instructions: Some("Port {title} to Go".into()), ..Default::default() });
+        let custom = render_framed(
+            &p,
+            &RenderOptions::default(),
+            &Framing { intent: Intent::Custom, instructions: Some("Port {title} to Go".into()), ..Default::default() },
+        );
         assert!(custom.contains("Port t to Go"));
     }
 }

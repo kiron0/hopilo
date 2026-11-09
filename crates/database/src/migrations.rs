@@ -1,7 +1,6 @@
 use rusqlite::Connection;
 
 const MIGRATIONS: &[&str] = &[
-
     r#"
     CREATE TABLE sources (
         id TEXT PRIMARY KEY,
@@ -104,7 +103,6 @@ const MIGRATIONS: &[&str] = &[
         kind UNINDEXED, ref_id UNINDEXED, title, body, tokenize = 'unicode61'
     );
     "#,
-
     r#"
     CREATE TABLE pack_relations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +117,6 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX pack_relations_to ON pack_relations(to_pack);
     ALTER TABLE packs ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
     "#,
-
     r#"
     ALTER TABLE sources ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE sources ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
@@ -129,11 +126,9 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sources ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
     UPDATE sources SET updated_at = captured_at;
     "#,
-
     r#"
     ALTER TABLE sources ADD COLUMN title_edited INTEGER NOT NULL DEFAULT 0;
     "#,
-
     r#"
     ALTER TABLE sources ADD COLUMN reply_count INTEGER NOT NULL DEFAULT 0;
     UPDATE sources SET reply_count = (
@@ -145,6 +140,46 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX packs_list ON packs(pinned, updated_at);
     CREATE INDEX handoffs_created ON handoffs(created_at);
     ANALYZE;
+    "#,
+    r#"
+    CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, folder TEXT,
+        goal TEXT NOT NULL DEFAULT '', decisions TEXT NOT NULL DEFAULT '', next_steps TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE workspace_sessions (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        PRIMARY KEY(workspace_id, source_id)
+    );
+    CREATE TABLE session_lineage (
+        child_id TEXT PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+        parent_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL, CHECK(child_id <> parent_id)
+    );
+    CREATE TABLE workspace_handoffs (
+        id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        target TEXT NOT NULL, method TEXT NOT NULL, created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL
+    );
+    CREATE INDEX workspace_handoffs_recent ON workspace_handoffs(workspace_id, created_at);
+    "#,
+    r#"
+    DROP TABLE IF EXISTS workspace_handoffs;
+    DROP TABLE IF EXISTS session_lineage;
+    DROP TABLE IF EXISTS workspace_sessions;
+    DROP TABLE IF EXISTS workspaces;
+    CREATE TABLE manual_file_messages (
+        source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        message_id TEXT NOT NULL,
+        message_json TEXT NOT NULL,
+        PRIMARY KEY(source_id, message_id)
+    );
+    "#,
+    r#"
+    CREATE TABLE ignored_session_origins (origin TEXT PRIMARY KEY, deleted_at TEXT NOT NULL);
+    "#,
+    r#"
+    DROP TABLE IF EXISTS ignored_session_origins;
     "#,
 ];
 
@@ -161,4 +196,36 @@ pub fn run(conn: &mut Connection) -> rusqlite::Result<()> {
         tx.commit()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn discards_previously_saved_sync_suppression() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(8).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.pragma_update(None, "user_version", i + 1).unwrap();
+        }
+        conn.execute("INSERT INTO ignored_session_origins VALUES('/source/session.jsonl','now')", []).unwrap();
+        run(&mut conn).unwrap();
+        let tables: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='ignored_session_origins'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tables, 0);
+    }
+    #[test]
+    fn retires_project_tables_without_guessing_upload_ownership() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(6).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.pragma_update(None, "user_version", i + 1).unwrap();
+        }
+        conn.execute("INSERT INTO workspaces VALUES('old','Old project',NULL,'','','','now','now')", []).unwrap();
+        run(&mut conn).unwrap();
+        let retired: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('workspaces','workspace_sessions','workspace_handoffs','session_lineage')", [], |r| r.get(0)).unwrap();
+        assert_eq!(retired, 0);
+        assert!(!conn.prepare("SELECT 1 FROM manual_file_messages").unwrap().exists([]).unwrap());
+    }
 }

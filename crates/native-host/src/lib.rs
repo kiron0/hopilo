@@ -157,7 +157,6 @@ fn ok(request_id: &Value, result: Value) -> Value {
 }
 
 fn clean_url(u: &str) -> Option<String> {
-
     let u = u.split(['?', '#']).next()?.to_string();
     (u.starts_with("https://") && u.len() < 2048).then_some(u)
 }
@@ -249,7 +248,13 @@ impl Host {
                 let file = f
                     .data
                     .as_deref()
-                    .and_then(|d| hopilo_core::CapturedFile::from_base64(if name.is_empty() { "file".to_string() } else { name.clone() }, f.media_type.clone(), d))
+                    .and_then(|d| {
+                        hopilo_core::CapturedFile::from_base64(
+                            if name.is_empty() { "file".to_string() } else { name.clone() },
+                            f.media_type.clone(),
+                            d,
+                        )
+                    })
                     .filter(|cf| cf.bytes.len() <= MAX_FILE);
                 match file {
                     Some(cf) => match self.store.insert_attachment(&cf.attachment(), &cf.bytes) {
@@ -279,12 +284,17 @@ impl Host {
                 blocks,
             });
         }
-        let mut missing: Vec<String> = payload.missing.into_iter().take(20).map(|s| s.chars().take(300).collect()).collect();
+        let mut missing: Vec<String> =
+            payload.missing.into_iter().take(20).map(|s| s.chars().take(300).collect()).collect();
         if !unrecovered.is_empty() {
             let names = unrecovered.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
             missing.push(format!("{} file(s) shown in the chat couldn't be downloaded: {names}", unrecovered.len()));
         }
-        let status = if payload.status == "complete" && missing.is_empty() { CaptureStatus::Complete } else { CaptureStatus::Partial };
+        let status = if payload.status == "complete" && missing.is_empty() {
+            CaptureStatus::Complete
+        } else {
+            CaptureStatus::Partial
+        };
         if status == CaptureStatus::Partial && missing.is_empty() {
             missing.push("The page may not have shown the whole conversation".into());
         }
@@ -303,7 +313,10 @@ impl Host {
             omitted: vec![],
         };
         match self.store.insert_capture(&source, &messages) {
-            Ok(out) => ok(id, json!({ "sourceId": out.source_id, "duplicateOf": out.duplicate_of, "messageCount": messages.len(), "status": status })),
+            Ok(out) => ok(
+                id,
+                json!({ "sourceId": out.source_id, "duplicateOf": out.duplicate_of, "messageCount": messages.len(), "status": status }),
+            ),
             Err(e) => err(id, "library", e.to_string()),
         }
     }
@@ -322,7 +335,10 @@ impl Host {
             Ok(p) => p,
             Err(e) => return err(id, "not_found", e.to_string()),
         };
-        let rules: RedactionRules = self.store.settings().ok()
+        let rules: RedactionRules = self
+            .store
+            .settings()
+            .ok()
             .and_then(|s| s.get("redaction").cloned())
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();

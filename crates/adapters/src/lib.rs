@@ -38,9 +38,7 @@ pub(crate) fn macos_protected_user_path(path: &Path) -> bool {
         return false;
     }
     let Some(home) = home() else { return false };
-    ["Desktop", "Documents", "Downloads"]
-        .iter()
-        .any(|folder| path.starts_with(home.join(folder)))
+    ["Desktop", "Documents", "Downloads"].iter().any(|folder| path.starts_with(home.join(folder)))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,19 +125,18 @@ pub fn adapter_by_id(id: &str) -> Option<Box<dyn LocalAgentAdapter>> {
 }
 
 fn home() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)
 }
 
 pub(crate) fn open_lines(path: &Path) -> Result<Box<dyn Iterator<Item = std::io::Result<String>>>> {
     let io = |source| AdapterError::Io { path: path.display().to_string(), source };
     let f = File::open(path).map_err(io)?;
+    let bounded = |reader| hopilo_core::limits::LimitedReader::new(reader, hopilo_core::limits::DOCUMENT_BYTES);
     if path.extension().is_some_and(|e| e == "zst") {
         let dec = zstd::stream::read::Decoder::new(f).map_err(io)?;
-        return Ok(Box::new(BufReader::new(dec).lines()));
+        return Ok(Box::new(BufReader::new(bounded(Box::new(dec) as Box<dyn std::io::Read>)).lines()));
     }
-    Ok(Box::new(BufReader::new(f).lines()))
+    Ok(Box::new(BufReader::new(bounded(Box::new(f) as Box<dyn std::io::Read>)).lines()))
 }
 
 pub(crate) fn is_jsonl(p: &Path) -> bool {
@@ -183,7 +180,10 @@ where
     })
 }
 
-pub(crate) fn memo_scan(path: &Path, scan: impl FnOnce(&Path) -> Option<DiscoveredSession>) -> Option<DiscoveredSession> {
+pub(crate) fn memo_scan(
+    path: &Path,
+    scan: impl FnOnce(&Path) -> Option<DiscoveredSession>,
+) -> Option<DiscoveredSession> {
     let md = std::fs::metadata(path).ok()?;
     let key: MemoKey = (path.to_path_buf(), md.len(), md.modified().ok());
     if let Some((k, v)) = memo().lock().ok().and_then(|m| m.get(path).cloned()) {
@@ -199,10 +199,7 @@ pub(crate) fn memo_scan(path: &Path, scan: impl FnOnce(&Path) -> Option<Discover
 }
 
 pub(crate) fn file_meta(path: &Path) -> Result<(u64, String)> {
-    let md = std::fs::metadata(path).map_err(|source| AdapterError::Io {
-        path: path.display().to_string(),
-        source,
-    })?;
+    let md = std::fs::metadata(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
     let modified = md
         .modified()
         .ok()

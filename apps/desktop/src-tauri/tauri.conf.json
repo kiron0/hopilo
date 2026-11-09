@@ -42,7 +42,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https://api.github.com"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' about:; worker-src 'self' blob:; font-src 'self' blob: data:; object-src 'none'; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: ipc: http://ipc.localhost https://api.github.com"
     },
     "macOSPrivateApi": true
   },

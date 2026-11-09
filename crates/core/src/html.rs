@@ -90,7 +90,10 @@ fn rich_text(text: &str) -> String {
             out.push_str(&code_block(&code.join("\n"), lang));
         } else if line.trim().is_empty() {
             flush(&mut para, &mut out);
-        } else if let Some(h) = line.strip_prefix("#").filter(|_| line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### ")) {
+        } else if let Some(h) = line
+            .strip_prefix("#")
+            .filter(|_| line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### "))
+        {
             flush(&mut para, &mut out);
             let _ = write!(out, "<h4>{}</h4>", inline(h.trim_start_matches('#').trim()));
         } else {
@@ -133,7 +136,11 @@ fn role_name(r: Role) -> &'static str {
 fn write_message(out: &mut String, m: &Message, opts: &RenderOptions) {
     let role = role_name(m.role);
     let _ = write!(out, "<article class=\"msg {}\" id=\"m-{}\">", role.to_lowercase(), escape(&m.id));
-    let ts = m.created_at.as_deref().map(|t| format!("<time>{}</time>", escape(t.replace('T', " ").trim_end_matches('Z')))).unwrap_or_default();
+    let ts = m
+        .created_at
+        .as_deref()
+        .map(|t| format!("<time>{}</time>", escape(t.replace('T', " ").trim_end_matches('Z'))))
+        .unwrap_or_default();
     let _ = write!(out, "<header><span class=\"role\">{role}</span>{ts}</header>");
     for b in &m.blocks {
         match b {
@@ -171,7 +178,13 @@ fn write_message(out: &mut String, m: &Message, opts: &RenderOptions) {
                 let _ = write!(out, "<p class=\"note warn\">Referenced but not recovered: {}</p>", escape(description));
             }
             Block::File { name, media_type, size, .. } => {
-                let _ = write!(out, "<p class=\"note\">Shared file: <code>{}</code> · {} · {} bytes</p>", escape(name), escape(media_type), size);
+                let _ = write!(
+                    out,
+                    "<p class=\"note\">Shared file: <code>{}</code> · {} · {} bytes</p>",
+                    escape(name),
+                    escape(media_type),
+                    size
+                );
             }
         }
     }
@@ -237,7 +250,8 @@ pub fn render_html(pack: &Pack, opts: &RenderOptions) -> String {
     out.push_str("<!doctype html><html lang=\"en\" data-theme=\"dark\"><head><meta charset=\"utf-8\">");
     out.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
     out.push_str("<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:\">");
-    let _ = write!(out, "<title>{}</title><style>{STYLE}</style></head><body><div class=\"wrap\">", escape(&pack.title));
+    let _ =
+        write!(out, "<title>{}</title><style>{STYLE}</style></head><body><div class=\"wrap\">", escape(&pack.title));
     let _ = write!(out, "<h1>{}</h1>", escape(&pack.title));
     let msgs = visible_messages(pack, opts);
     let _ = write!(
@@ -247,6 +261,12 @@ pub fn render_html(pack: &Pack, opts: &RenderOptions) -> String {
         escape(pack.created_at.replace('T', " ").trim_end_matches('Z'))
     );
     out.push_str("<div class=\"bar\"><input id=\"q\" type=\"search\" placeholder=\"Search this transcript\"><span id=\"count\" class=\"dim\"></span><button id=\"tools\" type=\"button\">Expand tools</button><button id=\"theme\" type=\"button\">Theme</button></div>");
+    if opts.level != crate::brief::ContextLevel::Full {
+        // Use the same deterministic brief as Markdown and prompt text. Escape
+        // through rich_text rather than interpreting source text as HTML.
+        let _ = write!(out, "<article class=\"msg\">{}</article><footer>Exported with Hopilo</footer></div><script>{SCRIPT}</script></body></html>", rich_text(&crate::render::render_markdown(pack, opts)));
+        return out;
+    }
     if !pack.sources.is_empty() {
         out.push_str("<div class=\"sources\"><ul>");
         for s in &pack.sources {
@@ -260,6 +280,9 @@ pub fn render_html(pack: &Pack, opts: &RenderOptions) -> String {
             out.push_str("</li>");
         }
         out.push_str("</ul></div>");
+    }
+    if let Some(note) = pack.context.note.as_deref().filter(|n| !n.trim().is_empty()) {
+        let _ = write!(out, "<section class=\"sources\"><h4>Notes</h4>{}</section>", rich_text(note));
     }
     let multi = pack.sources.len() > 1;
     let mut current: Option<&str> = None;
@@ -277,7 +300,12 @@ pub fn render_html(pack: &Pack, opts: &RenderOptions) -> String {
         for a in &pack.attachments {
             if let Some(t) = &a.text {
                 let lang = a.file_name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
-                let _ = write!(out, "<details class=\"tool\"><summary><span class=\"tag\">{}</span></summary>{}</details>", escape(&a.file_name), code_block(t, lang));
+                let _ = write!(
+                    out,
+                    "<details class=\"tool\"><summary><span class=\"tag\">{}</span></summary>{}</details>",
+                    escape(&a.file_name),
+                    code_block(t, lang)
+                );
             }
         }
     }
@@ -314,8 +342,20 @@ mod tests {
             mode: Mode::Full,
             sources: vec![src],
             messages: vec![
-                Message { id: "1".into(), source_id: "s".into(), role: Role::User, created_at: None, blocks: vec![Block::text("Run `ls` **now**\n\n```rust\nfn main() {}\n```")] },
-                Message { id: "2".into(), source_id: "s".into(), role: Role::Assistant, created_at: None, blocks: vec![Block::ToolCall { name: "Bash".into(), input: "<img src=x onerror=alert(1)>".into() }] },
+                Message {
+                    id: "1".into(),
+                    source_id: "s".into(),
+                    role: Role::User,
+                    created_at: None,
+                    blocks: vec![Block::text("Run `ls` **now**\n\n```rust\nfn main() {}\n```")],
+                },
+                Message {
+                    id: "2".into(),
+                    source_id: "s".into(),
+                    role: Role::Assistant,
+                    created_at: None,
+                    blocks: vec![Block::ToolCall { name: "Bash".into(), input: "<img src=x onerror=alert(1)>".into() }],
+                },
             ],
             context: ContextBrief::default(),
             attachments: vec![],
@@ -331,5 +371,28 @@ mod tests {
         assert!(html.contains("data-lang=\"rust\""));
         assert!(html.contains("<details class=\"tool\">"));
         assert!(html.contains("Content-Security-Policy"));
+        let mut pack = pack;
+        pack.context.note = Some("Project note <script>bad()</script>".into());
+        let mut intermediate = pack.messages[0].clone();
+        intermediate.id = "middle".into();
+        intermediate.role = Role::Assistant;
+        intermediate.blocks = vec![Block::text("intermediate sentinel")];
+        pack.messages.push(intermediate);
+        let mut latest = pack.messages[0].clone();
+        latest.id = "latest".into();
+        latest.blocks = vec![Block::text("latest request")];
+        pack.messages.push(latest);
+        let mut reply = pack.messages[0].clone();
+        reply.id = "reply".into();
+        reply.role = Role::Assistant;
+        reply.blocks = vec![Block::text("final reply")];
+        pack.messages.push(reply);
+        let html = render_html(&pack, &RenderOptions::default());
+        assert!(html.contains("intermediate sentinel"));
+        assert!(html.contains("Project note &lt;script&gt;bad()&lt;/script&gt;"));
+        let minimal =
+            render_html(&pack, &RenderOptions { level: crate::brief::ContextLevel::Minimal, ..Default::default() });
+        assert!(!minimal.contains("intermediate sentinel"));
+        assert!(minimal.contains("latest request") && minimal.contains("Project note"));
     }
 }

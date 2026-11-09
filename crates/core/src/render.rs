@@ -9,7 +9,6 @@ use crate::model::{Block, CaptureStatus, Message, Pack, Role, Source};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ToolDetail {
-
     Full,
 
     Truncated { limit: usize },
@@ -70,7 +69,6 @@ fn status_label(s: CaptureStatus) -> &'static str {
 }
 
 fn fence_for(content: &str) -> String {
-
     let mut longest = 0;
     let mut run = 0;
     for c in content.chars() {
@@ -131,7 +129,11 @@ fn write_message(out: &mut String, m: &Message, opts: &RenderOptions) {
                 let _ = writeln!(out, "> ⚠ Referenced but not recovered: {description}\n");
             }
             Block::File { name, media_type, size, .. } => {
-                let _ = writeln!(out, "> 📎 Shared file: `{name}` ({media_type}, {}) — shared in this session\n", human_size(*size));
+                let _ = writeln!(
+                    out,
+                    "> 📎 Shared file: `{name}` ({media_type}, {}) — shared in this session\n",
+                    human_size(*size)
+                );
             }
         }
     }
@@ -165,11 +167,7 @@ fn write_source_line(out: &mut String, s: &Source) {
 pub fn render_markdown(pack: &Pack, opts: &RenderOptions) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# {}\n", pack.title);
-    let _ = writeln!(
-        out,
-        "_{} · exported by Hopilo_\n",
-        pack.created_at
-    );
+    let _ = writeln!(out, "_{} · exported by Hopilo_\n", pack.created_at);
 
     if !pack.sources.is_empty() {
         out.push_str("## Sources\n\n");
@@ -203,12 +201,7 @@ pub fn render_markdown(pack: &Pack, opts: &RenderOptions) -> String {
     if !msgs.is_empty() {
         out.push_str("## Transcript\n\n");
         if opts.selected.is_some() {
-            let _ = writeln!(
-                out,
-                "_Selected mode: {} of {} messages included._\n",
-                msgs.len(),
-                pack.messages.len()
-            );
+            let _ = writeln!(out, "_Selected mode: {} of {} messages included._\n", msgs.len(), pack.messages.len());
         }
         if matches!(opts.tool_detail, ToolDetail::Omit) {
             out.push_str("_Tool calls and results omitted._\n\n");
@@ -268,10 +261,14 @@ fn write_balanced(out: &mut String, msgs: &[&Message], opts: &RenderOptions) {
         );
         for m in shown {
             let text = if m.role == Role::User {
-                m.blocks.iter().filter_map(|b| match b {
-                    Block::Text { text } => Some(text.trim_end()),
-                    _ => None,
-                }).collect::<Vec<_>>().join("\n\n")
+                m.blocks
+                    .iter()
+                    .filter_map(|b| match b {
+                        Block::Text { text } => Some(text.trim_end()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
             } else {
                 brief::excerpt(m, 400).unwrap_or_default()
             };
@@ -287,7 +284,9 @@ fn write_balanced(out: &mut String, msgs: &[&Message], opts: &RenderOptions) {
 }
 
 fn write_minimal(out: &mut String, msgs: &[&Message]) {
-    out.push_str("_Minimal handoff: the goal, the latest exchange and key references. The full transcript is in Hopilo._\n\n");
+    out.push_str(
+        "_Minimal handoff: the goal, the latest exchange and key references. The full transcript is in Hopilo._\n\n",
+    );
     if let Some(goal) = brief::first_user(msgs).and_then(|m| brief::excerpt(m, 1500)) {
         let _ = writeln!(*out, "## Original request\n\n{goal}\n");
     }
@@ -310,8 +309,8 @@ pub fn render_handoff_prompt(pack: &Pack, opts: &RenderOptions) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::*;
     use crate::brief::ContextLevel;
+    use crate::model::*;
 
     fn pack() -> Pack {
         let src = Source {
@@ -327,13 +326,8 @@ mod tests {
             missing_items: vec!["Compacted history".into()],
             omitted: vec![],
         };
-        let mk = |id: &str, role, blocks| Message {
-            id: id.into(),
-            source_id: "s1".into(),
-            role,
-            created_at: None,
-            blocks,
-        };
+        let mk =
+            |id: &str, role, blocks| Message { id: id.into(), source_id: "s1".into(), role, created_at: None, blocks };
         Pack {
             schema_version: SCHEMA_VERSION.into(),
             pack_id: "p1".into(),
@@ -344,11 +338,7 @@ mod tests {
             sources: vec![src],
             messages: vec![
                 mk("m1", Role::User, vec![Block::text("Run `cargo test` in /tmp/app")]),
-                mk(
-                    "m2",
-                    Role::Assistant,
-                    vec![Block::ToolCall { name: "Bash".into(), input: "cargo test".into() }],
-                ),
+                mk("m2", Role::Assistant, vec![Block::ToolCall { name: "Bash".into(), input: "cargo test".into() }]),
                 mk(
                     "m3",
                     Role::Tool,
@@ -377,10 +367,7 @@ mod tests {
 
     #[test]
     fn selected_mode_filters_messages() {
-        let opts = RenderOptions {
-            selected: Some(["m1".to_string()].into_iter().collect()),
-            ..Default::default()
-        };
+        let opts = RenderOptions { selected: Some(["m1".to_string()].into_iter().collect()), ..Default::default() };
         let md = render_markdown(&pack(), &opts);
         assert!(md.contains("1 of 3 messages"));
         assert!(!md.contains("E0425"));
@@ -429,7 +416,13 @@ mod tests {
     #[test]
     fn minimal_has_goal_latest_and_refs_only() {
         let mut p = pack();
-        p.messages.push(Message { id: "a9".into(), source_id: "s1".into(), role: Role::Assistant, created_at: None, blocks: vec![Block::text("Fixed: renamed `x` in src/lib.rs")] });
+        p.messages.push(Message {
+            id: "a9".into(),
+            source_id: "s1".into(),
+            role: Role::Assistant,
+            created_at: None,
+            blocks: vec![Block::text("Fixed: renamed `x` in src/lib.rs")],
+        });
         let md = render_markdown(&p, &RenderOptions { level: ContextLevel::Minimal, ..Default::default() });
         assert!(md.contains("## Original request\n\nRun `cargo test` in /tmp/app"));
         assert!(md.contains("## Latest reply\n\nFixed: renamed `x` in src/lib.rs"));

@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::text::title_from;
 use crate::{omitted, AdapterError, Capture, Result};
 
-const MAX_EXPORT_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_EXPORT_BYTES: u64 = hopilo_core::limits::EXPORT_BYTES;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,53 +28,144 @@ fn io(path: &Path, e: impl std::fmt::Display) -> AdapterError {
     AdapterError::Io { path: path.display().to_string(), source: std::io::Error::other(e.to_string()) }
 }
 
-fn load_json(path: &Path) -> Result<Value> {
-    let bytes = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
-        let f = std::fs::File::open(path).map_err(|e| io(path, e))?;
-        let mut zip = zip::ZipArchive::new(f).map_err(|e| io(path, e))?;
-        let mut entry = zip
+// Parse one conversation at a time. Listing retains metadata only; selective
+// import normalizes only chosen conversations. Neither path retains the raw tree.
+struct ExportVisitor<'a> {
+    origin: &'a str,
+    selected: Option<&'a std::collections::HashSet<String>>,
+    metadata_only: bool,
+    item_bytes: std::rc::Rc<std::cell::Cell<u64>>,
+}
+
+impl<'de> serde::de::Visitor<'de> for ExportVisitor<'_> {
+    type Value = ExportParts;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a ChatGPT or Claude conversation array")
+    }
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<Self::Value, A::Error> {
+        let mut provider = None;
+        let mut metadata = Vec::new();
+        let mut captures = Vec::new();
+        let mut retained_bytes = 0u64;
+        loop {
+            self.item_bytes.set(0);
+            let Some(value) = seq.next_element::<Value>()? else { break };
+            let kind = if value.get("mapping").is_some() {
+                "chatgpt"
+            } else if value.get("chat_messages").is_some() {
+                "claude"
+            } else {
+                return Err(serde::de::Error::custom("not a ChatGPT or Claude export"));
+            };
+            if provider.is_some_and(|p| p != kind) {
+                return Err(serde::de::Error::custom("mixed chat export providers"));
+            }
+            provider = Some(kind);
+            let id = if kind == "chatgpt" {
+                value.get("conversation_id").or_else(|| value.get("id"))
+            } else {
+                value.get("uuid")
+            }
+            .and_then(Value::as_str);
+            if self.selected.is_some_and(|ids| !id.is_some_and(|id| ids.contains(id))) {
+                continue;
+            }
+            let parsed = if kind == "chatgpt" { chatgpt(&value, self.origin) } else { claude(&value, self.origin) };
+            if let Some((meta, capture)) = parsed {
+                if self.metadata_only {
+                    metadata.push(meta);
+                } else {
+                    retained_bytes = retained_bytes.saturating_add(self.item_bytes.get());
+                    if retained_bytes > hopilo_core::limits::DOCUMENT_BYTES {
+                        return Err(serde::de::Error::custom(
+                            "Selected conversations exceed 64 MiB. Import fewer chats at a time.",
+                        ));
+                    }
+                    captures.push((meta, capture));
+                }
+            }
+        }
+        Ok((provider.unwrap_or("chatgpt").into(), metadata, captures))
+    }
+}
+
+struct ConversationReader<R> {
+    inner: R,
+    item_bytes: std::rc::Rc<std::cell::Cell<u64>>,
+}
+impl<R: Read> Read for ConversationReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        let total = self.item_bytes.get().saturating_add(n as u64);
+        if total > hopilo_core::limits::DOCUMENT_BYTES {
+            return Err(std::io::Error::other("conversation exceeds the 64 MiB limit"));
+        }
+        self.item_bytes.set(total);
+        Ok(n)
+    }
+}
+
+type ExportParts = (String, Vec<ExportConversation>, Vec<(ExportConversation, Capture)>);
+fn parse_reader(
+    reader: impl Read,
+    origin: &str,
+    selected: Option<&std::collections::HashSet<String>>,
+    metadata_only: bool,
+) -> Result<ExportParts> {
+    let item_bytes = std::rc::Rc::new(std::cell::Cell::new(0));
+    let reader = hopilo_core::limits::LimitedReader::new(reader, MAX_EXPORT_BYTES);
+    let mut deserializer =
+        serde_json::Deserializer::from_reader(ConversationReader { inner: reader, item_bytes: item_bytes.clone() });
+    let visitor = ExportVisitor { origin, selected, metadata_only, item_bytes };
+    let parts =
+        serde::de::Deserializer::deserialize_seq(&mut deserializer, visitor).map_err(|e| io(Path::new(origin), e))?;
+    deserializer.end().map_err(|e| io(Path::new(origin), e))?;
+    Ok(parts)
+}
+
+fn read_export(
+    path: &Path,
+    selected: Option<&std::collections::HashSet<String>>,
+    metadata_only: bool,
+) -> Result<ExportParts> {
+    let file = std::fs::File::open(path).map_err(|e| io(path, e))?;
+    let origin = path.display().to_string();
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+        let mut zip = zip::ZipArchive::new(file).map_err(|e| io(path, e))?;
+        let entry = zip
             .by_name("conversations.json")
             .map_err(|_| AdapterError::Unrecognized(format!("{} (no conversations.json inside)", path.display())))?;
         if entry.size() > MAX_EXPORT_BYTES {
             return Err(io(path, "export is too large"));
         }
-        let mut buf = Vec::with_capacity(entry.size().min(8 * 1024 * 1024) as usize);
-        entry.by_ref().take(MAX_EXPORT_BYTES + 1).read_to_end(&mut buf).map_err(|e| io(path, e))?;
-        buf
+        parse_reader(std::io::BufReader::new(entry), &origin, selected, metadata_only)
     } else {
-        let file = std::fs::File::open(path).map_err(|e| io(path, e))?;
         if file.metadata().map_err(|e| io(path, e))?.len() > MAX_EXPORT_BYTES {
             return Err(io(path, "export is too large"));
         }
-        let mut buf = Vec::new();
-        file.take(MAX_EXPORT_BYTES + 1).read_to_end(&mut buf).map_err(|e| io(path, e))?;
-        buf
-    };
-    if bytes.len() as u64 > MAX_EXPORT_BYTES {
-        return Err(io(path, "export is too large"));
+        parse_reader(std::io::BufReader::new(file), &origin, selected, metadata_only)
     }
-    serde_json::from_slice(&bytes).map_err(|_| AdapterError::Unrecognized(path.display().to_string()))
+}
+
+pub fn list_export(path: &Path) -> Result<(String, Vec<ExportConversation>)> {
+    let (provider, metadata, _) = read_export(path, None, true)?;
+    Ok((provider, metadata))
+}
+
+pub fn parse_export_selected(path: &Path, ids: &std::collections::HashSet<String>) -> Result<ParsedExport> {
+    let (provider, _, conversations) = read_export(path, Some(ids), false)?;
+    Ok(ParsedExport { provider: if provider == "claude" { "claude" } else { "chatgpt" }, conversations })
 }
 
 pub fn parse_export(path: &Path) -> Result<ParsedExport> {
-    let v = load_json(path)?;
-    let Some(list) = v.as_array() else { return Err(AdapterError::Unrecognized(path.display().to_string())) };
-    let first = list.first();
-    let origin = path.display().to_string();
-    if first.is_some_and(|c| c.get("mapping").is_some()) {
-        Ok(ParsedExport { provider: "chatgpt", conversations: list.iter().filter_map(|c| chatgpt(c, &origin)).collect() })
-    } else if first.is_some_and(|c| c.get("chat_messages").is_some()) {
-        Ok(ParsedExport { provider: "claude", conversations: list.iter().filter_map(|c| claude(c, &origin)).collect() })
-    } else if list.is_empty() {
-        Ok(ParsedExport { provider: "chatgpt", conversations: vec![] })
-    } else {
-        Err(AdapterError::Unrecognized(format!("{} (not a ChatGPT or Claude export)", path.display())))
-    }
+    let (provider, _, conversations) = read_export(path, None, false)?;
+    Ok(ParsedExport { provider: if provider == "claude" { "claude" } else { "chatgpt" }, conversations })
 }
 
 fn secs_to_rfc3339(v: Option<&Value>) -> Option<String> {
     let s = v?.as_f64()?;
-    chrono::DateTime::<chrono::Utc>::from_timestamp_millis((s * 1000.0) as i64).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis((s * 1000.0) as i64)
+        .map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -114,7 +205,10 @@ fn finish(
         missing_items: missing,
         omitted: om,
     };
-    Some((ExportConversation { id: conv_id, title, updated_at, message_count: count }, Capture { source, messages, files: Vec::new() }))
+    Some((
+        ExportConversation { id: conv_id, title, updated_at, message_count: count },
+        Capture { source, messages, files: Vec::new() },
+    ))
 }
 
 fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
@@ -148,7 +242,10 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
         if model.is_none() {
             model = meta.and_then(|x| x.get("model_slug")).and_then(Value::as_str).map(str::to_string);
         }
-        if role == "system" || meta.and_then(|x| x.get("is_visually_hidden_from_conversation")).and_then(Value::as_bool) == Some(true) || ctype == "user_editable_context" {
+        if role == "system"
+            || meta.and_then(|x| x.get("is_visually_hidden_from_conversation")).and_then(Value::as_bool) == Some(true)
+            || ctype == "user_editable_context"
+        {
             hidden += 1;
             continue;
         }
@@ -176,7 +273,9 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
                         Value::String(_) => {}
                         _ => {
                             media += 1;
-                            blocks.push(Block::Missing { description: "image or file shared in the conversation".into() });
+                            blocks.push(Block::Missing {
+                                description: "image or file shared in the conversation".into(),
+                            });
                         }
                     }
                 }
@@ -193,12 +292,15 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
         let role = match role {
             "user" => Role::User,
             "tool" => {
-
                 blocks = blocks
                     .into_iter()
                     .map(|b| match b {
                         Block::Text { text } => Block::ToolResult {
-                            name: m.get("author").and_then(|a| a.get("name")).and_then(Value::as_str).map(str::to_string),
+                            name: m
+                                .get("author")
+                                .and_then(|a| a.get("name"))
+                                .and_then(Value::as_str)
+                                .map(str::to_string),
                             output: text,
                             is_error: false,
                         },
@@ -252,11 +354,18 @@ fn claude(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
                         "thinking" | "redacted_thinking" => thinking += 1,
                         "tool_use" => blocks.push(Block::ToolCall {
                             name: b.get("name").and_then(Value::as_str).unwrap_or("tool").to_string(),
-                            input: b.get("input").map(|i| serde_json::to_string_pretty(i).unwrap_or_default()).unwrap_or_default(),
+                            input: b
+                                .get("input")
+                                .map(|i| serde_json::to_string_pretty(i).unwrap_or_default())
+                                .unwrap_or_default(),
                         }),
                         "tool_result" => {
                             let output = match b.get("content") {
-                                Some(Value::Array(parts)) => parts.iter().filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"),
+                                Some(Value::Array(parts)) => parts
+                                    .iter()
+                                    .filter_map(|p| p.get("text").and_then(Value::as_str))
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
                                 Some(Value::String(s)) => s.clone(),
                                 _ => String::new(),
                             };
@@ -292,10 +401,22 @@ fn claude(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
             blocks.push(Block::Missing { description: format!("file “{name}”") });
         }
         if !blocks.is_empty() {
-            messages.push(Message { id: id.clone(), source_id: source_id.clone(), role, created_at: created_at.clone(), blocks });
+            messages.push(Message {
+                id: id.clone(),
+                source_id: source_id.clone(),
+                role,
+                created_at: created_at.clone(),
+                blocks,
+            });
         }
         if !results.is_empty() {
-            messages.push(Message { id: format!("{id}-results"), source_id: source_id.clone(), role: Role::Tool, created_at, blocks: results });
+            messages.push(Message {
+                id: format!("{id}-results"),
+                source_id: source_id.clone(),
+                role: Role::Tool,
+                created_at,
+                blocks: results,
+            });
         }
     }
     let mut missing = Vec::new();
@@ -314,11 +435,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn streamed_listing_and_selective_import_match_json_and_zip() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let source = std::fs::read_to_string(fixture("chatgpt-conversations.json")).unwrap();
+        let mut conversations: Value = serde_json::from_str(&source).unwrap();
+        let mut second = conversations[0].clone();
+        second["conversation_id"] = serde_json::json!("second");
+        conversations.as_array_mut().unwrap().push(second);
+        let bytes = serde_json::to_vec(&conversations).unwrap();
+        let raw = dir.path().join("conversations.json");
+        std::fs::write(&raw, &bytes).unwrap();
+        let zipped = dir.path().join("export.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&zipped).unwrap());
+        zip.start_file("conversations.json", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(&bytes).unwrap();
+        zip.finish().unwrap();
+        for path in [&raw, &zipped] {
+            assert_eq!(list_export(path).unwrap().1.len(), 2);
+            let imported = parse_export_selected(path, &std::collections::HashSet::from(["second".into()])).unwrap();
+            assert_eq!(imported.conversations.len(), 1);
+            assert_eq!(imported.conversations[0].0.id, "second");
+        }
+        std::fs::write(&raw, format!("{source} trailing junk")).unwrap();
+        assert!(list_export(&raw).is_err());
+    }
+
+    #[test]
     fn oversized_raw_export_is_rejected_before_allocation() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("huge.json");
         std::fs::File::create(&path).unwrap().set_len(MAX_EXPORT_BYTES + 1).unwrap();
-        let error = load_json(&path).unwrap_err().to_string();
+        let error = parse_export(&path).err().unwrap().to_string();
         assert!(error.contains("export is too large"), "{error}");
     }
     use std::path::PathBuf;
@@ -335,7 +483,13 @@ mod tests {
         assert_eq!(meta.title, "Postgres index advice");
         let texts: Vec<&str> = cap.messages.iter().map(|m| m.blocks[0].plain_text()).collect();
 
-        assert_eq!(texts, vec!["Which index for `WHERE user_id = $1 ORDER BY created_at`?", "Use a composite index on `(user_id, created_at)`."]);
+        assert_eq!(
+            texts,
+            vec![
+                "Which index for `WHERE user_id = $1 ORDER BY created_at`?",
+                "Use a composite index on `(user_id, created_at)`."
+            ]
+        );
         assert_eq!(cap.source.model.as_deref(), Some("gpt-5"));
         assert!(cap.source.omitted.iter().any(|o| o.what.starts_with("hidden system")));
         assert!(cap.source.origin.as_deref().unwrap().ends_with("#c1"));

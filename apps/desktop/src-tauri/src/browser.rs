@@ -88,7 +88,8 @@ fn manifest_path(id: &str, profile: &Path) -> Option<PathBuf> {
         return hopilo_native_host::default_data_dir()
             .map(|p| p.join("native-messaging").join(format!("{id}-{HOST_NAME}.json")));
     }
-    let folder = if id == "firefox" && cfg!(target_os = "linux") { "native-messaging-hosts" } else { "NativeMessagingHosts" };
+    let folder =
+        if id == "firefox" && cfg!(target_os = "linux") { "native-messaging-hosts" } else { "NativeMessagingHosts" };
     Some(profile.join(folder).join(format!("{HOST_NAME}.json")))
 }
 
@@ -192,7 +193,10 @@ pub fn targets() -> Vec<BrowserTarget> {
 pub fn register(ids: &[String]) -> Result<Vec<String>, String> {
     let host = host_binary().ok_or("Couldn't locate the Hopilo bridge program")?;
     if !host.is_file() {
-        return Err(format!("The bridge program is missing at {}. Rebuild Hopilo (cargo build -p hopilo-native-host).", host.display()));
+        return Err(format!(
+            "The bridge program is missing at {}. Rebuild Hopilo (cargo build -p hopilo-native-host).",
+            host.display()
+        ));
     }
     let mut done = Vec::new();
     for (id, name, profile) in known_browsers() {

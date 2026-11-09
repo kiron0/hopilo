@@ -9,10 +9,12 @@ hopilo-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-rusqlite.workspace = true
+rusqlite = { workspace = true, features = ["functions", "backup"] }
 chrono.workspace = true
 sha2.workspace = true
 hex.workspace = true
 
-[dev-dependencies]
 tempfile.workspace = true
+zip.workspace = true
+ring = "0.17.14"
+zeroize = "1"

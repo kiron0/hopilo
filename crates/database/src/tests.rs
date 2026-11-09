@@ -1,6 +1,90 @@
 use super::*;
 use hopilo_core::*;
 
+#[test]
+fn paged_library_filters_unicode_ids_hidden_and_keeps_stable_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let mut ids = Vec::new();
+    for i in 0..31 {
+        let (mut source, messages) = capture(&format!("/page-{i}"), "hello");
+        source.title = format!("ÉTUDE {i}");
+        source.model = Some("Model A".into());
+        ids.push(db.upsert_session(&source, &messages, Some("2030-01-01T00:00:00Z")).unwrap().source_id);
+    }
+    db.update_session(
+        &ids[0],
+        &SessionPatch { pinned: Some(true), tags: Some(vec!["special".into()]), ..Default::default() },
+    )
+    .unwrap();
+    let first = db.query_sessions(&SessionQuery { limit: 10, ..Default::default() }).unwrap();
+    let next = db.query_sessions(&SessionQuery { limit: 10, offset: 10, ..Default::default() }).unwrap();
+    assert_eq!(first.total, 31);
+    assert_eq!(first.counts.hidden, 0);
+    assert_eq!(first.rows.len(), 10);
+    assert_eq!(first.rows[0].id, ids[0]);
+    assert!(next.rows.iter().all(|r| !first.rows.iter().any(|p| p.id == r.id)));
+    let found =
+        db.query_sessions(&SessionQuery { q: "étude".into(), model: "Model A".into(), ..Default::default() }).unwrap();
+    assert_eq!(found.total, 31);
+    let found = db.query_sessions(&SessionQuery { q: "special".into(), ..Default::default() }).unwrap();
+    assert_eq!(found.rows[0].id, ids[0]);
+    let selected = db
+        .query_sessions(&SessionQuery { ids: Some(vec![ids[3].clone(), ids[20].clone()]), ..Default::default() })
+        .unwrap();
+    assert_eq!(selected.total, 2);
+    assert!(db.query_sessions(&SessionQuery { ids: Some(vec![]), ..Default::default() }).unwrap().rows.is_empty());
+    db.remove_session(&ids[3]).unwrap();
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().total, 30);
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().counts.total, 30);
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().counts.hidden, 1);
+    assert_eq!(
+        db.query_sessions(&SessionQuery { q: "no matches".into(), ..Default::default() }).unwrap().counts.hidden,
+        1
+    );
+    assert_eq!(db.query_sessions(&SessionQuery { filter: "hidden".into(), ..Default::default() }).unwrap().total, 1);
+    let last = db.query_sessions(&SessionQuery { limit: 10, offset: 100_000, ..Default::default() }).unwrap();
+    assert_eq!(last.offset, 20);
+    assert_eq!(last.rows.len(), 10);
+    assert_eq!(db.query_sessions(&SessionQuery { q: "' OR 1=1 --".into(), ..Default::default() }).unwrap().total, 0);
+}
+
+#[test]
+#[ignore = "synthetic scale benchmark; run explicitly"]
+fn benchmark_library_paging() {
+    use std::time::Instant;
+    for count in [1_000, 10_000, 100_000] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Store::open(dir.path()).unwrap();
+        let tx = db.conn.transaction().unwrap();
+        {
+            let mut insert = tx.prepare("INSERT INTO sources (id,kind,provider,title,captured_at,capture_status,source_json,message_count,token_estimate,content_hash)
+                VALUES (?1,'local-agent','codex',?2,'2030-01-01T00:00:00Z','complete','{}',2,100,'hash')").unwrap();
+            for i in 0..count {
+                insert.execute(params![format!("id{i}"), format!("Session {i}")]).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        let start = Instant::now();
+        let all = db.list_sessions().unwrap();
+        let full = serde_json::to_vec(&all).unwrap();
+        let full_time = start.elapsed();
+        let start = Instant::now();
+        let page = db.query_sessions(&SessionQuery { limit: 25, ..Default::default() }).unwrap();
+        let payload = serde_json::to_vec(&page).unwrap();
+        let page_time = start.elapsed();
+        let start = Instant::now();
+        db.query_sessions(&SessionQuery { limit: 25, offset: 25, ..Default::default() }).unwrap();
+        let warm = start.elapsed();
+        assert_eq!(page.rows.len(), 25);
+        eprintln!(
+            "sessions={count} full={full_time:?}/{} bytes page={page_time:?}/{} bytes warm={warm:?}",
+            full.len(),
+            payload.len()
+        );
+    }
+}
+
 fn capture(origin: &str, text: &str) -> (Source, Vec<Message>) {
     let sid = new_id();
     let source = Source {
@@ -17,8 +101,20 @@ fn capture(origin: &str, text: &str) -> (Source, Vec<Message>) {
         omitted: vec![],
     };
     let msgs = vec![
-        Message { id: "m1".into(), source_id: sid.clone(), role: Role::User, created_at: None, blocks: vec![Block::text(text)] },
-        Message { id: "m2".into(), source_id: sid, role: Role::Assistant, created_at: None, blocks: vec![Block::text("On it.")] },
+        Message {
+            id: "m1".into(),
+            source_id: sid.clone(),
+            role: Role::User,
+            created_at: None,
+            blocks: vec![Block::text(text)],
+        },
+        Message {
+            id: "m2".into(),
+            source_id: sid,
+            role: Role::Assistant,
+            created_at: None,
+            blocks: vec![Block::text("On it.")],
+        },
     ];
     (source, msgs)
 }
@@ -84,10 +180,17 @@ fn session_list_and_transcripts_are_cached_until_the_next_write() {
     db.update_session(&id, &SessionPatch { title: Some("Renamed".into()), ..Default::default() }).unwrap();
     assert_eq!(db.list_sessions().unwrap()[0].title, "Renamed");
     assert_eq!(db.get_source(&id).unwrap().0.title, "Renamed");
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().counts.pinned, 0);
 
     let mut other = Store::open(dir.path()).unwrap();
-    other.update_session(&id, &SessionPatch { title: Some("From host".into()), ..Default::default() }).unwrap();
+    other
+        .update_session(
+            &id,
+            &SessionPatch { title: Some("From host".into()), pinned: Some(true), ..Default::default() },
+        )
+        .unwrap();
     assert_eq!(db.list_sessions().unwrap()[0].title, "From host");
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().counts.pinned, 1);
 }
 
 #[test]
@@ -293,12 +396,7 @@ fn legacy_content_hash_matches_pre_camel_case_serialization() {
         blocks: vec![
             Block::ToolCall { name: "Bash".into(), input: "{}".into() },
             Block::ToolResult { name: Some("Bash".into()), output: "failed".into(), is_error: true },
-            Block::File {
-                name: "a.txt".into(),
-                media_type: "text/plain".into(),
-                sha256: "abc".into(),
-                size: 3,
-            },
+            Block::File { name: "a.txt".into(), media_type: "text/plain".into(), sha256: "abc".into(), size: 3 },
             Block::Missing { description: "gone".into() },
             Block::text("after"),
         ],
@@ -339,7 +437,10 @@ fn relations_tags_and_audit() {
     assert!(clean.version_problems.is_empty());
 
     db.conn
-        .execute("UPDATE pack_versions SET snapshot_json = replace(snapshot_json, 'audit me', 'edited') WHERE pack_id = ?1", [&p.pack_id])
+        .execute(
+            "UPDATE pack_versions SET snapshot_json = replace(snapshot_json, 'audit me', 'edited') WHERE pack_id = ?1",
+            [&p.pack_id],
+        )
         .unwrap();
     assert_eq!(db.audit().unwrap().version_problems.len(), 1);
 }
@@ -350,11 +451,20 @@ fn sessions_refresh_in_place_and_keep_pin_and_tags() {
     let mut db = Store::open(dir.path()).unwrap();
     let (s, m) = capture("/s.jsonl", "first turn");
     let first = db.insert_capture(&s, &m).unwrap();
-    db.update_session(&first.source_id, &SessionPatch { pinned: Some(true), tags: Some(vec!["Auth".into()]), ..Default::default() })
-        .unwrap();
+    db.update_session(
+        &first.source_id,
+        &SessionPatch { pinned: Some(true), tags: Some(vec!["Auth".into()]), ..Default::default() },
+    )
+    .unwrap();
 
     let (s2, mut m2) = capture("/s.jsonl", "first turn");
-    m2.push(Message { id: "m3".into(), source_id: s2.source_id.clone(), role: Role::User, created_at: None, blocks: vec![Block::text("next")] });
+    m2.push(Message {
+        id: "m3".into(),
+        source_id: s2.source_id.clone(),
+        role: Role::User,
+        created_at: None,
+        blocks: vec![Block::text("next")],
+    });
     let again = db.upsert_session(&s2, &m2, Some("2030-01-01T00:00:00Z")).unwrap();
     assert_eq!(again.source_id, first.source_id);
     assert!(again.duplicate_of.is_none());
@@ -398,9 +508,7 @@ fn duplicate_content_refreshes_source_metadata() {
     refreshed.project = Some("/work/app".into());
     refreshed.missing_items = vec!["new parser notice".into()];
     refreshed.capture_status = CaptureStatus::Partial;
-    let result = db
-        .upsert_session(&refreshed, &refreshed_messages, Some("2030-01-01T00:00:00Z"))
-        .unwrap();
+    let result = db.upsert_session(&refreshed, &refreshed_messages, Some("2030-01-01T00:00:00Z")).unwrap();
 
     assert_eq!(result.source_id, id);
     assert_eq!(result.duplicate_of.as_deref(), Some(id.as_str()));
@@ -688,4 +796,132 @@ fn attachment_bytes_rejects_non_sha_names() {
     let db = Store::open(dir.path()).unwrap();
     assert!(db.attachment_bytes("../secret.txt").is_none());
     assert!(db.attachment_bytes("").is_none());
+}
+
+#[test]
+fn encrypted_backup_roundtrip_preserves_settings_history_and_blobs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(&dir.path().join("library")).unwrap();
+    let file = CapturedFile {
+        name: "notes.txt".into(),
+        media_type: "text/plain".into(),
+        bytes: b"private backup content".to_vec(),
+    };
+    let (attachment, _) = db.insert_attachment(&file.attachment(), &file.bytes).unwrap();
+    let (source, mut messages) = capture("/session", "private request");
+    messages[0].blocks.push(file.block());
+    let id = db.upsert_session(&source, &messages, None).unwrap().source_id;
+    db.set_setting("theme", &serde_json::json!("dark")).unwrap();
+    db.record_copy(std::slice::from_ref(&id), "claude", "clipboard", "copied").unwrap();
+    let backup_path = dir.path().join("library.hbackup");
+    let password = "a strong test password";
+    let report = db.create_backup(&backup_path, password).unwrap();
+    assert!(report.verified);
+    assert_eq!((report.sessions, report.files), (1, 1));
+    let bytes = std::fs::read(&backup_path).unwrap();
+    assert!(!bytes.windows(file.bytes.len()).any(|part| part == file.bytes));
+    assert!(backup::verify(&backup_path, "wrong password").is_err());
+    let verified = backup::verify(&backup_path, password).unwrap();
+    let restored_dir = dir.path().join("restored");
+    let mut restored = Store::open(&restored_dir).unwrap();
+    restored.set_setting("theme", &serde_json::json!("light")).unwrap();
+    restored.query_sessions(&SessionQuery::default()).unwrap(); // prime caches
+    restored.restore_backup(verified).unwrap();
+    assert_eq!(restored.query_sessions(&SessionQuery::default()).unwrap().total, 1);
+    assert_eq!(restored.settings().unwrap()["theme"], "dark");
+    assert_eq!(restored.list_handoffs(10).unwrap().len(), 1);
+    assert_eq!(std::fs::read(restored_dir.join("attachments").join(&attachment.sha256)).unwrap(), file.bytes);
+    // A failed replacement must preserve the last verified backup.
+    std::fs::write(db.root().join("attachments").join(&attachment.sha256), "damaged").unwrap();
+    assert!(db.create_backup(&backup_path, password).is_err());
+    assert_eq!(std::fs::read(&backup_path).unwrap(), bytes);
+    assert!(db.create_backup(&db.root().join("attachments/unsafe.hbackup"), password).is_err());
+    let mut corrupt = bytes;
+    let last = corrupt.len() - 1;
+    corrupt[last] ^= 1;
+    let corrupt_path = dir.path().join("damaged.hbackup");
+    std::fs::write(&corrupt_path, corrupt).unwrap();
+    assert!(backup::verify(&corrupt_path, password).is_err());
+    assert_eq!(restored.settings().unwrap()["theme"], "dark");
+    assert!(db.create_backup(&dir.path().join("short.hbackup"), "short").is_err());
+}
+
+#[test]
+fn manual_file_removal_preserves_native_refs_other_files_snapshots_and_sync() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let first =
+        CapturedFile { name: "shared.txt".into(), media_type: "text/plain".into(), bytes: b"shared content".to_vec() };
+    let second = CapturedFile {
+        name: "manual-only.txt".into(),
+        media_type: "text/plain".into(),
+        bytes: b"manual-only content".to_vec(),
+    };
+    let (a, _) = db.insert_attachment(&first.attachment(), &first.bytes).unwrap();
+    let (b, _) = db.insert_attachment(&second.attachment(), &second.bytes).unwrap();
+    let (source, mut native) = capture("/agent.jsonl", "agent prompt");
+    native[0].blocks.push(first.block());
+    let id = db.upsert_session(&source, &native, None).unwrap().source_id;
+    assert!(db.remove_session_file(&id, &native[0].id, &a.sha256, &a.file_name).is_err());
+    db.add_files(Some(&id), &[a.clone(), b.clone()]).unwrap();
+    let upload = db.manual_file_messages(&id).unwrap()[0].id.clone();
+    let (_, messages) = db.get_source(&id).unwrap();
+    let entries = db.session_file_entries(&id, &messages).unwrap();
+    assert!(entries[0].manual_message_id.is_none(), "shared SHA does not make native files removable");
+    assert_eq!(entries[1].manual_message_id.as_deref(), Some(upload.as_str()));
+    // Sync from disk must retain the independently recorded manual upload.
+    native[1].blocks = vec![Block::text("new agent response")];
+    db.upsert_session(&source, &native, None).unwrap();
+    assert_eq!(db.get_source(&id).unwrap().1.len(), 3);
+    let snapshot = db.compose(std::slice::from_ref(&id)).unwrap();
+    db.query_sessions(&SessionQuery::default()).unwrap(); // prime counts/cache
+    assert!(db.remove_session_file(&id, "forged", &a.sha256, &a.file_name).is_err());
+    assert!(db.remove_session_file(&id, &upload, &a.sha256, "wrong name").is_err());
+    db.remove_session_file(&id, &upload, &a.sha256, &a.file_name).unwrap();
+    assert_eq!(db.manual_file_messages(&id).unwrap()[0].blocks.len(), 1);
+    assert_eq!(db.session_row(&id).unwrap().file_count, 2);
+    db.remove_session_file(&id, &upload, &b.sha256, &b.file_name).unwrap();
+    let (_, after) = db.get_source(&id).unwrap();
+    assert_eq!(after.len(), 2, "empty manual upload message is removed");
+    assert!(db.manual_file_messages(&id).unwrap().is_empty());
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().rows[0].file_count, 1);
+    assert_eq!(db.session_files(&after)[0].file_name, first.name);
+    assert_eq!(snapshot.messages.len(), 3, "existing snapshots remain immutable");
+    assert_eq!(db.attachment_bytes(&a.sha256).unwrap(), first.bytes);
+    assert_eq!(db.attachment_bytes(&b.sha256).unwrap(), second.bytes);
+    db.upsert_session(&source, &native, None).unwrap();
+    assert_eq!(db.get_source(&id).unwrap().1.len(), 2, "removed uploads do not return on sync");
+    let standalone = db.add_files(None, std::slice::from_ref(&b)).unwrap();
+    let own = db.manual_file_messages(&standalone).unwrap()[0].id.clone();
+    assert!(db.remove_session_file(&id, &own, &b.sha256, &b.file_name).is_err());
+    db.remove_session_file(&standalone, &own, &b.sha256, &b.file_name).unwrap();
+    assert!(db.get_source(&standalone).unwrap().1.is_empty());
+    assert_eq!(db.session_row(&standalone).unwrap().file_count, 0);
+}
+
+#[test]
+fn permanent_hidden_deletion_is_atomic_and_allows_sync_reimport() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (source, messages) = capture("/deleted-agent", "private hidden content");
+    let a = db.upsert_session(&source, &messages, None).unwrap().source_id;
+    let (other, other_messages) = capture("/other-agent", "other content");
+    let b = db.upsert_session(&other, &other_messages, None).unwrap().source_id;
+    db.remove_session(&a).unwrap();
+    assert!(db.permanently_delete_sessions(&[a.clone(), b.clone()]).is_err());
+    assert!(db.session_row(&a).is_ok(), "a mixed active/hidden batch must roll back completely");
+    db.remove_session(&b).unwrap();
+    db.query_sessions(&SessionQuery::default()).unwrap();
+    db.permanently_delete_sessions(&[a.clone(), b.clone(), a.clone()]).unwrap();
+    assert!(db.list_hidden_sessions().unwrap().is_empty());
+    assert!(db.session_row(&a).is_err());
+    assert!(db.get_source(&a).is_err());
+    assert!(db.restore_session(&a).is_err());
+    assert!(db.search("private hidden", 20).unwrap().is_empty());
+    assert!(db.upsert_session(&source, &messages, None).is_ok(), "existing source can be synced again");
+    drop(db);
+    let mut db = Store::open(dir.path()).unwrap();
+    assert!(db.upsert_session(&other, &other_messages, None).is_ok(), "no suppression survives app restart");
+    db.wipe().unwrap();
+    assert!(db.list_sessions().unwrap().is_empty());
 }

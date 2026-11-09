@@ -7,6 +7,9 @@ use rusqlite::Connection;
 
 use crate::sessions::SessionRow;
 
+type MetadataKey = (i64, Option<String>);
+type Metadata = Arc<crate::session_query::QueryMetadata>;
+
 const SOURCE_SLOTS: usize = 8;
 
 pub(crate) type Stamp = (u64, i64);
@@ -17,6 +20,7 @@ pub(crate) struct Cache {
     stamp: Option<Stamp>,
     sessions: Option<Arc<Vec<SessionRow>>>,
     sources: VecDeque<(String, Transcript)>,
+    metadata: VecDeque<(MetadataKey, Metadata)>,
 }
 
 pub(crate) fn stamp(conn: &Connection) -> Stamp {
@@ -29,8 +33,22 @@ impl Cache {
         if self.stamp != Some(now) {
             self.sessions = None;
             self.sources.clear();
+            self.metadata.clear();
             self.stamp = Some(now);
         }
+    }
+
+    pub(crate) fn metadata(cell: &RefCell<Self>, now: Stamp, key: &MetadataKey) -> Option<Metadata> {
+        let mut c = cell.borrow_mut();
+        c.sync(now);
+        c.metadata.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+    pub(crate) fn put_metadata(cell: &RefCell<Self>, now: Stamp, key: MetadataKey, value: Metadata) {
+        let mut c = cell.borrow_mut();
+        c.sync(now);
+        c.metadata.retain(|(k, _)| k != &key);
+        c.metadata.push_front((key, value));
+        c.metadata.truncate(4);
     }
 
     pub(crate) fn sessions(cell: &RefCell<Self>, now: Stamp) -> Option<Arc<Vec<SessionRow>>> {

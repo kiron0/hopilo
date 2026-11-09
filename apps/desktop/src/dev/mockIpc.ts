@@ -1,3 +1,5 @@
+import { mockHandoffText } from "./handoffPreview";
+import { previewFixtures } from "./previewFixtures";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
 const now = Date.now();
@@ -15,6 +17,7 @@ const session = (id: string, provider: string, kind: string, title: string, min:
   captureStatus: "complete",
   messageCount: 42,
   tokenEstimate: 18_400,
+  replyCount: 21,
   missingCount: 0,
   fileCount: 0,
   pinned: false,
@@ -45,16 +48,70 @@ export function installMockIpc() {
 
   const delay = Number(new URLSearchParams(location.search).get("mockDelay") ?? 0);
   const pins = new Map<string, boolean>();
+  const hidden = new Map(Array.from({ length: 12 }, (_, i) => { const row = session(`hidden-${i}`, "codex", "local-agent", `Hidden run ${i + 1}`, i + 5, { hidden: true }); return [row.id, row]; }));
+  const removedUploads = new Set<string>();
+  let schedule: { unlocked: boolean; directory: string | null; hours: number | null; lastResult: string | null } = { unlocked: false, directory: null, hours: null, lastResult: null };
   mockIPC(async (cmd, args) => {
     const a = (args ?? {}) as Record<string, any>;
     if (delay && cmd !== "get_settings" && !cmd.startsWith("plugin:")) await new Promise((r) => setTimeout(r, delay));
     switch (cmd) {
+      case "permanently_delete_sessions":
+        if (!(a.ids as string[]).every((id) => hidden.has(id))) throw new Error("Hidden session not found");
+        (a.ids as string[]).forEach((id) => hidden.delete(id)); return null;
+      case "restore_session": hidden.delete(a.id); return null;
+      case "read_file_preview": {
+        const image = new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg' width='400' height='300'><rect width='400' height='300' fill='#394065'/><text x='200' y='150' text-anchor='middle' fill='white' font-size='24'>Diagram</text></svg>");
+        const data = a.sha === "f1" ? image : a.sha === "f2" ? new TextEncoder().encode("# Requirements\nUse cursor pagination.") : previewFixtures.find((f) => f.sha256 === a.sha)?.data;
+        if (!data) throw new Error("File missing");
+        return data.slice(a.offset, a.offset + a.length).buffer;
+      }
+      case "remove_session_file":
+        if (a.messageId !== "manual-upload" || a.sha !== "f2" || a.name !== "requirements.md") throw new Error("Hopilo-added file not found");
+        removedUploads.add(a.id); return null;
+      case "preview_file":
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect width='400' height='300' fill='%23394065'/%3E%3Ctext x='200' y='150' text-anchor='middle' fill='white' font-size='24'%3EDiagram%3C/text%3E%3C/svg%3E";
+      case "handoff_messages":
+        return (a.ids as string[]).flatMap((sourceId) => MESSAGES.map((m) => ({ ...m, sourceId })));
+      case "preview_handoff": {
+        const options = a.opts ?? {};
+        if (options.selected?.length === 0) throw new Error("Choose at least one message");
+        const messages = (a.ids as string[]).flatMap((sourceId) => MESSAGES.map((m) => ({ ...m, sourceId })))
+          .filter((m) => !options.selected || options.selected.some((s: { sourceId: string; id: string }) => s.sourceId === m.sourceId && s.id === m.id));
+        const text = mockHandoffText(messages.map((m) => `${m.role}: ${m.blocks.map((b) => "text" in b ? b.text : "[tool]").join("\n")}`).join("\n\n"), a.format, options, a.ids.length);
+        const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+        return { text, hash, tokenEstimate: Math.ceil(text.length / 4), messageCount: messages.length, format: a.format };
+      }
+      case "backup_status": return schedule;
+      case "unlock_backup_schedule": schedule = { unlocked: true, directory: a.directory, hours: a.hours, lastResult: "Development mock: no backup written" }; return null;
+      case "lock_backup_schedule": schedule = { ...schedule, unlocked: false }; return null;
+      case "import_model_limits":
+      case "sync_model_limits":
+        throw new Error("Model-limit sync requires the desktop app. The browser preview does not contact providers.");
       case "get_settings":
-        return { onboarded: false };
+        return { onboarded: false, theme: new URLSearchParams(location.search).get("mockTheme") ?? "system" };
       case "stats":
         return { sourceCount: SESSIONS.length, pinnedCount: 1, attachmentCount: 3, providerCount: 6, capturesToday: 1, handoffsTotal: 8, handoffsToday: 2, lastCaptureAt: ago(2), lastHandoff: null, storageBytes: 3_400_000 };
       case "sync_sessions":
         return { added: 0, updated: 0, failed: 0, found: SESSIONS.length, busy: false };
+      case "query_sessions": {
+        const query = a.query ?? {};
+        const all = (query.filter === "hidden" ? [...hidden.values()] : SESSIONS).map((r) => ({ ...r, pinned: pins.get(r.id) ?? r.pinned }));
+        const q = String(query.q ?? "").toLowerCase().trim();
+        const rows = all.filter((r) =>
+          (!query.ids || query.ids.includes(r.id)) && !(query.exclude ?? []).includes(r.id) &&
+          (!query.filter || query.filter === "all" || query.filter === "hidden" || query.filter === "agents" && r.kind === "local-agent" || query.filter === "web" && r.kind === "browser-chat" || query.filter === "pinned" && r.pinned || query.filter === "added" && !["local-agent", "browser-chat"].includes(r.kind)) &&
+          (!query.provider || query.provider === "all" || query.provider === r.provider) &&
+          (!query.model || query.model === "all" || query.model === (r.model || "__unknown")) &&
+          (!query.folder || query.folder === "all" || query.folder === r.project) &&
+          (!query.resource || query.resource === "all" || query.resource === "with-files" && r.fileCount > 0 || query.resource === "without-files" && r.fileCount === 0) &&
+          (!q || [r.title, r.project, r.model, r.provider, ...r.tags].some((s) => s?.toLowerCase().includes(q)) || (query.searchProviders ?? []).includes(r.provider)))
+          .sort((x, y) => Number(y.pinned) - Number(x.pinned) || y.updatedAt.localeCompare(x.updatedAt));
+        const limit = Math.max(1, Math.min(200, query.limit ?? 50));
+        const offset = Math.min(query.offset ?? 0, Math.floor(Math.max(0, rows.length - 1) / limit) * limit);
+        return { providerCounts: Object.fromEntries([...new Set(all.map((r) => r.provider))].map((id) => [id, all.filter((r) => r.provider === id).length])), rows: rows.slice(offset, offset + limit), total: rows.length, offset,
+          providers: [...new Set(all.map((r) => r.provider))], models: [...new Set(all.map((r) => r.model || "__unknown"))], folders: [...new Set(all.map((r) => r.project).filter(Boolean))],
+          counts: { hidden: hidden.size, total: all.length, pinned: all.filter((r) => r.pinned).length, agents: all.filter((r) => r.kind === "local-agent").length, web: all.filter((r) => r.kind === "browser-chat").length, webToday: 0, unanswered: 0 } };
+      }
       case "list_sessions":
         return SESSIONS.map((r) => ({ ...r, pinned: pins.get(r.id) ?? r.pinned })).sort((x, y) => Number(y.pinned) - Number(x.pinned));
       case "update_session":
@@ -110,12 +167,15 @@ export function installMockIpc() {
         return {
           row: { ...row, pinned: isPinned },
           source: { sourceId: row.id, kind: row.kind, provider: row.provider, title: row.title, origin: row.origin, project: row.project, model: row.model, capturedAt: ago(2), captureStatus: "complete", missingItems: [], omitted: [{ what: "hidden reasoning (thinking) blocks", count: 37 }] },
-          messages: [...MESSAGES, { id: "m4", sourceId: row.id, role: "user", createdAt: ago(20), blocks: [{ type: "file", name: "diagram.png", mediaType: "image/png", sha256: "f1", size: 182_000 }] }],
+          messages: [...MESSAGES.map((m) => ({ ...m, sourceId: row.id })), { id: "m4", sourceId: row.id, role: "user", createdAt: ago(20), blocks: [{ type: "file", name: "diagram.svg", mediaType: "image/svg+xml", sha256: "f1", size: 182_000 }] },
+            ...(removedUploads.has(row.id) ? [] : [{ id: "manual-upload", sourceId: row.id, role: "user", createdAt: ago(5), blocks: [{ type: "file", name: "requirements.md", mediaType: "text/markdown", sha256: "f2", size: 4200 }] }])],
           files: [
-            { id: "a1", fileName: "diagram.png", mediaType: "image/png", size: 182_000, sha256: "f1", originPath: null, text: null },
-            { id: "a2", fileName: "requirements.md", mediaType: "text/markdown", size: 4200, sha256: "f2", originPath: null, text: "# Req" },
+            ...previewFixtures.map((f) => ({ id: f.sha256, fileName: f.fileName, mediaType: f.mediaType, sha256: f.sha256, size: f.data.length, text: null, originPath: null })),
+            { id: "a1", fileName: "diagram.svg", mediaType: "image/svg+xml", size: 182_000, sha256: "f1", originPath: null, text: null },
+            ...(removedUploads.has(row.id) ? [] : [{ id: "a2", fileName: "requirements.md", mediaType: "text/markdown", size: 4200, sha256: "f2", originPath: null, text: "# Requirements\n\nUse cursor pagination.\nKeep existing endpoints compatible.", manualMessageId: "manual-upload" }]),
           ],
           tokenEstimate: 18_400,
+  replyCount: 21,
         };
       }
       case "copy_sessions":

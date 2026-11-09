@@ -60,7 +60,8 @@ impl LocalAgentAdapter for Cursor {
         let conn = open_ro(&db)?;
         let Some(table) = kv_table(&conn) else { return Ok(vec![]) };
 
-        let Ok(mut stmt) = conn.prepare(&format!("SELECT key, value FROM {table} WHERE key LIKE 'composerData:%'")) else {
+        let Ok(mut stmt) = conn.prepare(&format!("SELECT key, value FROM {table} WHERE key LIKE 'composerData:%'"))
+        else {
             return Ok(vec![]);
         };
         let mut rows = stmt.query([]).map_err(sql_err(&db))?;
@@ -84,7 +85,9 @@ impl LocalAgentAdapter for Cursor {
                 title: composer_title(&json),
                 project: None,
                 model: composer_model(&json),
-                modified_at: composer_time(&json, "lastUpdatedAt").or_else(|| composer_time(&json, "createdAt")).unwrap_or_else(|| file_mtime.clone()),
+                modified_at: composer_time(&json, "lastUpdatedAt")
+                    .or_else(|| composer_time(&json, "createdAt"))
+                    .unwrap_or_else(|| file_mtime.clone()),
                 size_bytes: size,
                 message_count,
             });
@@ -93,7 +96,8 @@ impl LocalAgentAdapter for Cursor {
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
-        let (db, composer_id) = split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
+        let (db, composer_id) =
+            split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
         let conn = open_ro(&db)?;
         let table = kv_table(&conn).ok_or_else(|| AdapterError::Unrecognized(db.display().to_string()))?;
         let json = kv_get(&conn, table, &format!("composerData:{composer_id}"))
@@ -149,7 +153,11 @@ impl LocalAgentAdapter for Cursor {
                         Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    blocks.push(Block::ToolResult { name: Some(name), output, is_error: tool.get("status").and_then(Value::as_str) == Some("error") });
+                    blocks.push(Block::ToolResult {
+                        name: Some(name),
+                        output,
+                        is_error: tool.get("status").and_then(Value::as_str) == Some("error"),
+                    });
                 }
             }
             if blocks.is_empty() {
@@ -193,14 +201,14 @@ impl LocalAgentAdapter for Cursor {
 }
 
 fn millis_rfc3339(ms: i64) -> Option<String> {
-    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+        .map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
 fn kv_table(conn: &Connection) -> Option<&'static str> {
     for t in ["cursorDiskKV", "ItemTable"] {
-        let exists = conn
-            .query_row("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?1", [t], |_| Ok(()))
-            .is_ok();
+        let exists =
+            conn.query_row("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?1", [t], |_| Ok(())).is_ok();
         if exists {
             return Some(t);
         }
@@ -231,18 +239,10 @@ fn legacy_conversation(json: &Value) -> &[Value] {
 }
 
 fn composer_title(json: &Value) -> String {
-    if let Some(name) = json
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|n| !n.trim().is_empty())
-    {
+    if let Some(name) = json.get("name").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
         return title_from(name);
     }
-    if let Some(sub) = json
-        .get("subtitle")
-        .and_then(Value::as_str)
-        .filter(|s| !s.trim().is_empty())
-    {
+    if let Some(sub) = json.get("subtitle").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
         return title_from(sub);
     }
     if let Some(conv) = json.get("conversation").and_then(Value::as_array) {
@@ -258,7 +258,10 @@ fn composer_title(json: &Value) -> String {
 }
 
 fn composer_model(json: &Value) -> Option<String> {
-    json.pointer("/modelConfig/modelName").and_then(Value::as_str).filter(|m| !m.is_empty() && *m != "default").map(str::to_string)
+    json.pointer("/modelConfig/modelName")
+        .and_then(Value::as_str)
+        .filter(|m| !m.is_empty() && *m != "default")
+        .map(str::to_string)
 }
 
 fn composer_time(json: &Value, key: &str) -> Option<String> {
@@ -274,11 +277,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("state.vscdb");
         let conn = Connection::open(&db_path).unwrap();
-        conn.execute(
-            "CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)",
-            [],
-        )
-        .unwrap();
+        conn.execute("CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)", []).unwrap();
 
         let json = serde_json::json!({
             "composerId": "comp-456",
@@ -323,12 +322,16 @@ mod tests {
             "fullConversationHeadersOnly": [{"bubbleId": "b1", "type": 1}, {"bubbleId": "b2", "type": 2}, {"bubbleId": "gone", "type": 2}]
         });
         let put = |k: &str, v: serde_json::Value| {
-            conn.execute("INSERT INTO cursorDiskKV VALUES (?1, ?2)", rusqlite::params![k, v.to_string().into_bytes()]).unwrap();
+            conn.execute("INSERT INTO cursorDiskKV VALUES (?1, ?2)", rusqlite::params![k, v.to_string().into_bytes()])
+                .unwrap();
         };
         put("composerData:c1", composer);
         put("bubbleId:c1:b1", serde_json::json!({"type": 1, "bubbleId": "b1", "text": "Login fails"}));
-        put("bubbleId:c1:b2", serde_json::json!({"type": 2, "bubbleId": "b2", "text": "Fixed the token check.",
-            "toolFormerData": {"name": "edit_file", "rawArgs": "{\"path\":\"a.ts\"}", "result": "ok"}}));
+        put(
+            "bubbleId:c1:b2",
+            serde_json::json!({"type": 2, "bubbleId": "b2", "text": "Fixed the token check.",
+            "toolFormerData": {"name": "edit_file", "rawArgs": "{\"path\":\"a.ts\"}", "result": "ok"}}),
+        );
 
         let found = Cursor.discover(dir.path()).unwrap();
         assert_eq!(found.len(), 1);

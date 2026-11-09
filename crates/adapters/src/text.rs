@@ -28,7 +28,9 @@ pub fn title_from(text: &str) -> String {
     let mut chars = clean.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/' || *n == '!') => in_tag = true,
+            '<' if !in_tag && chars.peek().is_some_and(|n| n.is_ascii_alphabetic() || *n == '/' || *n == '!') => {
+                in_tag = true
+            }
             '>' if in_tag => {
                 in_tag = false;
                 s.push(' ');
@@ -64,7 +66,7 @@ pub fn read_local_file(reference: &str) -> Option<hopilo_core::CapturedFile> {
     if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_RECOVERED_FILE {
         return None;
     }
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = hopilo_core::limits::read_bounded(std::fs::File::open(path).ok()?, MAX_RECOVERED_FILE).ok()?;
     let name = path.file_name()?.to_string_lossy().into_owned();
     Some(hopilo_core::CapturedFile { media_type: media_type_for(&name).into(), name, bytes })
 }
@@ -110,7 +112,8 @@ pub fn media_type_for(name: &str) -> &'static str {
         "csv" => "text/csv",
         "json" => "application/json",
         "html" | "htm" => "text/html",
-        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "rb" | "c" | "h" | "cpp" | "swift" | "kt" | "sh" | "toml" | "yaml" | "yml" | "css" | "sql" => "text/plain",
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "rb" | "c" | "h" | "cpp" | "swift" | "kt"
+        | "sh" | "toml" | "yaml" | "yml" | "css" | "sql" => "text/plain",
         _ => "application/octet-stream",
     }
 }

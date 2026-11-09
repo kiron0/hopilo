@@ -78,7 +78,7 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
       wide
       footer={(close) => (
         <>
-          <span className="mr-auto text-[12px] text-faint">Coding-agent sessions appear on their own. Web chats: use the browser extension.</span>
+          <span className="mr-auto text-[12px] text-faint">Coding-agent sessions appear on their own. ChatGPT: import an account export below.</span>
           <Button variant="ghost" onClick={close}>Cancel</Button>
           <Button variant="primary" disabled={!text.trim()} busy={busy} onClick={savePaste}>
             Save {from ? `${provider(from).label} chat` : "pasted chat"}
@@ -128,7 +128,7 @@ export function AddSessionModal({ onClose }: { onClose: () => void }) {
         </Field>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <Way icon={<ClipboardPaste size={17} />} title="Clipboard" body="Save the copied text as it is." onClick={async () => { const out = await captureClipboard(); if (out) done(out.sourceId); }} />
-          <Way icon={<FileArchive size={17} />} title="ChatGPT or Claude export" body="The .zip from Settings › Export data." onClick={async () => { const p = await pickChatExport(); if (p) setExportPath(p); }} />
+          <Way icon={<FileArchive size={17} />} title="Import ChatGPT / Claude data" body="Choose your account export .zip or conversations.json; then pick chats to import." onClick={async () => { const p = await pickChatExport(); if (p) setExportPath(p); }} />
           <Way icon={<FilePlus2 size={17} />} title="Files" body="Specs, logs, images. Kept as one session." onClick={async () => { const p = await pickFiles(); if (p.length) setPaths(p); }} />
           <Way icon={<FileUp size={17} />} title="Hopilo bundle" body="A .hopilo, .handoff or .json file from Hopilo. You can also drop it on the window." onClick={async () => { const ids = await importHandoffFile(); if (ids) done(ids[0]); }} />
           <Way icon={<History size={17} />} title="Aider chat history" body="An .aider.chat.history.md file." onClick={pickAider} />

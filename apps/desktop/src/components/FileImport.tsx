@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileImage, FileText, File as FileIcon, XCircle } from "./Icons";
+import { AlertTriangle, CheckCircle2, FileImage, FileText, FileCode, FileAudio, FileVideo, File as FileIcon, XCircle } from "./Icons";
 import { api, errorText, type FilePreflight } from "../lib/api";
 import { bytes } from "../lib/format";
 import { useApp } from "../lib/store";
 import { deviceNoun } from "../lib/platform";
 import { Button, Checkbox, Modal, Spinner } from "./ui";
 
-const KIND_ICON = { text: FileText, image: FileImage, pdf: FileText, binary: FileIcon };
+const KIND_ICON = { text: FileText, image: FileImage, pdf: FileText, html: FileCode, audio: FileAudio, video: FileVideo, binary: FileIcon };
 
 export function FileImportModal({ paths, session, onClose }: { paths: string[]; session: string | null; onClose: () => void }) {
   const toast = useApp((s) => s.toast);

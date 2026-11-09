@@ -34,6 +34,14 @@ pub struct SessionRow {
     pub reply_count: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionFile {
+    #[serde(flatten)]
+    pub file: Attachment,
+    pub manual_message_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionPatch {
@@ -53,17 +61,20 @@ pub struct OriginState {
 
 impl OriginState {
     pub fn unchanged_since(&self, modified_at: &str) -> bool {
-        match (chrono::DateTime::parse_from_rfc3339(&self.updated_at), chrono::DateTime::parse_from_rfc3339(modified_at)) {
+        match (
+            chrono::DateTime::parse_from_rfc3339(&self.updated_at),
+            chrono::DateTime::parse_from_rfc3339(modified_at),
+        ) {
             (Ok(saved), Ok(modified)) => saved >= modified,
             _ => false,
         }
     }
 }
 
-const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
+pub(crate) const ROW_COLUMNS: &str = "id, kind, provider, title, origin, project, model, COALESCE(updated_at, captured_at),
     capture_status, message_count, token_estimate, missing_count, file_count, pinned, tags, last_copied_at, hidden, reply_count";
 
-fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
+pub(crate) fn row_from(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
     Ok(SessionRow {
         id: r.get(0)?,
         kind: r.get(1)?,
@@ -107,9 +118,22 @@ fn file_block(a: &Attachment) -> Block {
 }
 
 impl Store {
+    pub fn upsert_session(
+        &mut self,
+        source: &Source,
+        messages: &[Message],
+        updated_at: Option<&str>,
+    ) -> Result<ImportOutcome> {
+        self.upsert_session_inner(source, messages, updated_at, None)
+    }
 
-    pub fn upsert_session(&mut self, source: &Source, messages: &[Message], updated_at: Option<&str>) -> Result<ImportOutcome> {
-        let hash = content_hash(messages)?;
+    fn upsert_session_inner(
+        &mut self,
+        source: &Source,
+        messages: &[Message],
+        updated_at: Option<&str>,
+        manual: Option<&Message>,
+    ) -> Result<ImportOutcome> {
         let existing: Option<(String, String, bool, Option<String>)> = match &source.origin {
             Some(origin) => self
                 .conn
@@ -123,6 +147,20 @@ impl Store {
             None => None,
         };
         let updated = updated_at.map(str::to_string).unwrap_or_else(|| source.captured_at.clone());
+        let sid = existing.as_ref().map(|(id, ..)| id.as_str()).unwrap_or(&source.source_id);
+        let overlays = self.manual_file_messages(sid)?;
+        let mut combined;
+        let messages = if overlays.is_empty() {
+            messages
+        } else {
+            combined = messages.to_vec();
+            for message in overlays {
+                combined.retain(|m| m.id != message.id);
+                combined.push(message);
+            }
+            combined.as_slice()
+        };
+        let hash = content_hash(messages)?;
         if let Some((id, old_hash, hidden, _)) = &existing {
             if *old_hash == hash && !hidden {
                 let tx = self.conn.transaction()?;
@@ -152,7 +190,10 @@ impl Store {
                     params![id, source.title],
                 )?;
                 if retitled > 0 {
-                    tx.execute("UPDATE search_index SET title = ?2 WHERE kind = 'source' AND ref_id = ?1", params![id, source.title])?;
+                    tx.execute(
+                        "UPDATE search_index SET title = ?2 WHERE kind = 'source' AND ref_id = ?1",
+                        params![id, source.title],
+                    )?;
                 }
                 tx.commit()?;
                 return Ok(ImportOutcome { source_id: id.clone(), duplicate_of: Some(id.clone()) });
@@ -205,12 +246,25 @@ impl Store {
                 "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for (i, m) in messages.iter().enumerate() {
-                stmt.execute(params![id, i as i64, m.id, kebab(&m.role), m.created_at, serde_json::to_string(&m.blocks)?])?;
+                stmt.execute(params![
+                    id,
+                    i as i64,
+                    m.id,
+                    kebab(&m.role),
+                    m.created_at,
+                    serde_json::to_string(&m.blocks)?
+                ])?;
             }
         }
         index(&tx, "source", &id, &source.title, &text)?;
         let verb = if existing.is_some() { "Updated" } else { "Captured" };
         event(&tx, "capture", Some(&id), &format!("{verb} {} from {}", source.title, source.provider))?;
+        if let Some(message) = manual {
+            tx.execute(
+                "INSERT INTO manual_file_messages VALUES(?1,?2,?3)",
+                params![id, message.id, serde_json::to_string(message)?],
+            )?;
+        }
         tx.commit()?;
         Ok(ImportOutcome { source_id: id, duplicate_of: None })
     }
@@ -247,7 +301,8 @@ impl Store {
         tx.execute("UPDATE sources SET hidden = 0 WHERE id = ?1", [id])?;
         let mut text = String::new();
         {
-            let mut stmt = tx.prepare_cached("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
+            let mut stmt =
+                tx.prepare_cached("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
             let rows = stmt.query_map([id], |r| r.get::<_, String>(0))?;
             for r in rows {
                 if let Ok(blocks) = serde_json::from_str::<Vec<Block>>(&r?) {
@@ -293,11 +348,8 @@ impl Store {
     }
 
     pub fn session_files(&self, messages: &[Message]) -> Vec<Attachment> {
-        let file_blocks: Vec<&Block> = messages
-            .iter()
-            .flat_map(|m| m.blocks.iter())
-            .filter(|b| matches!(b, Block::File { .. }))
-            .collect();
+        let file_blocks: Vec<&Block> =
+            messages.iter().flat_map(|m| m.blocks.iter()).filter(|b| matches!(b, Block::File { .. })).collect();
         if file_blocks.is_empty() {
             return Vec::new();
         }
@@ -317,7 +369,8 @@ impl Store {
                 "SELECT id, file_name, media_type, size, sha256, origin_path, text FROM attachments WHERE sha256 IN ({placeholders})"
             );
             let Ok(mut stmt) = self.conn.prepare(&query) else { continue };
-            let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(chunk.iter().copied()), Self::attachment_from_row) else {
+            let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(chunk.iter().copied()), Self::attachment_from_row)
+            else {
                 continue;
             };
             for row in rows.flatten() {
@@ -384,6 +437,28 @@ impl Store {
         }
     }
 
+    pub fn permanently_delete_sessions(&mut self, ids: &[String]) -> Result<()> {
+        if ids.is_empty() || ids.len() > 10_000 {
+            return Err(DbError::NotFound("choose 1–10,000 hidden sessions".into()));
+        }
+        let tx = self.conn.transaction()?;
+        let unique: HashSet<_> = ids.iter().collect();
+        for id in &unique {
+            let hidden: bool =
+                tx.query_row("SELECT EXISTS(SELECT 1 FROM sources WHERE id=?1 AND hidden=1)", [id], |r| r.get(0))?;
+            if !hidden {
+                return Err(DbError::NotFound("hidden session".into()));
+            }
+        }
+        for id in unique {
+            tx.execute("DELETE FROM sources WHERE id=?1", [id])?;
+            tx.execute("DELETE FROM search_index WHERE kind='source' AND ref_id=?1", [id])?;
+        }
+        event(&tx, "delete", None, "Permanently deleted hidden sessions")?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn composed_title(&self, ids: &[String]) -> Result<String> {
         let mut titles = Vec::new();
         let mut seen = HashSet::new();
@@ -427,7 +502,11 @@ impl Store {
         }
         let title = match sources.as_slice() {
             [one] => one.title.clone(),
-            many => format!("{} sessions: {}", many.len(), many.iter().map(|s| s.title.as_str()).collect::<Vec<_>>().join(" + ")),
+            many => format!(
+                "{} sessions: {}",
+                many.len(),
+                many.iter().map(|s| s.title.as_str()).collect::<Vec<_>>().join(" + ")
+            ),
         };
         let attachments = self.session_files(&messages);
         Ok(Pack {
@@ -471,8 +550,15 @@ impl Store {
         match session {
             Some(id) => {
                 let (source, mut messages) = self.get_source(id)?;
-                messages.push(Message { id: new_id(), source_id: id.into(), role: Role::User, created_at: Some(now_rfc3339()), blocks });
-                self.replace_messages(&source, &messages)?;
+                let message = Message {
+                    id: new_id(),
+                    source_id: id.into(),
+                    role: Role::User,
+                    created_at: Some(now_rfc3339()),
+                    blocks,
+                };
+                messages.push(message.clone());
+                self.replace_messages(&source, &messages, Some(&message))?;
                 Ok(id.to_string())
             }
             None => {
@@ -482,13 +568,77 @@ impl Store {
                     [] => unreachable!(),
                 };
                 let source = manual_source(&title, SourceKind::File);
-                let msg = Message { id: new_id(), source_id: source.source_id.clone(), role: Role::User, created_at: None, blocks };
-                Ok(self.upsert_session(&source, &[msg], None)?.source_id)
+                let msg = Message {
+                    id: new_id(),
+                    source_id: source.source_id.clone(),
+                    role: Role::User,
+                    created_at: None,
+                    blocks,
+                };
+                Ok(self.upsert_session_inner(&source, std::slice::from_ref(&msg), None, Some(&msg))?.source_id)
             }
         }
     }
 
-    fn replace_messages(&mut self, source: &Source, messages: &[Message]) -> Result<()> {
+    pub fn manual_file_messages(&self, id: &str) -> Result<Vec<Message>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT message_json FROM manual_file_messages WHERE source_id=?1 ORDER BY rowid")?;
+        let json = stmt.query_map([id], |r| r.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>()?;
+        json.into_iter().map(|s| serde_json::from_str(&s).map_err(DbError::from)).collect()
+    }
+
+    pub fn session_file_entries(&self, id: &str, messages: &[Message]) -> Result<Vec<SessionFile>> {
+        let owned: HashSet<_> = self
+            .manual_file_messages(id)?
+            .into_iter()
+            .flat_map(|m| {
+                m.blocks.into_iter().filter_map(move |block| match block {
+                    Block::File { sha256, name, .. } => Some((m.id.clone(), sha256, name)),
+                    _ => None,
+                })
+            })
+            .collect();
+        let owners = messages.iter().flat_map(|m| {
+            m.blocks.iter().filter_map(|block| match block {
+                Block::File { sha256, name, .. } => {
+                    Some(owned.contains(&(m.id.clone(), sha256.clone(), name.clone())).then(|| m.id.clone()))
+                }
+                _ => None,
+            })
+        });
+        Ok(self
+            .session_files(messages)
+            .into_iter()
+            .zip(owners)
+            .map(|(file, manual_message_id)| SessionFile { file, manual_message_id })
+            .collect())
+    }
+
+    pub fn remove_session_file(&mut self, id: &str, message_id: &str, sha: &str, name: &str) -> Result<()> {
+        let mut owned = self
+            .manual_file_messages(id)?
+            .into_iter()
+            .find(|m| m.id == message_id)
+            .ok_or_else(|| DbError::NotFound("Hopilo-added file message".into()))?;
+        let before = owned.blocks.len();
+        owned.blocks.retain(
+            |b| !matches!(b, Block::File { sha256, name: file_name, .. } if sha256 == sha && file_name == name),
+        );
+        if before == owned.blocks.len() {
+            return Err(DbError::NotFound("Hopilo-added file".into()));
+        }
+        let (source, mut messages) = self.get_source(id)?;
+        let position = messages.iter().position(|m| m.id == message_id).unwrap_or(messages.len());
+        messages.retain(|m| m.id != message_id);
+        if !owned.blocks.is_empty() {
+            // Preserve the message's position among the other turns.
+            messages.insert(position.min(messages.len()), owned.clone());
+        }
+        self.replace_messages(&source, &messages, Some(&owned))
+    }
+
+    fn replace_messages(&mut self, source: &Source, messages: &[Message], manual: Option<&Message>) -> Result<()> {
         let id = &source.source_id;
         let text = messages_text(messages);
         let tx = self.conn.transaction()?;
@@ -513,6 +663,17 @@ impl Store {
         }
         tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [id])?;
         index(&tx, "source", id, &source.title, &text)?;
+        if let Some(message) = manual {
+            if message.blocks.is_empty() {
+                tx.execute(
+                    "DELETE FROM manual_file_messages WHERE source_id=?1 AND message_id=?2",
+                    params![id, message.id],
+                )?;
+            } else {
+                tx.execute("INSERT INTO manual_file_messages VALUES(?1,?2,?3) ON CONFLICT(source_id,message_id) DO UPDATE SET message_json=excluded.message_json",
+                    params![id, message.id, serde_json::to_string(message)?])?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }
@@ -521,9 +682,9 @@ impl Store {
         let mut ids = Vec::new();
         for s in &pack.sources {
             let msgs: Vec<Message> = pack.messages.iter().filter(|m| m.source_id == s.source_id).cloned().collect();
-            let exists: bool = self
-                .conn
-                .query_row("SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)", [&s.source_id], |r| r.get(0))?;
+            let exists: bool =
+                self.conn
+                    .query_row("SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)", [&s.source_id], |r| r.get(0))?;
             if exists {
                 let hidden: bool =
                     self.conn.query_row("SELECT hidden FROM sources WHERE id = ?1", [&s.source_id], |r| r.get(0))?;
@@ -541,13 +702,20 @@ impl Store {
             .flat_map(|m| m.blocks.iter())
             .filter_map(|b| if let Block::File { sha256, .. } = b { Some(sha256.as_str()) } else { None })
             .collect();
-        let loose: Vec<&Attachment> = pack.attachments.iter().filter(|a| !in_messages.contains(a.sha256.as_str())).collect();
+        let loose: Vec<&Attachment> =
+            pack.attachments.iter().filter(|a| !in_messages.contains(a.sha256.as_str())).collect();
         let note = pack.context.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
         if note.is_some() || !loose.is_empty() {
             let source = manual_source(&pack.title, SourceKind::Pack);
             let mut blocks: Vec<Block> = note.map(Block::text).into_iter().collect();
             blocks.extend(loose.into_iter().map(file_block));
-            let msg = Message { id: new_id(), source_id: source.source_id.clone(), role: Role::User, created_at: None, blocks };
+            let msg = Message {
+                id: new_id(),
+                source_id: source.source_id.clone(),
+                role: Role::User,
+                created_at: None,
+                blocks,
+            };
             ids.push(self.upsert_session(&source, &[msg], None)?.source_id);
         }
         Ok(ids)
@@ -572,7 +740,8 @@ impl Store {
             self.conn.execute("UPDATE sources SET file_count = ?2 WHERE id = ?1", params![id, file_count(&msgs)])?;
         }
         let packs: Vec<(String, bool)> = {
-            let mut stmt = self.conn.prepare_cached("SELECT id, pinned FROM packs WHERE archived = 0 ORDER BY created_at")?;
+            let mut stmt =
+                self.conn.prepare_cached("SELECT id, pinned FROM packs WHERE archived = 0 ORDER BY created_at")?;
             let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
@@ -596,7 +765,13 @@ impl Store {
         if !orphans.is_empty() {
             let blocks: Vec<Block> = orphans.iter().map(file_block).collect();
             let source = manual_source("Added files", SourceKind::File);
-            let msg = Message { id: new_id(), source_id: source.source_id.clone(), role: Role::User, created_at: None, blocks };
+            let msg = Message {
+                id: new_id(),
+                source_id: source.source_id.clone(),
+                role: Role::User,
+                created_at: None,
+                blocks,
+            };
             self.upsert_session(&source, &[msg], None)?;
         }
         Ok(())

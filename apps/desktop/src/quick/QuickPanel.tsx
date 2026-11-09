@@ -1,3 +1,4 @@
+import { TARGETS } from "../lib/providers";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -48,9 +49,10 @@ function buildPopoverPath(w: number, h: number, anchorX: number | null, mac: boo
 export function QuickPanel() {
   const ready = useBootstrap();
   const settings = useApp((s) => s.settings);
-  const sessions = useLoad(() => api.listSessions());
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(q);
+  const query = { q: debouncedQ, limit: 12, searchProviders: TARGETS.filter((t) => t.label.toLowerCase().includes(debouncedQ.trim().toLowerCase())).map((t) => t.id) };
+  const sessions = useLoad(() => api.querySessions(query), ["quick-sessions", query]);
   const [busy, setBusy] = useState<string | null>(null);
   const [anchorX, setAnchorX] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,7 +72,7 @@ export function QuickPanel() {
     const ro = new ResizeObserver(updateSize);
     ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, []);
+  }, [ready]);
 
   const popoverPath = useMemo(
     () => buildPopoverPath(size.w, size.h, anchorX, isMac),
@@ -103,11 +105,10 @@ export function QuickPanel() {
   }, []);
 
   const needle = debouncedQ.trim().toLowerCase();
-  const recent = (sessions.data ?? [])
+  const recent = (sessions.data?.rows ?? [])
     .filter((s) => !needle || s.title.toLowerCase().includes(needle) || provider(s.provider).label.toLowerCase().includes(needle))
     .slice(0, needle ? 12 : 8);
 
-  if (!ready) return null;
 
   const row = "nav-item h-auto min-h-10 w-full py-1.5 text-left text-[13px] focus-visible:bg-surface focus-visible:shadow-item disabled:opacity-50";
   const bg = settings.background ?? "mist";
@@ -124,7 +125,6 @@ export function QuickPanel() {
     >
       <svg
         className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
-        style={{ filter: "drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.15))" }}
         aria-hidden
       >
         <path d={popoverPath} fill="var(--canvas, #000)" />
@@ -194,9 +194,9 @@ export function QuickPanel() {
               </span>
             )}
           </div>
-          {sessions.loading && !sessions.data &&
-            [0, 1, 2].map((i) => (
-              <div key={i} aria-hidden className="flex items-center gap-2.5 px-3 py-2">
+          {(!ready || sessions.loading && !sessions.data) &&
+            Array.from({ length: 8 }, (_, i) => i).map((i) => (
+              <div key={i} aria-hidden className="flex min-h-10 items-center gap-2.5 px-3 py-1.5">
                 <Skeleton className="h-[22px] w-[22px] rounded-[7px]" />
                 <div className="flex-1 space-y-1">
                   <Skeleton className="h-3" style={{ width: `${75 - i * 12}%` }} />
@@ -204,7 +204,7 @@ export function QuickPanel() {
                 </div>
               </div>
             ))}
-          {recent.map((s) => (
+          {ready && recent.map((s) => (
             <button key={s.id} type="button" data-row className={row} disabled={!!busy} onClick={() => copy(s.id)} title={`Copy for ${target(settings.defaultTarget).label}`}>
               <ProviderBadge id={s.provider} size={22} />
               <span className="min-w-0 flex-1">
@@ -224,7 +224,7 @@ export function QuickPanel() {
               {busy === s.id ? <Loader2 size={13} className="animate-spin text-accent" /> : <Copy size={13} className="text-faint" />}
             </button>
           ))}
-          {sessions.data && recent.length === 0 && (
+          {ready && sessions.data && recent.length === 0 && (
             <div className="flex min-h-[120px] flex-col items-center justify-center px-4 py-6 text-center text-faint">
               {needle ? "No matching sessions." : "No sessions yet."}
             </div>

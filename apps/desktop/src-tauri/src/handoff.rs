@@ -2,16 +2,16 @@ use std::path::PathBuf;
 
 use hopilo_core::brief::ContextLevel;
 use hopilo_core::framing::{arrange_sources, render_framed, Framing, Intent, PromptStyle, SessionOrder};
+use hopilo_core::model::Role;
 use hopilo_core::render::{estimate_tokens, render_handoff_prompt, render_markdown, RenderOptions, ToolDetail};
 use hopilo_core::scan::{RedactionRules, Redactor, RuleError};
-use hopilo_core::model::Role;
 use hopilo_core::Pack;
 use hopilo_database::ImportOutcome;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::commands::{blocking, err, notify, with_store, write_atomic, AppState, CmdResult};
+use crate::commands::{blocking, err, notify, with_store, write_atomic_with, AppState, CmdResult};
 
 #[derive(Deserialize, Clone, Copy, Default)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +55,8 @@ fn defaults(state: &State<AppState>) -> Defaults {
     let (intent, instructions) = match serde_json::from_value::<Intent>(serde_json::Value::String(intent_key.clone())) {
         Ok(i) if i != Intent::Custom => (i, None),
         _ => {
-            let templates: Vec<Template> = get("handoffTemplates").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+            let templates: Vec<Template> =
+                get("handoffTemplates").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
             match templates.into_iter().find(|t| t.id == intent_key) {
                 Some(t) => (Intent::Custom, Some(t.text)),
                 None => (Intent::Continue, None),
@@ -90,9 +91,25 @@ pub(crate) fn style_for_target(target: &str) -> PromptStyle {
 
 #[derive(Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct MessageRef {
+    pub source_id: String,
+    pub id: String,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewedPreview {
+    pub format: String,
+    pub hash: String,
+}
+
+#[derive(Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CopyOptions {
     #[serde(default)]
     pub markdown: bool,
+    pub selected: Option<Vec<MessageRef>>,
+    pub reviewed: Option<ReviewedPreview>,
     pub target: Option<String>,
     pub tool_detail: Option<ToolDetailOpt>,
     pub level: Option<ContextLevel>,
@@ -155,26 +172,19 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
         return Err("Choose at least one session".into());
     }
     let state = app.state::<AppState>();
-    let d = defaults(&state);
-    let target = opts.target.as_ref().filter(|t| !t.is_empty()).cloned().unwrap_or_else(|| d.target.clone());
-    let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
-    let framing = opts.framing(&d, &target);
-    let (red, _) = redactor(&state, &opts.ignore);
-    let mut pack = with_store(&state, |s| s.compose(ids).map_err(err))?;
-    arrange_sources(&mut pack, opts.order.unwrap_or_default());
-    red.drop_excluded(&mut pack);
-    let findings = red.scan_pack(&pack, None).len();
-    if opts.exclude_secrets {
-        red.redact_pack(&mut pack);
-    }
-    let text = if opts.markdown { render_markdown(&pack, &ropts) } else { render_framed(&pack, &ropts, &framing) };
-    let text = if opts.exclude_secrets { red.redact_text(&text) } else { text };
+    let format = if opts.markdown { "md" } else { "txt" };
+    let prepared = prepare_export(&state, ids, &[format], Some(opts.clone()))?;
+    let text = reviewed_text(&prepared, format, opts.reviewed.as_ref())?;
+    let target = opts.target.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| defaults(&state).target);
     app.clipboard().write_text(text.clone()).map_err(|e| format!("Couldn't write to the clipboard: {e}"))?;
-    let (rec_target, method) = if opts.markdown { ("other", "clipboard-markdown") } else { (target.as_str(), "clipboard") };
-    with_store(&state, |s| s.record_copy(ids, rec_target, method, "copied").map_err(err))?;
+    let method = if opts.markdown { "clipboard-markdown" } else { "clipboard" };
+    with_store(&state, |store| {
+        store.record_copy(ids, &target, method, "copied").map_err(err)?;
+        Ok(())
+    })?;
     notify(app);
-    let remaining = if opts.exclude_secrets { 0 } else { findings };
-    Ok(outcome(&pack, ids, target, &text, remaining))
+    let remaining = prepared.redactor.scan_pack(&prepared.pack, None).len();
+    Ok(outcome(&prepared.pack, ids, target, &text, remaining))
 }
 
 #[derive(Serialize)]
@@ -228,7 +238,8 @@ pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<Ha
                     let last_user = hopilo_core::brief::last_with(&visible, Role::User)
                         .filter(|m| Some(m.id.as_str()) != first.map(|f| f.id.as_str()));
                     let last_assistant = hopilo_core::brief::last_with(&visible, Role::Assistant);
-                    let count = [first.is_some(), last_user.is_some(), last_assistant.is_some()].iter().filter(|b| **b).count();
+                    let count =
+                        [first.is_some(), last_user.is_some(), last_assistant.is_some()].iter().filter(|b| **b).count();
                     count.max(usize::from(total_messages > 0)).min(total_messages)
                 }
             };
@@ -270,12 +281,24 @@ pub async fn suggest_export_name(app: AppHandle, ids: Vec<String>, ext: String) 
 }
 
 #[tauri::command]
-pub async fn export_sessions(app: AppHandle, ids: Vec<String>, format: String, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
+pub async fn export_sessions(
+    app: AppHandle,
+    ids: Vec<String>,
+    format: String,
+    path: String,
+    opts: Option<CopyOptions>,
+) -> CmdResult<String> {
     blocking(app, move |app, state| export_blocking(app, &state, &ids, &format, &path, opts)).await
 }
 
 #[tauri::command]
-pub async fn export_sessions_zip(app: AppHandle, ids: Vec<String>, formats: Vec<String>, path: String, opts: Option<CopyOptions>) -> CmdResult<String> {
+pub async fn export_sessions_zip(
+    app: AppHandle,
+    ids: Vec<String>,
+    formats: Vec<String>,
+    path: String,
+    opts: Option<CopyOptions>,
+) -> CmdResult<String> {
     blocking(app, move |app, state| export_zip_blocking(app, &state, &ids, &formats, &path, opts)).await
 }
 
@@ -290,14 +313,18 @@ pub(crate) fn export_ext(format: &str) -> &str {
 
 struct Prepared {
     pack: Pack,
-    blobs: std::collections::HashMap<String, Vec<u8>>,
+    blob_root: PathBuf,
     ropts: RenderOptions,
     exclude_secrets: bool,
     redactor: Redactor,
     framing: Framing,
 }
 
-fn redact_export_pack(pack: &mut Pack, redactor: &Redactor, include_blobs: bool) -> std::collections::HashMap<String, Vec<u8>> {
+fn redact_export_pack(
+    pack: &mut Pack,
+    redactor: &Redactor,
+    include_blobs: bool,
+) -> std::collections::HashMap<String, Vec<u8>> {
     redactor.redact_pack(pack);
     let mut replacements = std::collections::HashMap::new();
     let mut blobs = std::collections::HashMap::new();
@@ -309,7 +336,9 @@ fn redact_export_pack(pack: &mut Pack, redactor: &Redactor, include_blobs: bool)
             replacements.insert(a.sha256.clone(), (sha.clone(), size));
             a.sha256 = sha.clone();
             a.size = size;
-            if include_blobs { blobs.insert(sha, bytes.to_vec()); }
+            if include_blobs {
+                blobs.insert(sha, bytes.to_vec());
+            }
         }
     }
     for m in &mut pack.messages {
@@ -325,7 +354,12 @@ fn redact_export_pack(pack: &mut Pack, redactor: &Redactor, include_blobs: bool)
     blobs
 }
 
-fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opts: Option<CopyOptions>) -> CmdResult<Prepared> {
+fn prepare_export(
+    state: &State<AppState>,
+    ids: &[String],
+    formats: &[&str],
+    opts: Option<CopyOptions>,
+) -> CmdResult<Prepared> {
     if let Some(bad) = formats.iter().find(|f| !EXPORT_FORMATS.contains(f)) {
         return Err(format!("unknown export format {bad}"));
     }
@@ -333,25 +367,34 @@ fn prepare_export(state: &State<AppState>, ids: &[String], formats: &[&str], opt
     let d = defaults(state);
     let ropts = render_opts(opts.tool_detail.unwrap_or(d.tool_detail), opts.level.unwrap_or(d.level));
     let target = opts.target.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| d.target.clone());
-    let framing = opts.framing(&d, &target);
+    let mut framing = opts.framing(&d, &target);
+    framing.note = None;
     let (red, _) = redactor(state, &opts.ignore);
-    let want_blobs = formats.contains(&"handoff");
     with_store(state, |s| {
-        let mut pack = s.compose(ids).map_err(err)?;
-        arrange_sources(&mut pack, opts.order.unwrap_or_default());
-        red.drop_excluded(&mut pack);
-        strip_local_paths(&mut pack);
-        let redacted_blobs = if opts.exclude_secrets { redact_export_pack(&mut pack, &red, want_blobs) } else { Default::default() };
-        let mut blobs = std::collections::HashMap::new();
-        if want_blobs {
-            for a in &pack.attachments {
-                if let Some(bytes) = redacted_blobs.get(&a.sha256).cloned().or_else(|| s.attachment_bytes(&a.sha256)) {
-                    blobs.insert(a.sha256.clone(), bytes);
-                }
-            }
-        }
-        Ok(Prepared { pack, blobs, ropts, exclude_secrets: opts.exclude_secrets, redactor: red, framing })
+        let pack = prepare_pack(s, ids, &opts, &red)?;
+        Ok(Prepared {
+            pack,
+            blob_root: s.root().join("attachments"),
+            ropts,
+            exclude_secrets: opts.exclude_secrets,
+            redactor: red,
+            framing,
+        })
     })
+}
+
+fn prepare_pack(store: &hopilo_database::Store, ids: &[String], opts: &CopyOptions, red: &Redactor) -> CmdResult<Pack> {
+    let mut pack = store.compose(ids).map_err(err)?;
+    apply_selection(store, &mut pack, opts.selected.as_deref())?;
+    pack.created_at = pack.sources.iter().map(|s| s.captured_at.as_str()).max().unwrap_or("").to_string();
+    pack.context.note = opts.note.clone();
+    arrange_sources(&mut pack, opts.order.unwrap_or_default());
+    red.drop_excluded(&mut pack);
+    strip_local_paths(&mut pack);
+    if opts.exclude_secrets {
+        redact_export_pack(&mut pack, red, false);
+    }
+    Ok(pack)
 }
 
 fn strip_local_paths(pack: &mut Pack) {
@@ -369,59 +412,206 @@ fn strip_local_paths(pack: &mut Pack) {
     }
 }
 
-fn render_export(p: &Prepared, format: &str) -> CmdResult<Vec<u8>> {
-    Ok(match format {
-        "md" => {
-            let s = render_markdown(&p.pack, &p.ropts);
-            if p.exclude_secrets { p.redactor.redact_text(&s).into_bytes() } else { s.into_bytes() }
-        }
-        "txt" => {
-            let s = render_framed(&p.pack, &p.ropts, &p.framing);
-            if p.exclude_secrets { p.redactor.redact_text(&s).into_bytes() } else { s.into_bytes() }
-        }
-        "html" => {
-            let s = hopilo_core::html::render_html(&p.pack, &p.ropts);
-            if p.exclude_secrets { p.redactor.redact_text(&s).into_bytes() } else { s.into_bytes() }
-        }
-        "json" => hopilo_pack_format::to_json(&p.pack).map_err(err)?.into_bytes(),
-        "handoff" => {
-            let mut buf = std::io::Cursor::new(Vec::new());
-            hopilo_pack_format::write_handoff(&p.pack, &p.ropts, &|a| p.blobs.get(&a.sha256).cloned(), &mut buf).map_err(err)?;
-            buf.into_inner()
-        }
-        other => return Err(format!("unknown export format {other}")),
-    })
+fn write_export(p: &Prepared, format: &str, file: &mut std::fs::File) -> CmdResult<()> {
+    use std::io::Write;
+    if format == "handoff" {
+        return hopilo_pack_format::write_handoff(
+            &p.pack,
+            &p.ropts,
+            &|a| {
+                if p.exclude_secrets {
+                    if let Some(text) = &a.text {
+                        return Some(text.as_bytes().to_vec());
+                    }
+                }
+                if a.sha256.len() != 64 || !a.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return None;
+                }
+                std::fs::File::open(p.blob_root.join(&a.sha256))
+                    .ok()
+                    .and_then(|file| hopilo_core::limits::read_bounded(file, hopilo_core::limits::DOCUMENT_BYTES).ok())
+            },
+            file,
+        )
+        .map_err(err);
+    }
+    if format == "json" {
+        return serde_json::to_writer_pretty(file, &p.pack).map_err(err);
+    }
+    file.write_all(render_text_export(p, format)?.as_bytes()).map_err(err)
 }
 
-fn export_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], format: &str, path: &str, opts: Option<CopyOptions>) -> CmdResult<String> {
-    let prepared = prepare_export(state, ids, &[format], opts)?;
+fn render_text_export(p: &Prepared, format: &str) -> CmdResult<String> {
+    let text = match format {
+        "md" => render_markdown(&p.pack, &p.ropts),
+        "txt" => render_framed(&p.pack, &p.ropts, &p.framing),
+        "html" => hopilo_core::html::render_html(&p.pack, &p.ropts),
+        "json" | "handoff" => hopilo_pack_format::to_json(&p.pack).map_err(err)?,
+        other => return Err(format!("unknown export format {other}")),
+    };
+    Ok(if p.exclude_secrets && format != "json" && format != "handoff" { p.redactor.redact_text(&text) } else { text })
+}
+
+fn reviewed_text(p: &Prepared, format: &str, review: Option<&ReviewedPreview>) -> CmdResult<String> {
+    let text = render_text_export(p, format)?;
+    match review {
+        Some(review) if review.format == format => {
+            if hopilo_pack_format::sha256_hex(text.as_bytes()) != review.hash {
+                return Err(STALE_REVIEW.into());
+            }
+        }
+        other => check_review(p, other)?,
+    }
+    Ok(text)
+}
+
+const STALE_REVIEW: &str = "Session or settings changed since preview. Review the updated preview, then try again.";
+
+fn check_review(p: &Prepared, review: Option<&ReviewedPreview>) -> CmdResult<()> {
+    if let Some(review) = review {
+        let actual = hopilo_pack_format::sha256_hex(render_text_export(p, &review.format)?.as_bytes());
+        if actual != review.hash {
+            return Err(STALE_REVIEW.into());
+        }
+    }
+    Ok(())
+}
+
+fn apply_selection(store: &hopilo_database::Store, pack: &mut Pack, selected: Option<&[MessageRef]>) -> CmdResult<()> {
+    if let Some(selected) = selected {
+        let wanted: std::collections::HashSet<_> =
+            selected.iter().map(|m| (m.source_id.as_str(), m.id.as_str())).collect();
+        if wanted.is_empty() {
+            return Err("Choose at least one message".into());
+        }
+        if wanted.iter().any(|(source, id)| !pack.messages.iter().any(|m| m.source_id == *source && m.id == *id)) {
+            return Err("Selected messages changed or are no longer available".into());
+        }
+        pack.messages.retain(|m| wanted.contains(&(m.source_id.as_str(), m.id.as_str())));
+        if pack.messages.is_empty() {
+            return Err("Selected messages are no longer available".into());
+        }
+        pack.attachments = store.session_files(&pack.messages);
+        pack.mode = hopilo_core::Mode::Selected;
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffPreview {
+    text: String,
+    hash: String,
+    token_estimate: usize,
+    message_count: usize,
+    format: String,
+    truncated: bool,
+}
+
+const PREVIEW_BYTES: usize = 4 * 1024 * 1024;
+
+#[tauri::command]
+pub async fn preview_handoff(
+    app: AppHandle,
+    ids: Vec<String>,
+    format: String,
+    opts: CopyOptions,
+) -> CmdResult<HandoffPreview> {
+    blocking(app, move |_, state| {
+        let prepared = prepare_export(&state, &ids, &[&format], Some(opts))?;
+        let mut text = render_text_export(&prepared, &format)?;
+        let hash = hopilo_pack_format::sha256_hex(text.as_bytes());
+        let token_estimate = estimate_tokens(&text);
+        let truncated = text.len() > PREVIEW_BYTES;
+        if truncated {
+            let mut end = PREVIEW_BYTES;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            text.truncate(end);
+        }
+        Ok(HandoffPreview {
+            hash,
+            token_estimate,
+            message_count: prepared.pack.messages.len(),
+            format,
+            text,
+            truncated,
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn handoff_messages(app: AppHandle, ids: Vec<String>) -> CmdResult<Vec<hopilo_core::Message>> {
+    blocking(app, move |_, state| with_store(&state, |store| Ok(store.compose(&ids).map_err(err)?.messages))).await
+}
+
+fn export_blocking(
+    app: &AppHandle,
+    state: &State<AppState>,
+    ids: &[String],
+    format: &str,
+    path: &str,
+    opts: Option<CopyOptions>,
+) -> CmdResult<String> {
+    let opts = opts.unwrap_or_default();
+    let prepared = prepare_export(state, ids, &[format], Some(opts.clone()))?;
     let dest = PathBuf::from(path);
-    write_atomic(&dest, &render_export(&prepared, format)?)?;
+    if matches!(format, "md" | "txt" | "html") {
+        use std::io::Write;
+        let text = reviewed_text(&prepared, format, opts.reviewed.as_ref())?;
+        write_atomic_with(&dest, |file| file.write_all(text.as_bytes()).map_err(err))?;
+    } else {
+        check_review(&prepared, opts.reviewed.as_ref())?;
+        write_atomic_with(&dest, |file| write_export(&prepared, format, file))?;
+    }
     with_store(state, |s| s.record_copy(ids, "file", &format!("export-{format}"), "exported").map_err(err))?;
     notify(app);
     Ok(dest.display().to_string())
 }
 
-fn export_zip_blocking(app: &AppHandle, state: &State<AppState>, ids: &[String], formats: &[String], path: &str, opts: Option<CopyOptions>) -> CmdResult<String> {
-    use std::io::Write;
+fn export_zip_blocking(
+    app: &AppHandle,
+    state: &State<AppState>,
+    ids: &[String],
+    formats: &[String],
+    path: &str,
+    opts: Option<CopyOptions>,
+) -> CmdResult<String> {
     let mut formats: Vec<&str> = formats.iter().map(String::as_str).collect();
     formats.sort_by_key(|f| EXPORT_FORMATS.iter().position(|x| x == f));
     formats.dedup();
     if formats.is_empty() {
         return Err("pick at least one format".into());
     }
-    let prepared = prepare_export(state, ids, &formats, opts)?;
-    let title = with_store(state, |s| s.composed_title(ids).map_err(err))?;
-    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    for f in &formats {
-        zip.start_file(hopilo_pack_format::export_filename_for(&title, 0, export_ext(f)), o).map_err(err)?;
-        zip.write_all(&render_export(&prepared, f)?).map_err(err)?;
-    }
-    let bytes = zip.finish().map_err(err)?.into_inner();
+    let opts = opts.unwrap_or_default();
+    let prepared = prepare_export(state, ids, &formats, Some(opts.clone()))?;
+    check_review(&prepared, opts.reviewed.as_ref())?;
+    let title = &prepared.pack.title;
     let dest = PathBuf::from(path);
-    write_atomic(&dest, &bytes)?;
-    with_store(state, |s| s.record_copy(ids, "file", &format!("export-zip-{}", formats.join("+")), "exported").map_err(err))?;
+    write_atomic_with(&dest, |file| {
+        use std::io::Seek;
+        let mut zip = zip::ZipWriter::new(file);
+        for format in &formats {
+            let mut entry = tempfile::tempfile().map_err(err)?;
+            write_export(&prepared, format, &mut entry)?;
+            entry.rewind().map_err(err)?;
+            let method =
+                if *format == "handoff" { zip::CompressionMethod::Stored } else { zip::CompressionMethod::Deflated };
+            zip.start_file(
+                hopilo_pack_format::export_filename_for(title, 0, export_ext(format)),
+                zip::write::SimpleFileOptions::default().compression_method(method),
+            )
+            .map_err(err)?;
+            std::io::copy(&mut entry, &mut zip).map_err(err)?;
+        }
+        zip.finish().map_err(err)?;
+        Ok(())
+    })?;
+    with_store(state, |s| {
+        s.record_copy(ids, "file", &format!("export-zip-{}", formats.join("+")), "exported").map_err(err)
+    })?;
     notify(app);
     Ok(dest.display().to_string())
 }
@@ -494,7 +684,8 @@ pub fn copy_latest_session(app: &AppHandle, source: &str) {
         };
         crate::commands::sync_blocking(&app, crate::commands::SyncMode::Wait);
         let state = app.state::<AppState>();
-        let agents_only = state.setting("shortcutScope").and_then(|v| v.as_str().map(|s| s == "agents")).unwrap_or(false);
+        let agents_only =
+            state.setting("shortcutScope").and_then(|v| v.as_str().map(|s| s == "agents")).unwrap_or(false);
         let redact = state.setting("shortcutRedact").and_then(|v| v.as_bool()).unwrap_or(true);
         let latest = with_store(&state, |s| s.list_sessions().map_err(err)).ok().and_then(|rows| {
             rows.into_iter()
@@ -505,18 +696,42 @@ pub fn copy_latest_session(app: &AppHandle, source: &str) {
         let event = match latest {
             None => {
                 flash("No sessions");
-                LatestCopied { ok: false, title: None, id: None, findings: 0, missing: 0, error: Some("No sessions to copy yet.".into()), source }
+                LatestCopied {
+                    ok: false,
+                    title: None,
+                    id: None,
+                    findings: 0,
+                    missing: 0,
+                    error: Some("No sessions to copy yet.".into()),
+                    source,
+                }
             }
             Some(row) => {
                 let opts = CopyOptions { exclude_secrets: redact, ..CopyOptions::default() };
                 match copy_blocking(&app, std::slice::from_ref(&row.id), opts) {
                     Ok(out) => {
                         flash(if out.findings > 0 || out.missing > 0 { "Copied · check it" } else { "Copied" });
-                        LatestCopied { ok: true, title: Some(out.title), id: Some(row.id), findings: out.findings, missing: out.missing, error: None, source }
+                        LatestCopied {
+                            ok: true,
+                            title: Some(out.title),
+                            id: Some(row.id),
+                            findings: out.findings,
+                            missing: out.missing,
+                            error: None,
+                            source,
+                        }
                     }
                     Err(e) => {
                         flash("Copy failed");
-                        LatestCopied { ok: false, title: Some(row.title), id: Some(row.id), findings: 0, missing: 0, error: Some(e), source }
+                        LatestCopied {
+                            ok: false,
+                            title: Some(row.title),
+                            id: Some(row.id),
+                            findings: 0,
+                            missing: 0,
+                            error: Some(e),
+                            source,
+                        }
                     }
                 }
             }
@@ -544,28 +759,165 @@ pub fn builtin_redaction_kinds() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hopilo_core::{Block, CapturedFile, CaptureStatus, ContextBrief, Integrity, Message, Mode, Source, SourceKind, SCHEMA_VERSION};
+    use hopilo_core::{
+        Block, CaptureStatus, CapturedFile, ContextBrief, Integrity, Message, Mode, Source, SourceKind, SCHEMA_VERSION,
+    };
+
+    #[test]
+    fn selected_preview_matches_exports_redacts_notes_and_rejects_stale_review() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = hopilo_database::Store::open(dir.path()).unwrap();
+        let file = CapturedFile {
+            name: "private.txt".into(),
+            media_type: "text/plain".into(),
+            bytes: b"omitted file".to_vec(),
+        };
+        store.insert_attachment(&file.attachment(), &file.bytes).unwrap();
+        let mut ids = Vec::new();
+        for (sid, text) in [("first", "keep admin@example.com"), ("second", "drop this conversation")] {
+            let source = Source {
+                source_id: sid.into(),
+                kind: SourceKind::Manual,
+                provider: "manual".into(),
+                title: sid.into(),
+                origin: Some(format!("/private/{sid}")),
+                project: None,
+                model: None,
+                captured_at: "2026-11-09T00:00:00Z".into(),
+                capture_status: CaptureStatus::Complete,
+                missing_items: vec![],
+                omitted: vec![],
+            };
+            let messages = vec![Message {
+                id: "same-id".into(),
+                source_id: sid.into(),
+                role: Role::User,
+                created_at: None,
+                blocks: if sid == "first" { vec![Block::text(text)] } else { vec![Block::text(text), file.block()] },
+            }];
+            ids.push(store.upsert_session(&source, &messages, None).unwrap().source_id);
+        }
+        let opts = CopyOptions {
+            selected: Some(vec![MessageRef { source_id: ids[0].clone(), id: "same-id".into() }]),
+            exclude_secrets: true,
+            note: Some("handoff note admin@example.com".into()),
+            ..Default::default()
+        };
+        let red = Redactor::builtin();
+        let pack = prepare_pack(&store, &ids, &opts, &red).unwrap();
+        assert_eq!(pack.messages.len(), 1, "message IDs must be scoped to their source");
+        assert!(pack.attachments.is_empty(), "excluded messages must not leak file contents");
+        assert!(pack.sources.iter().all(|s| s.origin.is_none()));
+        let mut prepared = Prepared {
+            pack,
+            blob_root: dir.path().join("attachments"),
+            ropts: RenderOptions::default(),
+            exclude_secrets: true,
+            redactor: red,
+            framing: Framing::default(),
+        };
+        let mut reviews = Vec::new();
+        for format in ["md", "txt", "json", "html"] {
+            let preview = render_text_export(&prepared, format).unwrap();
+            assert!(!preview.contains("admin@example.com"));
+            assert!(!preview.contains("drop this conversation"));
+            assert!(preview.contains("handoff note"));
+            let mut out = tempfile::tempfile().unwrap();
+            write_export(&prepared, format, &mut out).unwrap();
+            use std::io::{Read, Seek};
+            out.rewind().unwrap();
+            let mut written = String::new();
+            out.read_to_string(&mut written).unwrap();
+            assert_eq!(written, preview, "preview must use exactly the export renderer for {format}");
+            let review =
+                ReviewedPreview { format: format.into(), hash: hopilo_pack_format::sha256_hex(preview.as_bytes()) };
+            check_review(&prepared, Some(&review)).unwrap();
+            reviews.push(review);
+        }
+        let original_prompt = render_text_export(&prepared, "txt").unwrap();
+        let mut intent_outputs = std::collections::HashSet::new();
+        for intent in [Intent::Continue, Intent::Review, Intent::Summary, Intent::Debug] {
+            prepared.framing.intent = intent;
+            let text = render_text_export(&prepared, "txt").unwrap();
+            assert!(text.contains("keep"), "intent changes must retain selected transcript");
+            intent_outputs.insert(text);
+        }
+        assert_eq!(intent_outputs.len(), 4, "each built-in intent must change the exact prompt");
+        prepared.framing.intent = Intent::Custom;
+        prepared.framing.instructions = Some("Write tests for {sessions} sessions. Contact admin@example.com".into());
+        let custom = render_text_export(&prepared, "txt").unwrap();
+        assert!(custom.contains("Write tests for 2 sessions"));
+        assert!(!custom.contains("admin@example.com"));
+        assert_ne!(custom, original_prompt);
+        assert!(check_review(&prepared, Some(&reviews[1])).is_err(), "intent changes invalidate reviewed output");
+        prepared.framing = Framing::default();
+        let second = prepare_pack(&store, &ids, &opts, &prepared.redactor).unwrap();
+        assert_eq!(serde_json::to_string(&prepared.pack).unwrap(), serde_json::to_string(&second).unwrap());
+        prepared.pack.messages[0].blocks.push(Block::text("new source content"));
+        for review in &reviews {
+            assert!(check_review(&prepared, Some(review)).is_err());
+        }
+        let empty = CopyOptions { selected: Some(vec![]), ..Default::default() };
+        assert!(prepare_pack(&store, &ids, &empty, &prepared.redactor).is_err());
+        let missing = CopyOptions {
+            selected: Some(vec![MessageRef { source_id: ids[0].clone(), id: "removed".into() }]),
+            ..Default::default()
+        };
+        assert!(prepare_pack(&store, &ids, &missing, &prepared.redactor).is_err());
+        assert!(store.compose(&ids).unwrap().messages[0].blocks[0].plain_text().contains("admin@example.com"));
+    }
 
     #[test]
     fn redacted_archive_contains_sanitized_file_bytes_and_valid_references() {
-        let file = CapturedFile { name: "config.txt".into(), media_type: "text/plain".into(), bytes: b"email admin@example.com".to_vec() };
+        let file = CapturedFile {
+            name: "config.txt".into(),
+            media_type: "text/plain".into(),
+            bytes: b"email admin@example.com".to_vec(),
+        };
         let attachment = file.attachment();
         let mut pack = Pack {
-            schema_version: SCHEMA_VERSION.into(), pack_id: "p".into(), title: "Review admin@example.com".into(),
-            version: 0, created_at: String::new(), mode: Mode::Full,
+            schema_version: SCHEMA_VERSION.into(),
+            pack_id: "p".into(),
+            title: "Review admin@example.com".into(),
+            version: 0,
+            created_at: String::new(),
+            mode: Mode::Full,
             sources: vec![Source {
-                source_id: "s".into(), kind: SourceKind::Manual, provider: "manual".into(), title: "Review".into(),
-                origin: None, project: None, model: None, captured_at: String::new(), capture_status: CaptureStatus::Complete,
-                missing_items: vec![], omitted: vec![],
+                source_id: "s".into(),
+                kind: SourceKind::Manual,
+                provider: "manual".into(),
+                title: "Review".into(),
+                origin: None,
+                project: None,
+                model: None,
+                captured_at: String::new(),
+                capture_status: CaptureStatus::Complete,
+                missing_items: vec![],
+                omitted: vec![],
             }],
-            messages: vec![Message { id: "m".into(), source_id: "s".into(), role: Role::User, created_at: None, blocks: vec![file.block(), file.block()] }],
-            context: ContextBrief::default(), attachments: vec![attachment.clone(), attachment], tags: vec![], integrity: Integrity::default(),
+            messages: vec![Message {
+                id: "m".into(),
+                source_id: "s".into(),
+                role: Role::User,
+                created_at: None,
+                blocks: vec![file.block(), file.block()],
+            }],
+            context: ContextBrief::default(),
+            attachments: vec![attachment.clone(), attachment],
+            tags: vec![],
+            integrity: Integrity::default(),
         };
         pack.attachments[1].id.push_str("-second");
         let redactor = Redactor::builtin();
         let blobs = redact_export_pack(&mut pack, &redactor, true);
         let mut archive = std::io::Cursor::new(Vec::new());
-        hopilo_pack_format::write_handoff(&pack, &RenderOptions::default(), &|a| blobs.get(&a.sha256).cloned(), &mut archive).unwrap();
+        hopilo_pack_format::write_handoff(
+            &pack,
+            &RenderOptions::default(),
+            &|a| blobs.get(&a.sha256).cloned(),
+            &mut archive,
+        )
+        .unwrap();
         archive.set_position(0);
         let imported = hopilo_pack_format::read_handoff(archive).unwrap();
         assert!(!serde_json::to_string(&imported.pack).unwrap().contains("admin@example.com"));
@@ -576,7 +928,9 @@ mod tests {
             assert_eq!(a.sha256, hopilo_pack_format::sha256_hex(bytes));
         }
         for b in &imported.pack.messages[0].blocks {
-            assert!(matches!(b, Block::File { sha256, size, .. } if sha256 == &imported.pack.attachments[0].sha256 && *size == imported.pack.attachments[0].size));
+            assert!(
+                matches!(b, Block::File { sha256, size, .. } if sha256 == &imported.pack.attachments[0].sha256 && *size == imported.pack.attachments[0].size)
+            );
         }
         assert_eq!(file.bytes, b"email admin@example.com", "original source remains unchanged");
     }

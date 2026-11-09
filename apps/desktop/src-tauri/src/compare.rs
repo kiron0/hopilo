@@ -130,7 +130,9 @@ fn normalize_path(p: &str, project: Option<&str>) -> String {
 }
 
 fn compare(a: Side, b: Side, a_msgs: &[Message], b_msgs: &[Message]) -> Comparison {
-    let norm = |s: &Side| -> BTreeSet<String> { s.edited_files.iter().map(|p| normalize_path(p, s.project.as_deref())).collect() };
+    let norm = |s: &Side| -> BTreeSet<String> {
+        s.edited_files.iter().map(|p| normalize_path(p, s.project.as_deref())).collect()
+    };
     let (ea, eb) = (norm(&a), norm(&b));
     let ca: BTreeSet<&String> = a.commands.iter().collect();
     let cb: BTreeSet<&String> = b.commands.iter().collect();

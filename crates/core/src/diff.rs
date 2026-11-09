@@ -35,7 +35,11 @@ pub struct PackDiff {
 fn preview(m: &Message) -> String {
     let text = m.blocks.first().map(|b| b.plain_text()).unwrap_or("");
     let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    if line.chars().count() > 120 { format!("{}…", line.chars().take(119).collect::<String>()) } else { line.to_string() }
+    if line.chars().count() > 120 {
+        format!("{}…", line.chars().take(119).collect::<String>())
+    } else {
+        line.to_string()
+    }
 }
 
 fn change(m: &Message) -> MessageChange {
@@ -63,7 +67,8 @@ pub fn diff_packs(a: &Pack, b: &Pack) -> PackDiff {
     let (sa, sb) = (titles(a), titles(b));
     d.sources_added = sb.iter().filter(|(k, _)| !sa.contains_key(*k)).map(|(_, t)| t.clone()).collect();
     d.sources_removed = sa.iter().filter(|(k, _)| !sb.contains_key(*k)).map(|(_, t)| t.clone()).collect();
-    let files = |p: &Pack| p.attachments.iter().map(|x| (x.sha256.clone(), x.file_name.clone())).collect::<HashMap<_, _>>();
+    let files =
+        |p: &Pack| p.attachments.iter().map(|x| (x.sha256.clone(), x.file_name.clone())).collect::<HashMap<_, _>>();
     let (fa, fb) = (files(a), files(b));
     d.files_added = fb.iter().filter(|(k, _)| !fa.contains_key(*k)).map(|(_, t)| t.clone()).collect();
     d.files_removed = fa.iter().filter(|(k, _)| !fb.contains_key(*k)).map(|(_, t)| t.clone()).collect();
@@ -84,7 +89,13 @@ mod tests {
     use crate::model::*;
 
     fn msg(id: &str, text: &str) -> Message {
-        Message { id: id.into(), source_id: "s".into(), role: Role::User, created_at: None, blocks: vec![Block::text(text)] }
+        Message {
+            id: id.into(),
+            source_id: "s".into(),
+            role: Role::User,
+            created_at: None,
+            blocks: vec![Block::text(text)],
+        }
     }
 
     fn pack(v: u32, msgs: Vec<Message>, note: Option<&str>) -> Pack {

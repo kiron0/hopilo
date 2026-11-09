@@ -6,10 +6,7 @@ use rusqlite::OpenFlags;
 use serde_json::Value;
 
 use crate::text::title_from;
-use crate::{
-    file_meta, home, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter,
-    Result,
-};
+use crate::{file_meta, home, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter, Result};
 
 pub struct Antigravity;
 
@@ -48,11 +45,7 @@ impl LocalAgentAdapter for Antigravity {
     }
 
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
-        let target = if root.join("brain").is_dir() {
-            root.join("brain")
-        } else {
-            root.to_path_buf()
-        };
+        let target = if root.join("brain").is_dir() { root.join("brain") } else { root.to_path_buf() };
 
         if target.is_file() {
             if let Some(mut s) = quick_scan(&target, target.parent().unwrap_or(&target)) {
@@ -77,35 +70,20 @@ impl LocalAgentAdapter for Antigravity {
                 continue;
             }
 
-            let candidate1 = path
-                .join(".system_generated")
-                .join("logs")
-                .join("transcript.jsonl");
+            let candidate1 = path.join(".system_generated").join("logs").join("transcript.jsonl");
             let candidate2 = path.join("transcript.jsonl");
-            let candidate3 = path
-                .join(".system_generated")
-                .join("logs")
-                .join("transcript_full.jsonl");
+            let candidate3 = path.join(".system_generated").join("logs").join("transcript_full.jsonl");
 
-            let candidate4 = path
-                .join(".system_generated")
-                .join("logs")
-                .join("overview.txt");
-            let transcript = [candidate1, candidate2, candidate3, candidate4]
-                .into_iter()
-                .find(|c| c.is_file());
+            let candidate4 = path.join(".system_generated").join("logs").join("overview.txt");
+            let transcript = [candidate1, candidate2, candidate3, candidate4].into_iter().find(|c| c.is_file());
 
             transcripts.extend(transcript);
         }
 
-        let db_titles = find_summary_db(&target)
-            .map(|db| load_antigravity_titles(&db))
-            .unwrap_or_default();
+        let db_titles = find_summary_db(&target).map(|db| load_antigravity_titles(&db)).unwrap_or_default();
 
         let mut out = crate::par_scan(&transcripts, |t| {
-            let dir = t
-                .ancestors()
-                .find(|a| a.parent() == Some(target.as_path()))?;
+            let dir = t.ancestors().find(|a| a.parent() == Some(target.as_path()))?;
             quick_scan(t, dir)
         });
         for session in &mut out {
@@ -235,38 +213,23 @@ fn project_root(document: &Path) -> Option<PathBuf> {
     if crate::macos_protected_user_path(document) {
         return document.parent().map(Path::to_path_buf);
     }
-    let start = if document.is_dir() {
-        document
-    } else {
-        document.parent()?
-    };
+    let start = if document.is_dir() { document } else { document.parent()? };
 
     for dir in start.ancestors() {
-        if [".git", ".hg", ".svn"]
-            .iter()
-            .any(|marker| dir.join(marker).exists())
-        {
+        if [".git", ".hg", ".svn"].iter().any(|marker| dir.join(marker).exists()) {
             return Some(dir.to_path_buf());
         }
     }
 
     for dir in start.ancestors() {
-        if [
-            "pnpm-workspace.yaml",
-            "go.work",
-            "lerna.json",
-            "nx.json",
-            "turbo.json",
-        ]
-        .iter()
-        .any(|marker| dir.join(marker).is_file())
+        if ["pnpm-workspace.yaml", "go.work", "lerna.json", "nx.json", "turbo.json"]
+            .iter()
+            .any(|marker| dir.join(marker).is_file())
         {
             return Some(dir.to_path_buf());
         }
         let cargo = dir.join("Cargo.toml");
-        if cargo.is_file()
-            && std::fs::read_to_string(cargo).is_ok_and(|text| text.contains("[workspace]"))
-        {
+        if cargo.is_file() && hopilo_core::limits::read_text(&cargo).is_ok_and(|text| text.contains("[workspace]")) {
             return Some(dir.to_path_buf());
         }
     }
@@ -314,19 +277,13 @@ fn quick_scan(transcript: &Path, session_dir: &Path) -> Option<DiscoveredSession
     let session_id = session_dir
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| {
-            transcript
-                .file_stem()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-        });
+        .or_else(|| transcript.file_stem().map(|s| s.to_string_lossy().to_string()))
+        .unwrap_or_default();
     Some(DiscoveredSession {
         adapter: "antigravity".into(),
         path: transcript.display().to_string(),
         session_id: session_id.clone(),
-        title: title
-            .unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>())),
+        title: title.unwrap_or_else(|| format!("Session {}", session_id.chars().take(8).collect::<String>())),
         project,
         model,
         modified_at,
@@ -339,10 +296,7 @@ fn resolve_transcript(path: &Path) -> Result<PathBuf> {
     if path.is_file() {
         return Ok(path.to_path_buf());
     }
-    let p1 = path
-        .join(".system_generated")
-        .join("logs")
-        .join("transcript.jsonl");
+    let p1 = path.join(".system_generated").join("logs").join("transcript.jsonl");
     if p1.is_file() {
         return Ok(p1);
     }
@@ -350,10 +304,7 @@ fn resolve_transcript(path: &Path) -> Result<PathBuf> {
     if p2.is_file() {
         return Ok(p2);
     }
-    let p3 = path
-        .join(".system_generated")
-        .join("logs")
-        .join("transcript_full.jsonl");
+    let p3 = path.join(".system_generated").join("logs").join("transcript_full.jsonl");
     if p3.is_file() {
         return Ok(p3);
     }
@@ -375,14 +326,9 @@ fn read_session(path: &Path) -> Result<Capture> {
             continue;
         };
         let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
-        let created_at = v
-            .get("created_at")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+        let created_at = v.get("created_at").and_then(Value::as_str).map(str::to_string);
         let step_idx = v.get("step_index").and_then(Value::as_u64);
-        let id = step_idx
-            .map(|idx| format!("step-{}", idx))
-            .unwrap_or_else(new_id);
+        let id = step_idx.map(|idx| format!("step-{}", idx)).unwrap_or_else(new_id);
 
         match kind {
             "USER_INPUT" => {
@@ -404,7 +350,8 @@ fn read_session(path: &Path) -> Result<Capture> {
                 }
                 for item in media.into_iter().flatten() {
                     let uri = item.get("uri").or_else(|| item.get("url")).and_then(Value::as_str).unwrap_or("");
-                    let mime = item.get("mime_type").or_else(|| item.get("mimeType")).and_then(Value::as_str).unwrap_or("");
+                    let mime =
+                        item.get("mime_type").or_else(|| item.get("mimeType")).and_then(Value::as_str).unwrap_or("");
                     match crate::text::read_local_file(uri) {
                         Some(mut file) => {
                             if !mime.is_empty() {
@@ -417,37 +364,25 @@ fn read_session(path: &Path) -> Result<Capture> {
                         }
                         None => {
                             missing_files += 1;
-                            blocks.push(Block::Missing { description: "file shared in the Antigravity conversation".into() });
+                            blocks.push(Block::Missing {
+                                description: "file shared in the Antigravity conversation".into(),
+                            });
                         }
                     }
                 }
-                messages.push(Message {
-                    id,
-                    source_id: source_id.clone(),
-                    role: Role::User,
-                    created_at,
-                    blocks,
-                });
+                messages.push(Message { id, source_id: source_id.clone(), role: Role::User, created_at, blocks });
             }
             "PLANNER_RESPONSE" => {
                 if model.is_none() {
                     model = Some("Gemini".to_string());
                 }
                 let mut blocks = Vec::new();
-                if let Some(text) = v
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.trim().is_empty())
-                {
+                if let Some(text) = v.get("content").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
                     blocks.push(Block::text(text.trim()));
                 }
                 if let Some(tools) = v.get("tool_calls").and_then(Value::as_array) {
                     for tc in tools {
-                        let name = tc
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or("tool")
-                            .to_string();
+                        let name = tc.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
                         let input = tc
                             .get("args")
                             .map(|a| serde_json::to_string_pretty(a).unwrap_or_default())
@@ -475,11 +410,7 @@ fn read_session(path: &Path) -> Result<Capture> {
                         source_id: source_id.clone(),
                         role: Role::Tool,
                         created_at,
-                        blocks: vec![Block::ToolResult {
-                            name: None,
-                            output: text.to_string(),
-                            is_error,
-                        }],
+                        blocks: vec![Block::ToolResult { name: None, output: text.to_string(), is_error }],
                     });
                 }
             }
@@ -492,22 +423,13 @@ fn read_session(path: &Path) -> Result<Capture> {
     }
 
     let session_dir = if transcript.is_file()
-        && transcript
-            .file_name()
-            .is_some_and(|n| n == "transcript.jsonl" || n == "transcript_full.jsonl")
+        && transcript.file_name().is_some_and(|n| n == "transcript.jsonl" || n == "transcript_full.jsonl")
     {
-        transcript
-            .parent()
-            .and_then(Path::parent)
-            .and_then(Path::parent)
-            .unwrap_or(&transcript)
+        transcript.parent().and_then(Path::parent).and_then(Path::parent).unwrap_or(&transcript)
     } else {
         path
     };
-    let session_id = session_dir
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(new_id);
+    let session_id = session_dir.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(new_id);
     let db_title = find_summary_db(&transcript).and_then(|db| lookup_antigravity_title(&db, &session_id));
     let title = db_title
         .or(first_prompt)
@@ -532,11 +454,7 @@ fn read_session(path: &Path) -> Result<Capture> {
         omitted: vec![],
     };
 
-    Ok(Capture {
-        source,
-        messages,
-        files,
-    })
+    Ok(Capture { source, messages, files })
 }
 
 fn find_summary_db(start: &Path) -> Option<PathBuf> {
@@ -585,9 +503,7 @@ fn load_antigravity_titles(db_path: &Path) -> HashMap<String, String> {
          FROM conversation_summaries
          WHERE trim(title) != '' OR trim(preview) != ''",
     ) {
-        if let Ok(rows) = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        }) {
+        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
             for (id, title) in rows.flatten() {
                 let clean = title_from(&title);
                 if !clean.is_empty() {
@@ -597,12 +513,8 @@ fn load_antigravity_titles(db_path: &Path) -> HashMap<String, String> {
         }
     }
 
-    if let Ok(mut stmt) = conn.prepare(
-        "SELECT conversation_id, title FROM conversations_fts WHERE trim(title) != ''",
-    ) {
-        if let Ok(rows) = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        }) {
+    if let Ok(mut stmt) = conn.prepare("SELECT conversation_id, title FROM conversations_fts WHERE trim(title) != ''") {
+        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
             for (id, title) in rows.flatten() {
                 let clean = title_from(&title);
                 if !clean.is_empty() {
@@ -619,7 +531,8 @@ fn lookup_antigravity_title(db_path: &Path, session_id: &str) -> Option<String> 
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ).ok()?;
+    )
+    .ok()?;
 
     if let Ok(title) = conn.query_row(
         "SELECT COALESCE(NULLIF(trim(title), ''), NULLIF(trim(preview), ''))
@@ -693,14 +606,8 @@ mod tests {
         let document = pages.join("Sessions.tsx");
         std::fs::write(&document, "").unwrap();
 
-        let metadata = format!(
-            "Active Document: {} (LANGUAGE_TYPESCRIPT)",
-            document.display()
-        );
-        assert_eq!(
-            extract_project(&metadata),
-            Some(dir.path().display().to_string())
-        );
+        let metadata = format!("Active Document: {} (LANGUAGE_TYPESCRIPT)", document.display());
+        assert_eq!(extract_project(&metadata), Some(dir.path().display().to_string()));
     }
 
     #[test]
@@ -711,10 +618,7 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
 
         let metadata = format!("Command Working Directory: {}", sub.display());
-        assert_eq!(
-            extract_project(&metadata),
-            Some(dir.path().display().to_string())
-        );
+        assert_eq!(extract_project(&metadata), Some(dir.path().display().to_string()));
     }
 
     #[test]
@@ -725,10 +629,7 @@ Other open documents:
 - /Users/test/Documents/hopilo/.github/workflows/release.yml (LANGUAGE_YAML)
 - /Users/test/Documents/hopilo/CHANGELOG.md (LANGUAGE_MARKDOWN)
 </ADDITIONAL_METADATA>"#;
-        assert_eq!(
-            extract_project(metadata),
-            Some("/Users/test/Documents/hopilo".into())
-        );
+        assert_eq!(extract_project(metadata), Some("/Users/test/Documents/hopilo".into()));
     }
 
     #[test]

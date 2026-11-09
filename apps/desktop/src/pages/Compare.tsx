@@ -176,16 +176,16 @@ export function Compare() {
   const a = route.page === "compare" ? route.a : undefined;
   const b = route.page === "compare" ? route.b : undefined;
   const [combine, setCombine] = useState(false);
-  const sessions = useLoad(() => api.listSessions());
+  const sessions = useLoad(() => api.querySessions({ ids: [a, b].filter((id): id is string => !!id), limit: 2 }), ["compare-rows", a, b]);
   const [picking, setPicking] = useState<"a" | "b" | null>(null);
-  const byId = useMemo(() => new Map((sessions.data ?? []).map((r) => [r.id, r])), [sessions.data]);
+  const byId = useMemo(() => new Map((sessions.data?.rows ?? []).map((r) => [r.id, r])), [sessions.data]);
   const rowA = a ? byId.get(a) : undefined;
   const rowB = b ? byId.get(b) : undefined;
   useEffect(() => {
     if (a && !b) setPicking("b");
   }, []);
   const ready = !!a && !!b && a !== b;
-  const cmp = useLoad(() => (ready ? api.compareSessions(a!, b!) : Promise.resolve(null)), [a, b]);
+  const cmp = useLoad(() => (ready ? api.compareSessions(a!, b!) : Promise.resolve(null)), ["compare", a, b]);
   const c = ready ? cmp.data : null;
 
   const set = (next: { a?: string; b?: string }) => navigate({ page: "compare", a, b, ...next });

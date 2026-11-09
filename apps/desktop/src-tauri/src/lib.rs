@@ -1,8 +1,10 @@
+mod backups;
 mod browser;
 mod commands;
 mod compare;
 mod files;
 mod handoff;
+mod model_limits;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -11,7 +13,10 @@ use commands::AppState;
 use hopilo_database::Store;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, Rect, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Monitor, PhysicalPosition, Rect, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
+};
 
 const MAIN_MIN_SHARE: f64 = 0.8;
 
@@ -148,8 +153,7 @@ fn set_dock_presence(_app: &AppHandle, _visible: bool) {}
 
 fn refresh_dock(app: &AppHandle, closing: Option<&str>) {
     let open = ["main", "welcome"].iter().any(|label| {
-        Some(*label) != closing
-            && app.get_webview_window(label).and_then(|w| w.is_visible().ok()).unwrap_or(false)
+        Some(*label) != closing && app.get_webview_window(label).and_then(|w| w.is_visible().ok()).unwrap_or(false)
     });
     set_dock_presence(app, open);
 }
@@ -204,12 +208,15 @@ fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Result<()
         let _ = apply_shortcut(&app, previous.as_deref());
         return Err(e);
     }
-    let value = accelerator.filter(|a| !a.trim().is_empty()).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
+    let value =
+        accelerator.filter(|a| !a.trim().is_empty()).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
     commands::save_setting_blocking(&app, SHORTCUT_KEY, value)
 }
 
 fn is_bundle_path(p: &std::path::Path) -> bool {
-    p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("hopilo") || e.eq_ignore_ascii_case("handoff"))
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("hopilo") || e.eq_ignore_ascii_case("handoff"))
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -232,7 +239,10 @@ fn open_bundles(app: &AppHandle, paths: Vec<std::path::PathBuf>) {
         for p in &paths {
             match commands::import_handoff_blocking(&app, &state, &p.to_string_lossy()) {
                 Ok(ids) => out.ids.extend(ids),
-                Err(e) => out.errors.push(format!("{}: {e}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
+                Err(e) => out.errors.push(format!(
+                    "{}: {e}",
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                )),
             }
         }
         show_main(&app);
@@ -294,6 +304,7 @@ fn toggle_quick_panel(app: &AppHandle, anchor_rect: Option<Rect>) {
         let _ = w.set_position(LogicalPosition::new(x, y));
         let _ = app.emit_to("quick", "hopilo://quick-anchor", tray_center_x - x);
     }
+    let _ = w.set_shadow(false);
     emit_visibility(app, "quick", true);
     let _ = w.show();
     let _ = w.set_focus();
@@ -330,7 +341,10 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left, button_state: MouseButtonState::Up, rect, ..
+            } = event
+            {
                 let app = tray.app_handle();
                 if setting_str(app, "trayClick").as_deref() == Some("dashboard") {
                     show_main(app);
@@ -379,8 +393,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
-            let store = Store::open(&dir).map_err(|e| format!("Could not open the Hopilo library at {}: {e}", dir.display()))?;
+            // Debug UI flows use a disposable library; release builds always use app data.
+            let dir = if cfg!(debug_assertions) {
+                std::env::var_os("HOPILO_TEST_DATA_DIR")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or(app.path().app_data_dir()?)
+            } else {
+                app.path().app_data_dir()?
+            };
+            let store = Store::open(&dir)
+                .map_err(|e| format!("Could not open the Hopilo library at {}: {e}", dir.display()))?;
             let settings = store.settings().unwrap_or_default();
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -403,6 +425,7 @@ pub fn run() {
             }
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
+            backups::start(app.handle());
             if let Some(accel) = settings.get(SHORTCUT_KEY).and_then(|v| v.as_str()) {
                 if let Err(e) = apply_shortcut(app.handle(), Some(accel)) {
                     eprintln!("hopilo: {e}");
@@ -442,7 +465,9 @@ pub fn run() {
             }
             ("main" | "quick", WindowEvent::Focused(true)) => {
                 let app = window.app_handle().clone();
-                tauri::async_runtime::spawn_blocking(move || commands::sync_blocking(&app, commands::SyncMode::Background));
+                tauri::async_runtime::spawn_blocking(move || {
+                    commands::sync_blocking(&app, commands::SyncMode::Background)
+                });
             }
             ("welcome", WindowEvent::Destroyed) => refresh_dock(window.app_handle(), Some("welcome")),
             ("quick", WindowEvent::Focused(false)) => {
@@ -461,16 +486,26 @@ pub fn run() {
             handoff::copy_latest,
             handoff::test_redaction_rule,
             handoff::builtin_redaction_kinds,
+            backups::backup_status,
+            backups::create_backup,
+            backups::verify_backup,
+            backups::restore_backup,
+            backups::unlock_backup_schedule,
+            backups::lock_backup_schedule,
+            handoff::preview_handoff,
+            handoff::handoff_messages,
             commands::app_info,
             commands::show_main_window,
             commands::quit_app,
             commands::sync_sessions,
             commands::list_sessions,
+            commands::query_sessions,
             commands::list_hidden_sessions,
             commands::restore_session,
             commands::get_session,
             commands::update_session,
             commands::remove_session,
+            commands::permanently_delete_sessions,
             commands::list_chat_export,
             commands::import_chat_export,
             commands::import_text,
@@ -478,8 +513,10 @@ pub fn run() {
             commands::import_handoff_file,
             commands::preflight_files,
             commands::add_files,
+            commands::remove_session_file,
             commands::save_file,
             commands::preview_file,
+            commands::read_file_preview,
             commands::open_file,
             commands::open_folder,
             commands::open_url,
@@ -488,6 +525,8 @@ pub fn run() {
             commands::stats,
             commands::search,
             commands::get_settings,
+            model_limits::sync_model_limits,
+            model_limits::import_model_limits,
             commands::set_setting,
             commands::integrity_check,
             commands::audit_library,

@@ -83,7 +83,8 @@ impl LocalAgentAdapter for OpenCode {
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
-        let (db, session_id) = split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
+        let (db, session_id) =
+            split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
         let conn = open_ro(&db)?;
         let rows = list_sessions(&conn, &db)?;
         match rows.get(&session_id) {
@@ -116,12 +117,20 @@ fn has_table(conn: &Connection, name: &str) -> bool {
 fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashMap<String, SessionRow>> {
     let mut map: std::collections::HashMap<String, SessionRow> = std::collections::HashMap::new();
     let queries = [
-        (Store::V1, "session", "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
+        (
+            Store::V1,
+            "session",
+            "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
                 (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id)
-             FROM session s WHERE s.parent_id IS NULL AND s.time_archived IS NULL"),
-        (Store::V2, "session_v2", "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
+             FROM session s WHERE s.parent_id IS NULL AND s.time_archived IS NULL",
+        ),
+        (
+            Store::V2,
+            "session_v2",
+            "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
                 (SELECT COUNT(*) FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user', 'assistant'))
-             FROM session_v2 s WHERE s.parent_id IS NULL AND s.time_archived IS NULL"),
+             FROM session_v2 s WHERE s.parent_id IS NULL AND s.time_archived IS NULL",
+        ),
     ];
     for (store, table, sql) in queries {
         if !has_table(conn, table) {
@@ -132,7 +141,14 @@ fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashM
             .query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
-                    SessionRow { title: r.get(1)?, dir: r.get(2)?, model: r.get(3)?, updated: r.get(4)?, count: r.get(5)?, store },
+                    SessionRow {
+                        title: r.get(1)?,
+                        dir: r.get(2)?,
+                        model: r.get(3)?,
+                        updated: r.get(4)?,
+                        count: r.get(5)?,
+                        store,
+                    },
                 ))
             })
             .map_err(sql_err(db))?;
@@ -179,9 +195,8 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
         .map_err(sql_err(db))?
         .flatten()
         .collect();
-    let mut part_stmt = conn
-        .prepare("SELECT data FROM part WHERE message_id = ?1 ORDER BY time_created, id")
-        .map_err(sql_err(db))?;
+    let mut part_stmt =
+        conn.prepare("SELECT data FROM part WHERE message_id = ?1 ORDER BY time_created, id").map_err(sql_err(db))?;
 
     let source_id = new_id();
     let mut messages = Vec::new();
@@ -214,7 +229,6 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
             };
             match part.get("type").and_then(Value::as_str).unwrap_or("") {
                 "text" => {
-
                     if part.get("synthetic").and_then(Value::as_bool) == Some(true) {
                         continue;
                     }
@@ -226,7 +240,10 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
                 "tool" => {
                     let name = part.get("tool").and_then(Value::as_str).unwrap_or("tool").to_string();
                     let state = part.get("state").cloned().unwrap_or(Value::Null);
-                    let input = state.get("input").map(|i| serde_json::to_string_pretty(i).unwrap_or_default()).unwrap_or_default();
+                    let input = state
+                        .get("input")
+                        .map(|i| serde_json::to_string_pretty(i).unwrap_or_default())
+                        .unwrap_or_default();
                     blocks.push(Block::ToolCall { name: name.clone(), input });
                     let status = state.get("status").and_then(Value::as_str).unwrap_or("");
                     let output = state
@@ -261,7 +278,9 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
                         }
                         None => {
                             files += 1;
-                            blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                            blocks.push(Block::Missing {
+                                description: format!("file “{name}” attached in OpenCode")
+                            });
                         }
                     }
                 }
@@ -276,10 +295,22 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
             });
         }
         if !blocks.is_empty() {
-            messages.push(Message { id: mid.clone(), source_id: source_id.clone(), role, created_at: created_at.clone(), blocks });
+            messages.push(Message {
+                id: mid.clone(),
+                source_id: source_id.clone(),
+                role,
+                created_at: created_at.clone(),
+                blocks,
+            });
         }
         if !results.is_empty() {
-            messages.push(Message { id: format!("{mid}-results"), source_id: source_id.clone(), role: Role::Tool, created_at, blocks: results });
+            messages.push(Message {
+                id: format!("{mid}-results"),
+                source_id: source_id.clone(),
+                role: Role::Tool,
+                created_at,
+                blocks: results,
+            });
         }
     }
 
@@ -315,7 +346,13 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
     })
 }
 
-fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Path, row: &SessionRow) -> Result<Capture> {
+fn read_session_v2(
+    conn: &Connection,
+    db: &Path,
+    session_id: &str,
+    locator: &Path,
+    row: &SessionRow,
+) -> Result<Capture> {
     let mut stmt = conn
         .prepare("SELECT id, type, time_created, data FROM session_message WHERE session_id = ?1 ORDER BY seq, time_created, id")
         .map_err(sql_err(db))?;
@@ -369,12 +406,20 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
                         }
                         None => {
                             files += 1;
-                            blocks.push(Block::Missing { description: format!("file “{name}” attached in OpenCode") });
+                            blocks.push(Block::Missing {
+                                description: format!("file “{name}” attached in OpenCode")
+                            });
                         }
                     }
                 }
                 if !blocks.is_empty() {
-                    messages.push(Message { id: mid, source_id: source_id.clone(), role: Role::User, created_at, blocks });
+                    messages.push(Message {
+                        id: mid,
+                        source_id: source_id.clone(),
+                        role: Role::User,
+                        created_at,
+                        blocks,
+                    });
                 }
             }
             "assistant" => {
@@ -392,9 +437,17 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
                         }
                         "reasoning" => reasoning += 1,
                         "tool" => {
-                            let name = part.get("name").or_else(|| part.get("tool")).and_then(Value::as_str).unwrap_or("tool").to_string();
+                            let name = part
+                                .get("name")
+                                .or_else(|| part.get("tool"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("tool")
+                                .to_string();
                             let state = part.get("state").cloned().unwrap_or(Value::Null);
-                            let input = state.get("input").map(|i| serde_json::to_string_pretty(i).unwrap_or_default()).unwrap_or_default();
+                            let input = state
+                                .get("input")
+                                .map(|i| serde_json::to_string_pretty(i).unwrap_or_default())
+                                .unwrap_or_default();
                             blocks.push(Block::ToolCall { name: name.clone(), input });
                             let status = state.get("status").and_then(Value::as_str).unwrap_or("");
                             let output = match state.get("content") {
@@ -411,17 +464,33 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
                                     .to_string(),
                             };
                             if !output.is_empty() || status == "error" {
-                                results.push(Block::ToolResult { name: Some(name), output, is_error: status == "error" });
+                                results.push(Block::ToolResult {
+                                    name: Some(name),
+                                    output,
+                                    is_error: status == "error",
+                                });
                             }
                         }
                         _ => {}
                     }
                 }
                 if !blocks.is_empty() {
-                    messages.push(Message { id: mid.clone(), source_id: source_id.clone(), role: Role::Assistant, created_at: created_at.clone(), blocks });
+                    messages.push(Message {
+                        id: mid.clone(),
+                        source_id: source_id.clone(),
+                        role: Role::Assistant,
+                        created_at: created_at.clone(),
+                        blocks,
+                    });
                 }
                 if !results.is_empty() {
-                    messages.push(Message { id: format!("{mid}-results"), source_id: source_id.clone(), role: Role::Tool, created_at, blocks: results });
+                    messages.push(Message {
+                        id: format!("{mid}-results"),
+                        source_id: source_id.clone(),
+                        role: Role::Tool,
+                        created_at,
+                        blocks: results,
+                    });
                 }
             }
             "compaction" => compactions += 1,
@@ -451,7 +520,9 @@ fn read_session_v2(conn: &Connection, db: &Path, session_id: &str, locator: &Pat
             source_id,
             kind: SourceKind::LocalAgent,
             provider: "opencode".into(),
-            title: real_title(row.title.clone()).or(first_prompt).unwrap_or_else(|| format!("OpenCode session {session_id}")),
+            title: real_title(row.title.clone())
+                .or(first_prompt)
+                .unwrap_or_else(|| format!("OpenCode session {session_id}")),
             origin: Some(locator.display().to_string()),
             project: row.dir.clone(),
             model,
