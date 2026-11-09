@@ -452,6 +452,19 @@ export const Globe = make([c(12, 12, 8.5), "M3.5 12h17", "M12 3.5c2.5 2.6 3.5 5.
 const SHIELD = "M12 3.5 19 6.5v5c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9v-5z";
 export const ShieldCheck = make([SHIELD, "m9 12 2.2 2.2 4.3-4.3"], SHIELD);
 export const ShieldAlert = make([SHIELD, "M12 8.5v4M12 15.5h.01"], SHIELD);
+const GEAR = "M18.39 10.36 20.29 10.63 20.29 13.37 18.39 13.64 17.68 15.36 18.83 16.89 16.89 18.83 15.36 17.68 13.64 18.39 13.37 20.29 10.63 20.29 10.36 18.39 8.64 17.68 7.11 18.83 5.17 16.89 6.32 15.36 5.61 13.64 3.71 13.37 3.71 10.63 5.61 10.36 6.32 8.64 5.17 7.11 7.11 5.17 8.64 6.32 10.36 5.61 10.63 3.71 13.37 3.71 13.64 5.61 15.36 6.32 16.89 5.17 18.83 7.11 17.68 8.64z";
+export const Gear = make([GEAR, c(12, 12, 2.6)], GEAR);
+const PALETTE = "M12 3.5a8.5 8.5 0 0 0 0 17c1.1 0 1.7-.9 1.2-1.9l-.4-.8c-.6-1.2.3-2.5 1.6-2.5h1.6a4.5 4.5 0 0 0 4.5-4.5c0-4.1-3.8-7.3-8.5-7.3z";
+export const Palette = make(
+  PALETTE,
+  PALETTE,
+  <g fill="currentColor" stroke="none">
+    <circle cx="8" cy="11" r="1.1" />
+    <circle cx="10.3" cy="7.4" r="1.1" />
+    <circle cx="14.4" cy="7.2" r="1.1" />
+    <circle cx="16.7" cy="10.3" r="1.1" />
+  </g>,
+);
 export const GitBranch = make([c(7, 6, 2), c(7, 18, 2), c(17, 8, 2), "M7 8v8M17 10c0 4-5 4-8.4 6.6"]);
 export const GitMerge = make([c(7, 6, 2), c(7, 18, 2), c(17, 15, 2), "M7 8v8M7 8c0 4 4 7 8 7"]);
 const FOLDMAP = "M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-13l-5.5 2z";
