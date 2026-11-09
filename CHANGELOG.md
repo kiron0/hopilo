@@ -2,13 +2,36 @@
 
 All notable changes to Hopilo will be documented in this file.
 
-## 0.1.4
+## 0.1.5
 
 ### Added
 
 - **Destination context window limits**: Size suggestions use 80% of the destination model's window, with built-in defaults per destination, a per-destination model picker and manual limits in **Settings › Model limits**.
 - **Focused catalog refresh**: **Refresh catalog** keeps only the providers behind Hopilo's destinations (Anthropic, OpenAI, Google, GitHub Copilot, DeepSeek, xAI, Perplexity, Alibaba, Moonshot AI), about 200 models instead of nearly 9,000. Saved catalogs are trimmed to the same providers on load.
-- **More built-in defaults**: Perplexity (`sonar-pro`), Qwen Code (`qwen3-coder-plus`) and Kimi CLI (`kimi-k3.1-pro`) now have a known limit offline.
+- **Offline model limit defaults**: Preconfigured offline limits for Perplexity (`sonar-pro`), Qwen Code (`qwen3-coder-plus`), and Kimi CLI (`kimi-k3.1-pro`).
+- **In-app file previewer**: Built-in preview modal and components supporting multi-format files including PDF documents, audio and video playback, and formatted text/code files via bounded IPC chunk streaming.
+- **Rich markdown, code syntax highlighting & Mermaid diagrams**: Enhanced markdown rendering with syntax-highlighted code blocks, copy actions, language tags, and interactive Mermaid diagram rendering across session transcripts and file previews.
+- **Encrypted library backups & retention**: Password-encrypted, authenticated `.hopilo-backup` archive creation and restoration with customizable background auto-backup schedules, retention policies, and integrity checks in **Settings › Backups**.
+- **Cross-platform Node.js build & release tooling**: Migrated automation scripts to Node.js ESM (`scripts/build.mjs`, `scripts/bump-version.mjs`, `scripts/clean.mjs`, `scripts/ship.mjs`, `sidecar.mjs`), ensuring reliable build, versioning, and installation flows across macOS, Windows, and Linux.
+
+### Fixed
+
+- **Copilot default model**: GitHub Copilot CLI and VS Code Copilot default to the Copilot catalog model `github-copilot/gpt-5.6-sol` instead of an OpenAI ID Copilot does not list.
+- **Atomic file writes**: Backend commands use temporary file buffering and atomic replacement to prevent partial writes and corrupted states during unexpected interruptions.
+- **WebGL context recovery**: Added WebGL context loss handling and automatic shader/canvas recreation in the animated header background (`Flow`), preventing black banners after system sleep or GPU resets.
+- **Settings synchronization**: Reactive updates in React hooks ensure preference and configuration changes propagate immediately across windows, quick panel, and background workers.
+- **Browser extension stream capping**: Added bounded reading for attachments and drafts in the browser extension to avoid high memory spikes and unresponsiveness on large payloads.
+- **Vite bundle chunk size warnings**: Adjusted chunk size warning limits in Vite build configuration to accommodate rich syntax highlighting and diagram rendering bundles.
+
+### Changed
+
+- **Optimized model limits caching**: Simplified destination model limits with indexed SQLite queries, local caching, and faster search retrieval.
+- **Codebase comment cleanup**: Cleaned up internal commentary and developer comments across Rust crates, TypeScript modules, and release scripts.
+
+## 0.1.4
+
+### Added
+
 - **macOS menu-bar popover notch & dynamic anchor arrow**: Quick panel features a unified SVG popover shape with smooth bezier shoulders and a rounded arrow tip pointing directly to the active menu-bar status item on macOS, with the animated mist background shader flowing seamlessly into the arrow.
 - **Session pin indicators in Quick Panel**: Pinned sessions display a dedicated accent pin icon in the quick panel session list for immediate visual confirmation.
 - **Session comparison view**: Compare two sessions side-by-side to inspect differing file edits, contrasting conclusions, and message/token statistics.
@@ -24,7 +47,6 @@ All notable changes to Hopilo will be documented in this file.
 
 ### Fixed
 
-- **Copilot default model**: GitHub Copilot CLI and VS Code Copilot default to the Copilot catalog model `github-copilot/gpt-5.6-sol` instead of an OpenAI ID Copilot does not list.
 - **Quick panel hook rendering crash**: Fixed a React Error Boundary crash (`Rendered more hooks than during previous render`) in the quick panel caused by hook definitions placed after conditional readiness checks.
 - **Scrollable page bottom gap & sidebar alignment**: Standardized bottom padding across Overview, Settings, Browser, and Compare pages to 24px, perfectly matching the sidebar's bottom stats card and removing trailing whitespace gaps.
 - **Full-height empty comparison state**: Wrapped the session comparison view in a full-height container so the empty state canvas fills the viewport consistently with the rest of the application.
@@ -41,7 +63,6 @@ All notable changes to Hopilo will be documented in this file.
 - **Interactive cursor consistency**: Applied global pointer cursor styling across all interactive elements including buttons, tabs, switches, menu items, checkboxes, radio inputs, and clickable labels.
 - **Solid dark theme overhaul**: Replaced glassy and translucent surfaces throughout the app with solid, high-contrast dark surfaces. Updates sidebar navigation items, bottom stats disk, quick panel, welcome window, settings swatches, bubble discs, buttons, and skeleton loaders.
 - **Settings appearance thumbnails**: Hardcoded dark and system appearance preview swatches with authentic dark background styling regardless of the active app mode.
-- **Codebase comment cleanup**: Cleaned up internal commentary comments across Rust, TypeScript, and shell scripts.
 
 ## 0.1.3
 
