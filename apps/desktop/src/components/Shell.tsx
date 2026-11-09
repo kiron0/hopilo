@@ -123,7 +123,7 @@ export function Shell({ children }: { children: ReactNode }) {
       >
         <Icon size={18} active={active} className="ic" />
         <span className="flex-1 truncate text-[13px] font-medium">{label}</span>
-        {count != null && count >= 0 && <span className="font-mono text-[10.5px] text-faint">{count}</span>}
+        {count != null && count > 0 && <span className="font-mono text-[10.5px] text-faint">{count}</span>}
       </button>
     </li>
   );
