@@ -151,7 +151,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const showIntent = isCopy || (action === "export" && picked.includes("txt"));
   const choices = intentChoices(settings.handoffTemplates);
   const choice = resolveIntent(intentKey, settings.handoffTemplates);
-  const model = modelFor(targetId, settings.modelLimits, settings.destinationBudgets);
+  const model = modelFor(targetId, settings.destinationBudgets);
   const style: PromptStyle = styleChoice === "auto" ? model.style : styleChoice;
 
   useEffect(() => {
@@ -319,9 +319,9 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
                 </div>
               </div>
             </div>
-            {loading && !data ? <Skeleton className="h-6 w-full rounded" /> : data && (model.available === null ? <p className="text-[12px] text-warning">Unknown destination model limit. Choose a model or set a manual limit for size suggestions.</p> : model.available === 0 ? <p className="text-[12px] text-warning">No token budget remains after reserve. Adjust destination budget.</p> : <BudgetMeter used={used} window={model.available} label={`${model.label} · available after reserve`} />)}
-            <p className="text-[11.5px] text-muted">{model.sourceName}{model.stale ? " · stale / unverified" : ""}{model.conflicts ? " · sources disagree" : ""}</p>
-            <button type="button" onClick={() => goSettings("model-limits")} className="text-left text-[11.5px] text-accent hover:underline">Choose model or sync context limits</button>
+            {loading && !data ? <Skeleton className="h-6 w-full rounded" /> : data && (model.available === null ? <p className="text-[12px] text-warning">Unknown destination model limit. Choose a model or set a manual limit for size suggestions.</p> : model.available === 0 ? <p className="text-[12px] text-warning">No token budget for this destination. Adjust the model limit.</p> : <BudgetMeter used={used} window={model.available} label={`${model.label} · 80% of context`} />)}
+            <p className="text-[11.5px] text-muted">{model.sourceName}</p>
+            <button type="button" onClick={() => goSettings("model-limits")} className="text-left text-[11.5px] text-accent hover:underline">Choose destination model</button>
             {overBudget && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning-soft px-2.5 py-1.5 text-[11.5px] text-warning">
                 <span>Leaves little room for a reply. {fit && fit !== level ? `${fit[0].toUpperCase()}${fit.slice(1)} fits comfortably.` : !fit ? "Even Minimal is large for this model." : ""}</span>

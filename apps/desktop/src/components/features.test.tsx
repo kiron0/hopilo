@@ -316,81 +316,52 @@ it("switches export preview to prompt text when intent changes, then sends the r
 });
 
 describe("model limit settings", () => {
-  it("syncs only on click, prevents duplicate clicks and shows saved source report", async () => {
+  const page = (n: number, updatedAt: string | null = "2026-11-09T00:00:00Z") => ({ updatedAt, total: n, matches: n, models: Array.from({ length: Math.min(n, 40) }, (_, i) => ({ providerId: "new-provider", providerName: "New", id: `org/model-${i}`, name: `Model ${i}`, window: 64000 })) });
+  it("works offline with built-in models and saves a chosen model", async () => {
     const { ModelLimitSettings } = await import("./ModelLimitSettings");
-    useApp.getState().setSettings({ defaultTarget: "codex", destinationBudgets: { codex: { providerId: "openai", modelId: "gpt-5" } } });
-    let finish!: (value: import("../lib/modelLimits").LimitCache) => void;
-    const request = vi.spyOn(api, "syncModelLimits").mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
-    await act(async () => root.render(<ModelLimitSettings />));
-    expect(request).not.toHaveBeenCalled();
-    await click(button("Sync limits"));
-    expect(button("Syncing…").disabled).toBe(true);
-    expect(request).toHaveBeenCalledTimes(1);
-    const cache = { sources: [{ id: "gpt-5", name: "OpenAI", url: "https://developers.openai.com/api/docs/models/gpt-5.md", status: "updated" as const, checkedAt: "2026-11-09T00:00:00Z", updatedAt: "2026-11-09T00:00:00Z", error: null, models: [{ id: "gpt-5", window: 400_000, inputLimit: 272_000 }] }] };
-    await act(async () => finish(cache));
-    expect(document.body.textContent).toContain("1 sources updated");
-    expect(document.body.textContent).toContain("input cap 272,000");
-    expect(useApp.getState().settings.modelLimits.sources[0].models[0]).toMatchObject(cache.sources[0].models[0]);
-    await act(async () => root.render(<div />));
-    await act(async () => root.render(<ModelLimitSettings />));
-    expect(document.body.textContent).toContain("400,000");
-    expect(request).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps prior limits when sync or database save fails", async () => {
-    const { ModelLimitSettings } = await import("./ModelLimitSettings");
-    const original = useApp.getState().settings.modelLimits;
-    vi.spyOn(api, "syncModelLimits").mockRejectedValue(new Error("Offline"));
-    await act(async () => root.render(<ModelLimitSettings />));
-    await click(button("Sync limits"));
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Previous limits are still available");
-    expect(useApp.getState().settings.modelLimits).toBe(original);
-    expect(button("Sync limits").disabled).toBe(false);
-  });
-});
-
-describe("custom destination budgets", () => {
-  it("saves custom provider/model and app cap, then survives remount", async () => {
-    const { ModelLimitSettings } = await import("./ModelLimitSettings");
-    useApp.getState().setSettings({ defaultTarget: "other" });
+    useApp.getState().setSettings({ defaultTarget: "codex", destinationBudgets: {} });
+    vi.spyOn(api, "searchModelLimits").mockResolvedValue(page(0, null));
     const saved = vi.spyOn(api, "setSetting").mockResolvedValue();
     await act(async () => root.render(<ModelLimitSettings />));
-    expect(document.body.textContent).toContain("Unknown model limit");
-    await type(document.querySelector('[aria-label="Destination provider ID"]')!, "my-host");
-    await type(document.querySelector('[aria-label="Destination model ID"]')!, "org/new-model");
-    await type(document.querySelector('[aria-label="Manual context limit"]')!, "128000");
-    await type(document.querySelector('[aria-label="App or plan cap"]')!, "64000");
-    await click(button("Save destination budget"));
-    expect(saved).toHaveBeenCalledWith("destinationBudgets", expect.objectContaining({ other: expect.objectContaining({ providerId: "my-host", modelId: "org/new-model", manualLimit: 128000, appLimit: 64000 }) }));
-    expect(document.body.textContent).toContain("51,200 available after reserve");
-    await act(async () => root.render(<div />));
-    await act(async () => root.render(<ModelLimitSettings />));
-    expect((document.querySelector('[aria-label="Destination model ID"]') as HTMLInputElement).value).toBe("org/new-model");
+    expect(document.body.textContent).toContain("catalog not downloaded");
+    expect(document.body.textContent).toContain("Default model");
+    await type(document.querySelector('[aria-label="Find destination model"]')!, "codex");
+    await settle();
+    await click(document.querySelector('[aria-label="Use openai/gpt-5.3-codex"]')!);
+    expect(saved).toHaveBeenCalledWith("destinationBudgets", { codex: { providerId: "openai", modelId: "gpt-5.3-codex", window: 272000 } });
+    expect(document.body.textContent).toContain("217,600 used for size suggestions");
   });
-  it("rejects invalid limits and preserves prior config on save failure", async () => {
+
+  it("refreshes only on click, searches the saved catalog and keeps it on failure", async () => {
     const { ModelLimitSettings } = await import("./ModelLimitSettings");
-    useApp.getState().setSettings({ destinationBudgets: { claude: { providerId: "anthropic", modelId: "claude-sonnet-4-5" } } });
+    useApp.getState().setSettings({ defaultTarget: "other", destinationBudgets: {} });
+    const search = vi.spyOn(api, "searchModelLimits").mockResolvedValue(page(0, null));
+    const sync = vi.spyOn(api, "syncModelLimits").mockRejectedValueOnce(new Error("Offline")).mockResolvedValue(page(100));
+    await act(async () => root.render(<ModelLimitSettings />));
+    expect(sync).not.toHaveBeenCalled();
+    await click(button("Refresh catalog"));
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("saved catalog is unchanged");
+    search.mockResolvedValue(page(100));
+    await click(button("Refresh catalog"));
+    await settle();
+    expect(document.body.textContent).toContain("100 models");
+    expect(document.querySelectorAll('[aria-label^="Use new-provider/"]').length).toBe(40);
+  });
+
+  it("validates manual limits and preserves config on save failure", async () => {
+    const { ModelLimitSettings } = await import("./ModelLimitSettings");
+    useApp.getState().setSettings({ defaultTarget: "claude", destinationBudgets: { claude: { providerId: "anthropic", modelId: "claude-sonnet-5-5", window: 1_000_000 } } });
+    vi.spyOn(api, "searchModelLimits").mockResolvedValue(page(0, null));
     const original = useApp.getState().settings.destinationBudgets;
     const saved = vi.spyOn(api, "setSetting").mockRejectedValue(new Error("disk full"));
     await act(async () => root.render(<ModelLimitSettings />));
     await type(document.querySelector('[aria-label="Manual context limit"]')!, "-1");
-    await click(button("Save destination budget"));
+    await click(button("Save limit"));
     expect(saved).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain("Limits must be whole token counts");
+    expect(document.body.textContent).toContain("Limit must be a whole token count");
     await type(document.querySelector('[aria-label="Manual context limit"]')!, "64000");
-    await click(button("Save destination budget"));
+    await click(button("Save limit"));
     expect(document.body.textContent).toContain("disk full");
     expect(useApp.getState().settings.destinationBudgets).toEqual(original);
-  });
-  it("bounds model search rendering and finds arbitrary provider models", async () => {
-    const { ModelLimitSettings } = await import("./ModelLimitSettings");
-    useApp.getState().setSettings({ defaultTarget: "other", modelLimits: { sources: [{ id: "models.dev", kind: "catalog", name: "Catalog", url: "https://models.dev/api.json", status: "updated", checkedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), error: null, models: Array.from({ length: 100 }, (_, i) => ({ providerId: "new-provider", id: `org/model-${i}`, window: 64000 })) }] } });
-    await act(async () => root.render(<ModelLimitSettings />));
-    expect(document.querySelectorAll('[aria-label^="Use new-provider/"]').length).toBe(40);
-    await type(document.querySelector('[aria-label="Find destination model"]')!, "model-99");
-    expect(document.querySelectorAll('[aria-label^="Use new-provider/"]').length).toBe(1);
-    await click(document.querySelector('[aria-label="Use new-provider/org/model-99"]')!);
-    expect((document.querySelector('[aria-label="Destination model ID"]') as HTMLInputElement).value).toBe("org/model-99");
-    expect(document.body.textContent).toContain("Community catalog");
   });
 });

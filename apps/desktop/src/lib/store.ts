@@ -1,4 +1,4 @@
-import type { DestinationBudgets, LimitCache } from "./modelLimits";
+import type { DestinationBudgets } from "./modelLimits";
 import { create } from "zustand";
 import { api, type PromptStyle, type RedactionRules } from "./api";
 
@@ -132,8 +132,6 @@ export interface Toast {
 export type ToastInput = Omit<Toast, "id">;
 
 export interface Settings {
-  modelLimits: LimitCache;
-  destinationModels: Record<string, string>;
   destinationBudgets: DestinationBudgets;
   theme: "system" | "light" | "dark";
   background?: "mist" | "grid" | "dots" | "grain";
@@ -163,8 +161,6 @@ export interface HandoffTemplate {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  modelLimits: { sources: [] },
-  destinationModels: {},
   destinationBudgets: {},
   theme: "system",
   background: "mist",

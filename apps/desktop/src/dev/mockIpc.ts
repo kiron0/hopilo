@@ -84,9 +84,10 @@ export function installMockIpc() {
       case "backup_status": return schedule;
       case "unlock_backup_schedule": schedule = { unlocked: true, directory: a.directory, hours: a.hours, lastResult: "Development mock: no backup written" }; return null;
       case "lock_backup_schedule": schedule = { ...schedule, unlocked: false }; return null;
-      case "import_model_limits":
+      case "search_model_limits":
+        return { updatedAt: null, total: 0, matches: 0, models: [] };
       case "sync_model_limits":
-        throw new Error("Model-limit sync requires the desktop app. The browser preview does not contact providers.");
+        throw new Error("Catalog refresh requires the desktop app. The browser preview does not contact models.dev.");
       case "get_settings":
         return { onboarded: false, theme: new URLSearchParams(location.search).get("mockTheme") ?? "system" };
       case "stats":

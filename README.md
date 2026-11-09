@@ -42,7 +42,7 @@
 - Previews the exact handoff text after selection and redaction. Keep individual messages and review changes before copying or exporting.
 - Creates and verifies password-encrypted library backups from **Settings → Privacy & data**. Schedule local backups while Hopilo is running; unlock the schedule each app run.
 - Lives in the menu bar: tap a recent session to copy it, or **Copy latest session** without opening anything.
-- **Offline by Default & Local-First**: agent folders are only read locally, all your data stays stored on your device, and nothing is ever uploaded or synced to the cloud. Network access happens only when you click **Check for Updates** or **Sync limits**; model-limit sync downloads the models.dev catalog and public provider documentation.
+- **Offline by Default & Local-First**: agent folders are only read locally, all your data stays stored on your device, and nothing is ever uploaded or synced to the cloud. Network access happens only when you click **Check for Updates** or **Refresh catalog**; catalog refresh downloads the models.dev model list.
 
 ## How it works
 
@@ -74,48 +74,18 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 
 © [Toufiq Hasan Kiron](https://github.com/kiron0). All rights reserved.
 
-### Sync context limits
+### Context limits
 
-Open **Settings → Customization → Model limits → Sync limits** while online.
-Hopilo downloads the full [models.dev](https://models.dev) community catalog,
-plus official documentation supplements from Anthropic, OpenAI, Google,
-DeepSeek and xAI. Catalog providers and models are discovered from data, so new
-entries do not need an app release. The catalog is community-maintained, not an
-official universal source; its provenance is shown separately from official specs.
-No API key is needed. No session content is sent. Sync runs only on request.
+Size suggestions in the handoff dialog use 80% of the destination model's
+context window, leaving room for system prompts, tools and the reply. Common
+Claude, GPT, Gemini, DeepSeek and Grok models are built in, and known
+destinations default to one of them. Other destinations show an unknown limit
+until you choose a model.
 
-Parsed metadata and the sync report are saved in the local settings database and
-work offline after restart. Conditional HTTP requests use ETag/Last-Modified when
-available. Failed or malformed responses retain prior data. Removed models remain
-available as stale records. The report lists added, changed, removed, retained and
-invalid records by provider, source errors, check dates and successful sync dates.
-Only models with valid text-output context limits are included; catalogs are not
-exhaustive and API limits can differ from app/plan limits.
-
-Choose any destination, search providers/models, then **Save destination budget**.
-Lookup uses the exact provider and model ID, including version suffixes. No app name is used to guess a model;
-unconfigured destinations show an unknown limit. A custom model can use a manual limit; unknown limits
-stay explicitly unknown. Legacy saved model choices are migrated.
-
-Resolution prefers a manual override, then fresh imported runtime metadata,
-fresh official supplements, fresh catalog metadata, stale saved metadata, an exact
-bundled-model estimate, or unknown. Reports imported by the user are labelled as
-user-supplied, not independently verified official metadata. Conflicting sources
-and stale metadata are surfaced. An app/plan cap can reduce any known limit.
-Budgets reserve 20% by default, configurable as a percentage plus fixed tokens,
-and respect separate published input caps. The reserve covers system prompts,
-tools and replies; it does not attempt to predict the destination app's overhead.
-
-**Import metadata** accepts a downloaded models.dev `api.json` for offline setup,
-or a runtime report in this format (provider/model IDs must be explicit):
-
-```json
-{"models":[{"providerId":"my-provider","id":"my-model","window":128000,"inputLimit":120000}]}
-```
-
-Import validates before saving. Sync/import is serialized across windows. The
-current official supplements cover Anthropic's comparison table, GPT-5, Gemini
-2.5 Pro, DeepSeek's model table and xAI's text model table; the catalog provides
-broad coverage beyond those supplements. Metadata older than 30 days, failed
-sources and removed records are marked stale. Automatic live-agent metadata
-collection is not performed; runtime metadata can be imported explicitly.
+Open **Settings → Customization → Model limits** to choose a destination's model
+or enter a manual limit. **Refresh catalog** downloads the
+[models.dev](https://models.dev) catalog once so every listed model can be
+searched. It runs only on request, sends no session content, needs no API key,
+and is saved locally (`model-limits.json` in the library folder) for offline
+use. A failed refresh keeps the saved catalog. When a model publishes a separate
+input limit, the smaller of input and context is used.

@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText, type SessionRow, type Stats } from "./api";
 import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type Settings, useApp } from "./store";
-import { normalizeDestinationBudgets, normalizeLimitCache } from "./modelLimits";
+import { normalizeDestinationBudgets } from "./modelLimits";
 import { normalizeRedaction, normalizeTemplates } from "./handoff";
 
 export function ownWindowLabel(): string | undefined {
@@ -18,9 +18,7 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
   const merged = { ...DEFAULT_SETTINGS, ...(raw as Partial<Settings>) };
   return {
     ...merged,
-    modelLimits: normalizeLimitCache(merged.modelLimits),
-    destinationBudgets: normalizeDestinationBudgets(merged.destinationBudgets, merged.destinationModels),
-    destinationModels: merged.destinationModels && typeof merged.destinationModels === "object" ? Object.fromEntries(Object.entries(merged.destinationModels).filter(([, v]) => typeof v === "string")) : {},
+    destinationBudgets: normalizeDestinationBudgets(merged.destinationBudgets),
     redaction: normalizeRedaction(merged.redaction),
     handoffTemplates: normalizeTemplates(merged.handoffTemplates),
     defaultIntent: typeof merged.defaultIntent === "string" && merged.defaultIntent ? merged.defaultIntent : "continue",
@@ -30,7 +28,6 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
 
 function normalizeSetting(key: string, value: unknown): Partial<Settings> {
   if (key === "destinationBudgets") return { destinationBudgets: normalizeDestinationBudgets(value) };
-  if (key === "modelLimits") return { modelLimits: normalizeLimitCache(value) };
   if (key === "redaction") return { redaction: normalizeRedaction(value) };
   if (key === "handoffTemplates") return { handoffTemplates: normalizeTemplates(value) };
   return { [key]: value } as Partial<Settings>;

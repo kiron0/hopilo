@@ -401,8 +401,9 @@ pub fn run() {
             } else {
                 app.path().app_data_dir()?
             };
-            let store = Store::open(&dir)
+            let mut store = Store::open(&dir)
                 .map_err(|e| format!("Could not open the Hopilo library at {}: {e}", dir.display()))?;
+            let _ = store.remove_setting("modelLimits");
             let settings = store.settings().unwrap_or_default();
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -423,6 +424,7 @@ pub fn run() {
                     mirror.insert(FIRST_LAUNCH_KEY.into(), stamp);
                 }
             }
+            app.manage(model_limits::LimitState::default());
             app.manage(PanelState { hidden_at: Mutex::new(None) });
             build_tray(app)?;
             backups::start(app.handle());
@@ -526,7 +528,7 @@ pub fn run() {
             commands::search,
             commands::get_settings,
             model_limits::sync_model_limits,
-            model_limits::import_model_limits,
+            model_limits::search_model_limits,
             commands::set_setting,
             commands::integrity_check,
             commands::audit_library,

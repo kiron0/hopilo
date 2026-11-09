@@ -282,7 +282,7 @@ export function Settings() {
         <>
         <BackupSettings />
         <Group id="privacy" title="Privacy">
-          <Row label="Network" hint="Works offline. No accounts, analytics, telemetry or AI calls. Check for Updates contacts GitHub; Sync limits fetches models.dev and public provider docs. Both run only when clicked.">
+          <Row label="Network" hint="Works offline. No accounts, analytics, telemetry or AI calls. Check for Updates contacts GitHub; Refresh catalog fetches the models.dev model list. Both run only when clicked.">
             <span className="text-[12.5px] font-medium text-success">{`Offline by default · Chats stay on your ${deviceNoun}`}</span>
           </Row>
           <Row label="Clipboard" hint="Read only when you save the clipboard as a session. Hopilo never submits a message: copies are drafts you paste yourself.">

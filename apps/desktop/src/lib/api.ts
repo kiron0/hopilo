@@ -1,4 +1,4 @@
-import type { LimitCache } from "./modelLimits";
+import type { CatalogPage } from "./modelLimits";
 import { invoke } from "@tauri-apps/api/core";
 
 export type Role = "user" | "assistant" | "system" | "tool";
@@ -401,8 +401,8 @@ export const api = {
   search: (query: string) => invoke<SearchHit[]>("search", { query }),
 
   getSettings: () => invoke<Record<string, unknown>>("get_settings"),
-  importModelLimits: (json: string) => invoke<LimitCache>("import_model_limits", { json }),
-  syncModelLimits: () => invoke<LimitCache>("sync_model_limits"),
+  searchModelLimits: (query: string) => invoke<CatalogPage>("search_model_limits", { query }),
+  syncModelLimits: () => invoke<CatalogPage>("sync_model_limits"),
   setSetting: (key: string, value: unknown) => invoke<void>("set_setting", { key, value }),
   integrityCheck: () => invoke<string>("integrity_check"),
   auditLibrary: () => invoke<AuditReport>("audit_library"),
