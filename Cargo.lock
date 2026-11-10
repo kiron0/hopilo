@@ -1758,6 +1758,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hopilo-agent-cli"
+version = "0.1.5"
+dependencies = [
+ "hopilo-core",
+ "hopilo-database",
+ "hopilo-native-host",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "hopilo-core"
 version = "0.1.5"
 dependencies = [

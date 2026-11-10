@@ -527,10 +527,14 @@ impl Store {
     }
 
     pub fn attachment_bytes(&self, sha: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.attachment_blob_path(sha)?).ok()
+    }
+
+    pub fn attachment_blob_path(&self, sha: &str) -> Option<PathBuf> {
         if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
-        std::fs::read(self.blob_path(sha)).ok()
+        Some(self.blob_path(sha))
     }
 
     pub fn delete_attachment(&mut self, id: &str) -> Result<()> {

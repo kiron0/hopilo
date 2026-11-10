@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
-import { Globe, ClipboardPaste, Copy, FileUp, GitBranch, OverviewIcon, MessagesSquare, Search, Settings, ShieldCheck, X } from "./Icons";
+import { Globe, ClipboardPaste, Copy, FileUp, GitBranch, OverviewIcon, MessagesSquare, Search, Settings, X } from "./Icons";
 import { api, type SearchHit } from "../lib/api";
 import { captureClipboard, importHandoffFile } from "../lib/actions";
 import { useDebouncedValue } from "../lib/hooks";
 import { type Route, useApp } from "../lib/store";
 import { cx, IconButton, Kbd } from "./ui";
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS } from "./settingsNav";
 
 const PAGES: { route: Route; label: string; icon: React.ReactNode }[] = [
   { route: { page: "overview" }, label: "Overview", icon: <OverviewIcon size={15} /> },
   { route: { page: "sessions" }, label: "Sessions", icon: <MessagesSquare size={15} /> },
   { route: { page: "compare" }, label: "Compare sessions", icon: <GitBranch size={15} /> },
   { route: { page: "browser" }, label: "Browser extension", icon: <Globe size={15} /> },
-  { route: { page: "settings", section: "redaction" }, label: "Redaction rules", icon: <ShieldCheck size={15} /> },
   { route: { page: "settings" }, label: "Settings", icon: <Settings size={15} /> },
 ];
 
@@ -65,7 +65,7 @@ export function CommandPalette() {
     api
       .search(query)
       .then((next) => {
-        if (!cancelled) setHits(next);
+        if (!cancelled) setHits(Array.isArray(next) ? next : []);
       })
       .catch(() => {
         if (!cancelled) setHits([]);
@@ -202,6 +202,29 @@ export function CommandPalette() {
               </Command.Item>
             ))}
           </Command.Group>
+          {q.trim() && (
+            <Command.Group
+              heading="Settings"
+              className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-faint"
+            >
+              {SETTINGS_SECTIONS.map((sec) => {
+                const group = SETTINGS_GROUPS.find((g) => g.id === sec.group)!;
+                return (
+                  <Command.Item
+                    key={`settings-${sec.id}`}
+                    value={`settings ${group.label} ${sec.label}`}
+                    keywords={sec.keywords.split(" ")}
+                    onSelect={() => go({ page: "settings", section: sec.id })}
+                    className={item}
+                  >
+                    <span className="shrink-0 text-faint"><group.icon size={15} /></span>
+                    <span className="font-medium">{sec.label}</span>
+                    <span className="ml-auto text-[11.5px] text-faint">{group.label}</span>
+                  </Command.Item>
+                );
+              })}
+            </Command.Group>
+          )}
         </Command.List>
 
         <div className="flex items-center justify-between border-t border-line bg-surface-2 px-5 py-2.5 text-[11.5px] text-faint">

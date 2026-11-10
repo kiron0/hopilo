@@ -4,10 +4,12 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { api, type Attachment, type Message, type SessionRow } from "../lib/api";
-import { invalidateQuery } from "../lib/hooks";
+import { invalidateQuery, normalizeAgentAccess } from "../lib/hooks";
 import { DEFAULT_SETTINGS, useApp } from "../lib/store";
 import { HandoffModal } from "./HandoffModal";
 import { BackupSettings } from "./BackupSettings";
+import { AgentAccessSettings } from "./AgentAccessSettings";
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS, settingsGroupFor } from "./settingsNav";
 import { Sessions } from "../pages/Sessions";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
@@ -446,5 +448,87 @@ describe("structured code previews", () => {
     expect(document.querySelector('[aria-label="json code"]')?.textContent).toBe(text);
     await act(async () => root.render(<Transcript messages={messages} searchQuery="needle" activeMatchId="tool-test-0-body-0" />));
     expect(document.getElementById("match-tool-test-0-body-0")?.textContent).toBe("needle");
+  });
+});
+
+describe("agent access settings", () => {
+  const counts = (total: number) => ({ hidden: 0, total, pinned: 0, agents: 0, web: 0, webToday: 0, unanswered: 0 });
+  const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[aria-label="Sessions"] input[type="checkbox"]')];
+  const fieldset = () => document.querySelector("fieldset")!;
+  function mockLibrary(all: SessionRow[]) {
+    return vi.spyOn(api, "querySessions").mockImplementation(async (q = {}) => {
+      let hits = all.filter((r) => !q.q || r.title.toLowerCase().includes(q.q.toLowerCase()));
+      if (q.ids) hits = hits.filter((r) => q.ids!.includes(r.id));
+      if (q.provider && q.provider !== "all") hits = hits.filter((r) => r.provider === q.provider);
+      const offset = q.offset ?? 0;
+      return { rows: hits.slice(offset, offset + (q.limit ?? 50)), total: hits.length, offset, providers: ["manual", "codex"], providerCounts: {}, models: ["m1"], folders: [], counts: counts(all.length) };
+    });
+  }
+  it("disables the whole section while off and shows no list in All mode", async () => {
+    vi.spyOn(api, "agentCliInfo").mockResolvedValue({ path: "/Apps/Hopilo App/hopilo", installed: true });
+    mockLibrary([row("a"), row("b")]);
+    const saved = vi.spyOn(api, "setSetting").mockResolvedValue(undefined);
+    await act(async () => root.render(<AgentAccessSettings />));
+    await settle();
+    expect(fieldset().hasAttribute("disabled")).toBe(true);
+    expect(fieldset().textContent).toContain("Connect an agent");
+    expect(document.body.textContent).toContain("Agent access is off. Agents get nothing.");
+    expect(document.querySelector('[aria-label="Choose sessions"]')).toBeNull();
+    await click(document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Allow agent access"]')!);
+    expect(saved).toHaveBeenLastCalledWith("agentAccess", { enabled: true, mode: "all", sessions: [] });
+    expect(fieldset().hasAttribute("disabled")).toBe(false);
+    expect(document.body.textContent).toContain("Every saved session, including ones saved later.");
+    expect(document.querySelector('[aria-label="Choose sessions"]')).toBeNull();
+    await click(button("Copy"));
+    expect(vi.mocked(writeText)).toHaveBeenCalledWith('claude mcp add hopilo -- "/Apps/Hopilo App/hopilo" mcp');
+  });
+  it("in Selected mode, lists sessions with filters and pages, and saves the chosen ones", async () => {
+    vi.spyOn(api, "agentCliInfo").mockResolvedValue({ path: null, installed: false });
+    const all = Array.from({ length: 30 }, (_, i) => ({ ...row(`s${i}`), provider: i % 2 ? "codex" : "manual" }));
+    const query = mockLibrary(all);
+    const saved = vi.spyOn(api, "setSetting").mockResolvedValue(undefined);
+    useApp.setState({ settings: { ...DEFAULT_SETTINGS, agentAccess: { enabled: true, mode: "all", sessions: [] } } });
+    await act(async () => root.render(<AgentAccessSettings />));
+    await settle();
+    await click(button("Selected"));
+    await settle();
+    expect(saved).toHaveBeenLastCalledWith("agentAccess", { enabled: true, mode: "selected", sessions: [] });
+    expect(document.body.textContent).toContain("Nothing selected yet, so agents get nothing.");
+    expect(document.querySelector('[aria-label="Choose sessions"]')).not.toBeNull();
+    for (const label of ["Show sessions", "Filter by tool", "Filter by model", "Filter by resources"]) expect(document.body.innerHTML).toContain(label);
+    expect(boxes()).toHaveLength(25);
+    expect(boxes().every((b) => !b.checked)).toBe(true);
+    await act(async () => { boxes()[0].click(); });
+    expect(saved).toHaveBeenLastCalledWith("agentAccess", { enabled: true, mode: "selected", sessions: ["s0"] });
+    expect(document.body.textContent).toContain("Only the 1 session you select below.");
+    await act(async () => { document.querySelector<HTMLInputElement>('input[aria-label="Select every session on this page"]')!.click(); });
+    expect(useApp.getState().settings.agentAccess.sessions).toHaveLength(25);
+    await click(document.querySelector<HTMLButtonElement>('button[aria-label="Page 2"]')!);
+    await settle();
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25, limit: 25 }));
+    expect(boxes()).toHaveLength(5);
+    await type(document.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!, "s1");
+    await settle();
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ q: "s1", offset: 0 }));
+    await click(button("Clear selection"));
+    expect(saved).toHaveBeenLastCalledWith("agentAccess", { enabled: true, mode: "selected", sessions: [] });
+    expect(document.body.textContent).toContain("The hopilo command was not found");
+  });
+  it("normalizes stored agent access", () => {
+    expect(normalizeAgentAccess(null)).toEqual({ enabled: false, mode: "all", sessions: [] });
+    expect(normalizeAgentAccess({ enabled: "yes", mode: "odd", sessions: ["abc", "../x", 3, "abc"] })).toEqual({ enabled: false, mode: "all", sessions: ["abc"] });
+    expect(normalizeAgentAccess({ enabled: true, mode: "selected", sessions: [] })).toEqual({ enabled: true, mode: "selected", sessions: [] });
+  });
+});
+
+describe("settings navigation", () => {
+  it("maps every section and legacy link to a tab", () => {
+    for (const sec of SETTINGS_SECTIONS) expect(settingsGroupFor(sec.id)).toBe(sec.group);
+    for (const g of SETTINGS_GROUPS) expect(settingsGroupFor(g.id)).toBe(g.id);
+    expect(settingsGroupFor("customize")).toBe("appearance");
+    expect(settingsGroupFor("data")).toBe("privacy");
+    expect(settingsGroupFor("redaction")).toBe("privacy");
+    expect(settingsGroupFor("storage")).toBe("library");
+    expect(settingsGroupFor("unknown")).toBe("general");
   });
 });

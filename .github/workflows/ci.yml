@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: mkdir -p apps/desktop/dist && echo '<!doctype html>' > apps/desktop/dist/index.html
 
-      - name: Build browser bridge sidecar
+      - name: Build sidecars (browser bridge, hopilo agent command)
         run: node apps/desktop/scripts/sidecar.mjs
 
       - name: Rust formatting

@@ -313,11 +313,6 @@ pub async fn sync_sessions(app: AppHandle) -> CmdResult<SyncResult> {
 }
 
 #[tauri::command]
-pub async fn list_sessions(app: AppHandle) -> CmdResult<Vec<SessionRow>> {
-    blocking(app, |_, state| with_store(&state, |s| s.list_sessions().map_err(err))).await
-}
-
-#[tauri::command]
 pub async fn query_sessions(
     app: AppHandle,
     query: hopilo_database::SessionQuery,
@@ -596,26 +591,30 @@ fn is_sha256(sha: &str) -> bool {
     sha.len() == 64 && sha.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+fn read_origin(origin: &str, a: &Attachment) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(origin).ok()?;
+    if file.metadata().ok()?.len() != a.size {
+        return None;
+    }
+    let bytes = hopilo_core::limits::read_bounded(file, a.size).ok()?;
+    hopilo_pack_format::sha256_hex(&bytes).eq_ignore_ascii_case(&a.sha256).then_some(bytes)
+}
+
 fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec<u8>)> {
     if !is_sha256(sha) {
         return Err("Not a library file reference".into());
     }
-    with_store(state, |s| {
-        if let Some(a) = s.attachment_by_sha(sha).map_err(err)? {
-            if let Some(bytes) = s.attachment_bytes(sha) {
-                return Ok((a, bytes));
-            }
-            if let Some(origin) = &a.origin_path {
-                if let Ok(bytes) = std::fs::read(origin) {
-                    if hopilo_pack_format::sha256_hex(&bytes).eq_ignore_ascii_case(sha) {
-                        return Ok((a, bytes));
-                    }
-                }
-            }
-            return Err("That file's contents are missing from the library".into());
-        }
-        if let Some(bytes) = s.attachment_bytes(sha) {
-            let a = Attachment {
+    let (attachment, blob) =
+        with_store(state, |s| Ok((s.attachment_by_sha(sha).map_err(err)?, s.attachment_blob_path(sha))))?;
+    let stored = blob.and_then(|p| std::fs::read(p).ok());
+    match (attachment, stored) {
+        (Some(a), Some(bytes)) => Ok((a, bytes)),
+        (Some(a), None) => match a.origin_path.as_deref().and_then(|o| read_origin(o, &a)) {
+            Some(bytes) => Ok((a, bytes)),
+            None => Err("That file's contents are missing from the library".into()),
+        },
+        (None, Some(bytes)) => Ok((
+            Attachment {
                 id: format!("file-{sha}"),
                 file_name: format!("file-{}.bin", &sha[..8.min(sha.len())]),
                 media_type: "application/octet-stream".into(),
@@ -623,11 +622,11 @@ fn stored_file(state: &State<AppState>, sha: &str) -> CmdResult<(Attachment, Vec
                 sha256: sha.to_string(),
                 origin_path: None,
                 text: None,
-            };
-            return Ok((a, bytes));
-        }
-        Err("That file is no longer in the library".into())
-    })
+            },
+            bytes,
+        )),
+        (None, None) => Err("That file is no longer in the library".into()),
+    }
 }
 
 #[tauri::command]
@@ -948,6 +947,31 @@ pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdRes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn origin_fallback_reads_only_the_recorded_size_and_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.txt");
+        std::fs::write(&path, b"hello").unwrap();
+        let mut a = Attachment {
+            id: "a".into(),
+            file_name: "note.txt".into(),
+            media_type: "text/plain".into(),
+            size: 5,
+            sha256: hopilo_pack_format::sha256_hex(b"hello"),
+            origin_path: None,
+            text: None,
+        };
+        let origin = path.to_str().unwrap();
+        assert_eq!(read_origin(origin, &a).as_deref(), Some(&b"hello"[..]));
+        std::fs::write(&path, b"hello, now much larger").unwrap();
+        assert!(read_origin(origin, &a).is_none());
+        std::fs::write(&path, b"HELLO").unwrap();
+        assert!(read_origin(origin, &a).is_none());
+        a.size = 4;
+        assert!(read_origin(origin, &a).is_none());
+        assert!(read_origin(dir.path().join("missing").to_str().unwrap(), &a).is_none());
+    }
 
     #[test]
     fn deleted_hidden_session_returns_only_when_discovered_in_an_existing_source() {

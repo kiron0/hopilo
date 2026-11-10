@@ -46,8 +46,6 @@ Get the latest build from [Releases](https://github.com/kiron0/hopilo/releases/l
 
 Optional browser extensions are included with each release.
 
-See [How it works](docs/HOW-IT-WORKS.md) for setup, supported sources and development.
-
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).

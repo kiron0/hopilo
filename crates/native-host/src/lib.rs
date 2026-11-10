@@ -174,12 +174,15 @@ impl Host {
                 ok(&id, json!({ "app": "hopilo", "protocol": PROTOCOL, "version": env!("CARGO_PKG_VERSION") }))
             }
             "capture.import" => self.capture(&id, req),
-            "session.list" => match self.store.list_sessions() {
-                Ok(rows) => ok(
+            "session.list" => match self
+                .store
+                .query_sessions(&hopilo_database::SessionQuery { limit: 40, rows_only: true, ..Default::default() })
+            {
+                Ok(page) => ok(
                     &id,
-                    json!(rows
+                    json!(page
+                        .rows
                         .into_iter()
-                        .take(40)
                         .map(|r| json!({ "id": r.id, "title": r.title, "provider": r.provider, "messageCount": r.message_count, "tokenEstimate": r.token_estimate, "fileCount": r.file_count, "updatedAt": r.updated_at, "pinned": r.pinned }))
                         .collect::<Vec<_>>()),
                 ),

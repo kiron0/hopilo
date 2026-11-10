@@ -194,10 +194,19 @@ export function RouteSkeleton({ page }: { page: Route["page"] }) {
         </div>
       );
     case "settings": {
-      const groups = group === "general" ? [["", isLinux ? 1 : 2], ["Global shortcut", 3]] : group === "customize" ? [["Appearance", 4], ["Copy", 3], ["Handoff intents", 3]] : group === "data" ? [["Privacy", 3], ["Redaction rules", 4], ["Storage", 3]] : [["", group === "sources" ? 6 : 5]];
+      const layouts: Partial<Record<typeof group, [string, number][]>> = {
+        general: [["", isLinux ? 1 : 2], ["Global shortcut", 3]],
+        appearance: [["Appearance", 4]],
+        handoff: [["Copy defaults", 4], ["Handoff intents", 3], ["Model limits", 3]],
+        privacy: [["Privacy", 3], ["Redaction rules", 4]],
+        agents: [],
+        library: [["Storage", 4]],
+        sources: [["", 6]],
+      };
+      const groups = layouts[group] ?? [["", 5]];
       return <div className="space-y-4" role="status" aria-label="Loading settings">
         <PageHeader title={SETTINGS_GROUPS.find((g) => g.id === group)!.label} subtitle={SETTINGS_SUBTITLES[group]} />
-        <div>{group === "data" && <Card className="mb-0 space-y-4 p-5"><Skeleton className="h-5 w-52" /><Skeleton className="h-8 w-full" /><div className="grid gap-3 sm:grid-cols-2">{[0, 1].map((i) => <div key={i} className="space-y-2"><Skeleton className="h-3 w-28" /><Skeleton className="h-9.5 w-full rounded-xl" /><Skeleton className="h-8 w-full" /></div>)}</div><Skeleton className="h-9 w-3/4 rounded-full" /><div className="space-y-3 border-t border-line pt-4"><Skeleton className="h-4 w-48" /><Skeleton className="h-9 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-9 w-3/4 rounded-full" /></div></Card>}{groups.map(([title, rows], i) => <section key={i} className="pb-4 last:pb-0">{title && <SectionLabel>{title}</SectionLabel>}<Card className="divide-y divide-line px-5 py-1"><SettingsRowsSkeleton rows={Number(rows)} /></Card></section>)}</div>
+        <div>{group === "agents" && <Card className="space-y-4 p-5"><Skeleton className="h-5 w-40" /><Skeleton className="h-8 w-full" /><Skeleton className="h-9 w-2/3 rounded-full" /><Skeleton className="h-24 w-full rounded-xl" /></Card>}{group === "library" && <Card className="mb-4 space-y-4 p-5"><Skeleton className="h-5 w-52" /><Skeleton className="h-8 w-full" /><div className="grid gap-3 sm:grid-cols-2">{[0, 1].map((i) => <div key={i} className="space-y-2"><Skeleton className="h-3 w-28" /><Skeleton className="h-9.5 w-full rounded-xl" /><Skeleton className="h-8 w-full" /></div>)}</div><Skeleton className="h-9 w-3/4 rounded-full" /><div className="space-y-3 border-t border-line pt-4"><Skeleton className="h-4 w-48" /><Skeleton className="h-9 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-9 w-3/4 rounded-full" /></div></Card>}{groups.map(([title, rows], i) => <section key={i} className="pb-4 last:pb-0">{title && <SectionLabel>{title}</SectionLabel>}<Card className="divide-y divide-line px-5 py-1"><SettingsRowsSkeleton rows={Number(rows)} /></Card></section>)}</div>
       </div>;
     }
     case "compare":

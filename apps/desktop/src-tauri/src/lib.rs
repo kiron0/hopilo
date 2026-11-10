@@ -1,3 +1,4 @@
+mod agent_cli;
 mod backups;
 mod browser;
 mod commands;
@@ -502,7 +503,6 @@ pub fn run() {
             commands::show_main_window,
             commands::quit_app,
             commands::sync_sessions,
-            commands::list_sessions,
             commands::query_sessions,
             commands::list_hidden_sessions,
             commands::restore_session,
@@ -536,6 +536,7 @@ pub fn run() {
             commands::audit_library,
             commands::wipe_library,
             commands::browser_status,
+            agent_cli::agent_cli_info,
             commands::register_browser_host,
             commands::unregister_browser_host,
             handoff::copy_sessions,

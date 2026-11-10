@@ -19,6 +19,8 @@ pub struct SessionQuery {
     pub exclude: Vec<String>,
     pub search_providers: Vec<String>,
     pub since: Option<String>,
+    pub project_roots: Option<Vec<String>>,
+    pub rows_only: bool,
 }
 
 impl Default for SessionQuery {
@@ -37,6 +39,8 @@ impl Default for SessionQuery {
             exclude: vec![],
             search_providers: vec![],
             since: None,
+            project_roots: None,
+            rows_only: false,
         }
     }
 }
@@ -118,6 +122,15 @@ impl Store {
                 bind(&mut values, serde_json::to_string(ids)?)
             ));
         }
+        if let Some(roots) = &query.project_roots {
+            let roots = bind(&mut values, serde_json::to_string(roots)?);
+            predicates.push(format!(
+                "project IS NOT NULL AND EXISTS(SELECT 1 FROM json_each({roots}) r WHERE length(r.value) > 0 AND (
+                trim(project) = r.value OR (length(trim(project)) > length(r.value)
+                AND substr(trim(project), 1, length(r.value)) = r.value
+                AND substr(trim(project), length(r.value) + 1, 1) IN ('/', '\\'))))"
+            ));
+        }
         if !query.exclude.is_empty() {
             predicates.push(format!(
                 "id NOT IN (SELECT value FROM json_each({}))",
@@ -148,6 +161,18 @@ impl Store {
         let mut stmt = self.conn.prepare_cached(&format!("SELECT {ROW_COLUMNS} FROM sources WHERE {where_sql}
             ORDER BY pinned DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC LIMIT {limit_bind} OFFSET {offset_bind}"))?;
         let rows = stmt.query_map(params_from_iter(&values), row_from)?.collect::<std::result::Result<Vec<_>, _>>()?;
+        if query.rows_only {
+            return Ok(SessionPage {
+                provider_counts: Default::default(),
+                rows,
+                total,
+                offset,
+                providers: vec![],
+                models: vec![],
+                folders: vec![],
+                counts: LibraryCounts::default(),
+            });
+        }
         let stamp = crate::cache::stamp(&self.conn);
         let meta_key = (hidden, query.since.clone());
         let metadata = if let Some(metadata) = crate::cache::Cache::metadata(&self.cache, stamp, &meta_key) {

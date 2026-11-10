@@ -17,7 +17,6 @@ import {
   FolderOpen,
   GitBranch,
   GitMerge,
-  Globe,
   LayoutGrid,
   List,
   MessagesSquare,
@@ -28,7 +27,6 @@ import {
   RotateCcw,
   Search,
   SlidersHorizontal,
-  SparkIcon,
   ToolsIcon,
   Trash2,
   X,
@@ -43,8 +41,7 @@ import { Transcript } from "../components/Transcript";
 import { AddSessionModal } from "../components/AddSession";
 import { FileImportModal } from "../components/FileImport";
 import { HandoffModal, type HandoffAction } from "../components/HandoffModal";
-import { ProviderLogo } from "../components/ProviderLogos";
-import { Select, type SelectOption } from "../components/Select";
+import { type SelectOption } from "../components/Select";
 import { SessionListSkeleton, SessionPageSkeleton } from "../components/Skeletons";
 import {
   AlertDialog,
@@ -66,6 +63,7 @@ import {
   useFitRows,
 } from "../components/ui";
 import { FillPage, PageFooter, PageToolbar } from "../components/PageSlots";
+import { FilterSelect, RESOURCE_OPTIONS, SESSION_FILTERS, useModelOptions, useProviderOptions } from "../components/SessionFilters";
 
 type Filter = SessionFilter;
 
@@ -74,14 +72,6 @@ export const sessionLoader = (id: string) => () => api.getSession(id);
 const SYNC_EVERY_MS = 60_000;
 let lastSync = 0;
 
-const FILTERS: SelectOption[] = [
-  { value: "all", label: "All", icon: <MessagesSquare size={14} className="text-muted" /> },
-  { value: "agents", label: "Coding agents", icon: <Bot size={14} className="text-muted" /> },
-  { value: "web", label: "Web chats", icon: <Globe size={14} className="text-muted" /> },
-  { value: "added", label: "Added", icon: <Plus size={14} className="text-muted" /> },
-  { value: "pinned", label: "Pinned", icon: <Pin size={14} filled className="text-accent fill-accent" /> },
-  { value: "hidden", label: "Hidden", icon: <RotateCcw size={14} className="text-muted" /> },
-];
 
 export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
 
@@ -157,9 +147,6 @@ export function groupSessions(rows: SessionRow[], by: SessionGroup): { key: stri
   return [...groups].map(([key, group]) => ({ key, ...group }));
 }
 
-function FilterSelect({ label, value, options, onChange, className = "w-36" }: { label: string; value: string; options: SelectOption[]; onChange: (value: string) => void; className?: string }) {
-  return <div className={`shrink-0 ${className}`}><Select size="sm" label={label} value={value} options={options} onChange={onChange} /></div>;
-}
 
 function SessionList() {
   const { q, filter, provider: providerFilter, model: modelFilter, resource: resourceFilter, page, selected: picked } = useApp((s) => s.listView);
@@ -225,52 +212,9 @@ function SessionList() {
     if (Date.now() - lastSync > SYNC_EVERY_MS) sync(false);
   }, []);
 
-  const providerOptions = useMemo<SelectOption[]>(() => {
-    const list: SelectOption[] = [{ value: "all", label: "All tools", icon: <ToolsIcon size={14} className="text-muted" /> }];
-    const targets = TARGETS.filter((t) => t.id !== "other")
-      .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "chat" ? -1 : 1))
-      .map((t) => ({
-        value: t.id,
-        label: t.label,
-        group: t.kind === "chat" ? "Chat apps" : "Coding agents & editors",
-        icon: <ProviderLogo id={t.id} size={14} className="text-muted" monochrome />,
-      }));
-    list.push(...targets);
-    const known = new Set(TARGETS.map((t) => t.id));
-    const extra = new Set((data?.providers ?? []).filter((id) => id && !known.has(id)));
-    if (providerFilter !== "all" && !known.has(providerFilter)) extra.add(providerFilter);
-    if (extra.size > 0) {
-      for (const id of [...extra].sort()) {
-        list.push({
-          value: id,
-          label: provider(id).label,
-          group: "Other tools",
-          icon: <ProviderLogo id={id} size={14} className="text-muted" monochrome />,
-        });
-      }
-    }
-    return list;
-  }, [data?.providers, providerFilter]);
-  const modelOptions = useMemo<SelectOption[]>(() => {
-    const models = new Set(data?.models ?? []);
-    if (modelFilter !== "all") models.add(modelFilter);
-    return [
-      { value: "all", label: "All models", icon: <SparkIcon size={14} className="text-muted" /> },
-      ...[...models].sort((a, b) => a.localeCompare(b)).map((model) => ({
-        value: model,
-        label: model === "__unknown" ? "Unknown model" : model,
-        icon: <Bot size={14} className="text-muted" />,
-      })),
-    ];
-  }, [data?.models, modelFilter]);
-  const resourceOptions: SelectOption[] = useMemo(
-    () => [
-      { value: "all", label: "All resources", icon: <Paperclip size={14} className="text-muted" /> },
-      { value: "with-files", label: "With files", icon: <FileText size={14} className="text-muted" /> },
-      { value: "without-files", label: "Without files", icon: <X size={14} className="text-muted" /> },
-    ],
-    [],
-  );
+  const providerOptions = useProviderOptions(data?.providers, providerFilter);
+  const modelOptions = useModelOptions(data?.models, modelFilter);
+  const resourceOptions = RESOURCE_OPTIONS;
   const groupOptions: SelectOption[] = useMemo(
     () => [
       { value: "none", label: "No categories", icon: <SlidersHorizontal size={14} className="text-muted" /> },
@@ -444,7 +388,7 @@ function SessionList() {
             </IconButton>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <FilterSelect label="Show sessions" value={filter} options={FILTERS} onChange={(value) => setFilter(value as Filter)} className="w-36" />
+            <FilterSelect label="Show sessions" value={filter} options={SESSION_FILTERS} onChange={(value) => setFilter(value as Filter)} className="w-36" />
             <FilterSelect label="Filter by tool" value={providerFilter} options={providerOptions} onChange={(provider) => setListView({ provider, page: 0 })} className="w-44" />
             <FilterSelect label="Filter by model" value={modelFilter} options={modelOptions} onChange={(model) => setListView({ model, page: 0 })} className="w-40" />
             <FilterSelect

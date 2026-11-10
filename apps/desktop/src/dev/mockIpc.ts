@@ -84,6 +84,8 @@ export function installMockIpc() {
         const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
         return { text, hash, tokenEstimate: Math.ceil(text.length / 4), messageCount: messages.length, format: a.format };
       }
+      case "search": return [];
+      case "agent_cli_info": return { path: "/Applications/Hopilo.app/Contents/MacOS/hopilo", installed: true };
       case "backup_status": return schedule;
       case "unlock_backup_schedule": schedule = { unlocked: true, directory: a.directory, hours: a.hours, lastResult: "Development mock: no backup written" }; return null;
       case "lock_backup_schedule": schedule = { ...schedule, unlocked: false }; return null;
@@ -120,8 +122,6 @@ export function installMockIpc() {
           providers: [...new Set(all.map((r) => r.provider))], models: [...new Set(all.map((r) => r.model || "__unknown"))], folders: [...new Set(all.map((r) => r.project).filter(Boolean))],
           counts: { hidden: hidden.size, total: all.length, pinned: all.filter((r) => r.pinned).length, agents: all.filter((r) => r.kind === "local-agent").length, web: all.filter((r) => r.kind === "browser-chat").length, webToday: 0, unanswered: 0 } };
       }
-      case "list_sessions":
-        return SESSIONS.map((r) => ({ ...r, pinned: pins.get(r.id) ?? r.pinned })).sort((x, y) => Number(y.pinned) - Number(x.pinned));
       case "update_session":
         if (typeof a.patch?.pinned === "boolean") pins.set(a.id, a.patch.pinned);
         return null;

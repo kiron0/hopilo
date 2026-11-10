@@ -110,7 +110,7 @@ export interface SessionDetail {
 export interface SessionQuery {
   q?: string; filter?: string; provider?: string; model?: string; folder?: string;
   resource?: string; hideUnanswered?: boolean; offset?: number; limit?: number;
-  ids?: string[]; exclude?: string[]; searchProviders?: string[]; since?: string;
+  ids?: string[]; exclude?: string[]; searchProviders?: string[]; since?: string; rowsOnly?: boolean;
 }
 export interface SessionPage {
   providerCounts: Record<string, number>; rows: SessionRow[]; total: number; offset: number; providers: string[]; models: string[]; folders: string[];
@@ -335,6 +335,11 @@ export interface AdapterReport {
   testedAt: string;
 }
 
+export interface AgentCliInfo {
+  path: string | null;
+  installed: boolean;
+}
+
 export interface BrowserStatus {
   extensionId: string;
   extensionDir: string | null;
@@ -372,7 +377,6 @@ export const api = {
   quit: () => invoke<void>("quit_app"),
 
   syncSessions: () => invoke<SyncResult>("sync_sessions"),
-  listSessions: () => invoke<SessionRow[]>("list_sessions"),
   querySessions: (query: SessionQuery = {}) => invoke<SessionPage>("query_sessions", { query }),
   listHiddenSessions: () => invoke<SessionRow[]>("list_hidden_sessions"),
   restoreSession: (id: string) => invoke<void>("restore_session", { id }),
@@ -428,6 +432,7 @@ export const api = {
   builtinRedactionKinds: () => invoke<string[]>("builtin_redaction_kinds"),
 
   browserStatus: () => invoke<BrowserStatus>("browser_status"),
+  agentCliInfo: () => invoke<AgentCliInfo>("agent_cli_info"),
   registerBrowserHost: (ids: string[]) => invoke<string[]>("register_browser_host", { ids }),
   unregisterBrowserHost: (ids: string[]) => invoke<string[]>("unregister_browser_host", { ids }),
 };

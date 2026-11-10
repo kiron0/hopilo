@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, errorText, type SessionRow, type Stats } from "./api";
-import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type ListView, type Settings, useApp } from "./store";
+import { DEFAULT_SETTINGS, LIST_VIEW_KEY, isOwnListViewEcho, type AgentAccess, type ListView, type Settings, useApp } from "./store";
 import { normalizeDestinationBudgets } from "./modelLimits";
 import { normalizeRedaction, normalizeTemplates } from "./handoff";
 
@@ -24,10 +24,18 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
     handoffTemplates: normalizeTemplates(merged.handoffTemplates),
     defaultIntent: typeof merged.defaultIntent === "string" && merged.defaultIntent ? merged.defaultIntent : "continue",
     globalShortcut: typeof merged.globalShortcut === "string" && merged.globalShortcut ? merged.globalShortcut : null,
+    agentAccess: normalizeAgentAccess(merged.agentAccess),
   };
 }
 
+export function normalizeAgentAccess(raw: unknown): AgentAccess {
+  const r = raw && typeof raw === "object" ? (raw as Partial<AgentAccess>) : {};
+  const ids = Array.isArray(r.sessions) ? r.sessions.filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9]{1,64}$/.test(id)) : [];
+  return { enabled: r.enabled === true, mode: r.mode === "selected" ? "selected" : "all", sessions: [...new Set(ids)] };
+}
+
 function normalizeSetting(key: string, value: unknown): Partial<Settings> {
+  if (key === "agentAccess") return { agentAccess: normalizeAgentAccess(value) };
   if (key === "destinationBudgets") return { destinationBudgets: normalizeDestinationBudgets(value) };
   if (key === "redaction") return { redaction: normalizeRedaction(value) };
   if (key === "handoffTemplates") return { handoffTemplates: normalizeTemplates(value) };
@@ -314,6 +322,7 @@ const SETTING_LABELS: Partial<Record<keyof Settings, string>> = {
   defaultIntent: "Default intent",
   handoffTemplates: "Templates",
   redaction: "Redaction rules",
+  agentAccess: "Agent access",
   shortcutScope: "Shortcut scope",
   shortcutRedact: "Shortcut redaction",
 };

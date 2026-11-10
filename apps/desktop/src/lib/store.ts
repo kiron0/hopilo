@@ -152,6 +152,13 @@ export interface Settings {
   globalShortcut: string | null;
   shortcutScope: "any" | "agents";
   shortcutRedact: boolean;
+  agentAccess: AgentAccess;
+}
+
+export interface AgentAccess {
+  enabled: boolean;
+  mode: "all" | "selected";
+  sessions: string[];
 }
 
 export interface HandoffTemplate {
@@ -179,6 +186,7 @@ export const DEFAULT_SETTINGS: Settings = {
   globalShortcut: null,
   shortcutScope: "any",
   shortcutRedact: true,
+  agentAccess: { enabled: false, mode: "all", sessions: [] },
 };
 
 interface State {

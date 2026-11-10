@@ -8,3 +8,7 @@ dist-firefox/
 .claude/
 apps/desktop/src-tauri/binaries/
 apps/desktop/.tauri/
+
+*.md
+!/README.md
+!/CHANGELOG.md

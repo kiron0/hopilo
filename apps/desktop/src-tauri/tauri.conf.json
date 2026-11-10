@@ -53,7 +53,8 @@
     "category": "Productivity",
     "shortDescription": "Universal AI Session Handoff",
     "externalBin": [
-      "binaries/hopilo-native-host"
+      "binaries/hopilo-native-host",
+      "binaries/hopilo"
     ],
     "windows": {
       "nsis": {

@@ -26,28 +26,43 @@ const triple = process.env.TAURI_ENV_TARGET_TRIPLE || hostTriple();
 const explicit = Boolean(process.env.TAURI_ENV_TARGET_TRIPLE) && process.env.TAURI_ENV_TARGET_TRIPLE !== hostTriple();
 const exe = triple.includes("windows") ? ".exe" : "";
 
+const sidecars = [
+  { pkg: "hopilo-native-host", bin: "hopilo-native-host" },
+  { pkg: "hopilo-agent-cli", bin: "hopilo" },
+];
+
 const profile = release ? "release" : "debug";
 const build = (target) => {
-  const args = ["build", "-p", "hopilo-native-host"];
+  const args = ["build"];
+  for (const { pkg } of sidecars) args.push("-p", pkg);
   if (release) args.push("--release");
   if (target) args.push("--target", target);
   execFileSync("cargo", args, { cwd: repo, stdio: "inherit" });
-  return join(repo, "target", ...(target ? [target] : []), profile, `hopilo-native-host${exe}`);
+  return (bin) => join(repo, "target", ...(target ? [target] : []), profile, `${bin}${exe}`);
 };
 
-const dest = join(tauriDir, "binaries", `hopilo-native-host-${triple}${exe}`);
-mkdirSync(dirname(dest), { recursive: true });
+mkdirSync(join(tauriDir, "binaries"), { recursive: true });
+const destFor = (bin, t) => join(tauriDir, "binaries", `${bin}-${t}${exe}`);
 if (triple === "universal-apple-darwin") {
-  const slices = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map((target) => {
-    const built = build(target);
-    const sliceDest = join(tauriDir, "binaries", `hopilo-native-host-${target}`);
-    copyFileSync(built, sliceDest);
-    chmodSync(sliceDest, 0o755);
-    return built;
-  });
-  execFileSync("lipo", ["-create", "-output", dest, ...slices], { stdio: "inherit" });
+  const slices = ["aarch64-apple-darwin", "x86_64-apple-darwin"].map((target) => ({ target, built: build(target) }));
+  for (const { bin } of sidecars) {
+    const parts = slices.map(({ target, built }) => {
+      const sliceDest = destFor(bin, target);
+      copyFileSync(built(bin), sliceDest);
+      chmodSync(sliceDest, 0o755);
+      return built(bin);
+    });
+    const dest = destFor(bin, triple);
+    execFileSync("lipo", ["-create", "-output", dest, ...parts], { stdio: "inherit" });
+    chmodSync(dest, 0o755);
+    console.log(`sidecar: ${dest}`);
+  }
 } else {
-  copyFileSync(build(explicit ? triple : null), dest);
+  const built = build(explicit ? triple : null);
+  for (const { bin } of sidecars) {
+    const dest = destFor(bin, triple);
+    copyFileSync(built(bin), dest);
+    if (!exe) chmodSync(dest, 0o755);
+    console.log(`sidecar: ${dest}`);
+  }
 }
-if (!exe) chmodSync(dest, 0o755);
-console.log(`sidecar: ${dest}`);

@@ -1,5 +1,6 @@
 import { ModelLimitSettings } from "../components/ModelLimitSettings";
 import { BackupSettings } from "../components/BackupSettings";
+import { AgentAccessSettings } from "../components/AgentAccessSettings";
 import { useEffect, useState } from "react";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -185,8 +186,7 @@ export function Settings() {
           </Group>
         )}
 
-        {tab === "customize" && (
-        <>
+        {tab === "appearance" && (
         <Group id="appearance" title="Appearance">
           <div className="py-3">
             <div>
@@ -233,8 +233,11 @@ export function Settings() {
             <Toggle label="Reduce motion" checked={s.motion === "reduced"} onChange={(v) => saveSetting("motion", v ? "reduced" : "system")} />
           </Row>
         </Group>
+        )}
 
-        <Group id="handoff" title="Copy">
+        {tab === "handoff" && (
+        <>
+        <Group id="handoff" title="Copy defaults">
           <Row label="Default destination">
             <TargetSelect value={s.defaultTarget} onChange={(v) => saveSetting("defaultTarget", v)} className="w-56" />
           </Row>
@@ -254,12 +257,12 @@ export function Settings() {
           </Row>
         </Group>
 
-        <Group id="model-limits" title="Model limits">
-          <ModelLimitSettings />
-        </Group>
-
         <Group id="templates" title="Handoff intents">
           <TemplateSettings />
+        </Group>
+
+        <Group id="model-limits" title="Model limits">
+          <ModelLimitSettings />
         </Group>
         </>
         )}
@@ -278,9 +281,14 @@ export function Settings() {
         </Group>
         )}
 
-        {tab === "data" && (
+        {tab === "agents" && (
+        <section id="settings-agents" aria-label="Agent access" className="scroll-mt-4">
+          <AgentAccessSettings />
+        </section>
+        )}
+
+        {tab === "privacy" && (
         <>
-        <BackupSettings />
         <Group id="privacy" title="Privacy">
           <Row label="Network" hint="Works offline. No accounts, analytics, telemetry or AI calls. Check for Updates contacts GitHub; Refresh catalog fetches context limits for destination providers from models.dev. Both run only when clicked.">
             <span className="text-[12.5px] font-medium text-success">{`Offline by default · Chats stay on your ${deviceNoun}`}</span>
@@ -296,6 +304,14 @@ export function Settings() {
         <Group id="redaction" title="Redaction rules">
           <RedactionSettings />
         </Group>
+        </>
+        )}
+
+        {tab === "library" && (
+        <>
+        <section id="settings-backups" aria-label="Encrypted backups" className="scroll-mt-4 pb-4">
+          <BackupSettings />
+        </section>
 
         <Group id="storage" title="Storage">
           <Row label="Data folder" hint={info.data?.dataDir}>

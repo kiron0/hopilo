@@ -85,6 +85,44 @@ fn benchmark_library_paging() {
     }
 }
 
+#[test]
+fn query_sessions_scopes_to_project_roots() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let mut ids = Vec::new();
+    for (i, project) in [Some("/w/app"), Some(" /w/app/sub "), Some("/w/application"), Some("C:\\w\\app\\x"), None]
+        .into_iter()
+        .enumerate()
+    {
+        let (mut source, messages) = capture(&format!("/scope-{i}"), &format!("scope {i}"));
+        source.project = project.map(str::to_string);
+        ids.push(db.upsert_session(&source, &messages, None).unwrap().source_id);
+    }
+    let scoped = |roots: Vec<&str>| {
+        let mut found: Vec<String> = db
+            .query_sessions(&SessionQuery {
+                project_roots: Some(roots.into_iter().map(str::to_string).collect()),
+                ..Default::default()
+            })
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        found.sort();
+        found
+    };
+    let mut expected = vec![ids[0].clone(), ids[1].clone()];
+    expected.sort();
+    assert_eq!(scoped(vec!["/w/app"]), expected);
+    assert_eq!(scoped(vec!["C:\\w\\app"]), vec![ids[3].clone()]);
+    assert!(scoped(vec![]).is_empty());
+    let rows_only = db.query_sessions(&SessionQuery { rows_only: true, limit: 2, ..Default::default() }).unwrap();
+    assert_eq!((rows_only.rows.len(), rows_only.total, rows_only.counts.total), (2, 5, 0));
+    assert!(rows_only.folders.is_empty() && rows_only.models.is_empty());
+    assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().total, 5);
+}
+
 fn capture(origin: &str, text: &str) -> (Source, Vec<Message>) {
     let sid = new_id();
     let source = Source {
