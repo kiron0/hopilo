@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hopilo",
   "short_name": "Hopilo",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Capture AI chats into Hopilo and insert Context Packs as reviewable drafts. Never sends messages for you.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmwvXO/PdvkpMD+n1fm61u7LFZ9hD5AFErsFyq1RQ2q/mR/MasNJRDE0dt9rFNp9cfj99IELzJX5Dagv/fd31Ku+CXIYyHzjjlyEWeKwJ7l8BiVwzGhNjM9/Wxp3Wp+YcipqTsP1CGnkQg0Y8vcyb+jEo/VuGqJYa363aiCwam728JZqlndN8esEfXkZ7DtGTaKOtlqyCO9E5tvNcVQru7Grbp60BLmJXts8U9PV+qzhHXyGZg2rtLbe5tERVNrPPV5ljbwx29Y/R6twmfJfNqg2GwgORDTFzI5fSDgaDZYhm3atpT5O0pVDe5fyheT/8jIiidJIrbpTprYcXDYxJgwIDAQAB",
   "minimum_chrome_version": "116",

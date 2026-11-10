@@ -2,6 +2,21 @@
 
 All notable changes to Hopilo will be documented in this file.
 
+## 0.1.6
+
+### Added
+
+- **Hopilo Agent CLI (`hopilo`)**: Dedicated command-line tool (`crates/agent-cli`) providing read-only access to Hopilo sessions for coding agents and terminal workflows. Supports `hopilo sessions` with project filtering, text search, limit controls, and `--json` output, as well as `hopilo handoff <session-id>...` with configurable detail levels (`minimal`, `balanced`, `full`).
+- **Model Context Protocol (MCP) Server**: Run `hopilo mcp` to serve the Model Context Protocol over stdio for Claude Code, Cursor, Codex, and other MCP clients. Exposes `search_sessions` and `prepare_handoff` tools with the user's secret redaction rules applied automatically.
+- **Agent Access Settings & Granular Controls**: Added **Settings › Agent access** with a master access toggle and configurable permission modes: allow agents to read "All" saved sessions or only "Selected" sessions via an interactive multi-filter session picker with pagination. Hidden sessions and files on disk outside the Hopilo library are never exposed.
+- **One-Click Agent MCP Configuration**: Settings displays ready-to-copy configuration commands and JSON snippets for Claude Code (`claude mcp add hopilo -- ...`), Cursor, and Codex, automatically resolving the installed `hopilo` binary path.
+- **Desktop Sidecar Packaging**: Tauri build pipeline and `scripts/sidecar.mjs` automatically compile and bundle the `hopilo-agent-cli` executable alongside the desktop application across macOS, Windows, and Linux.
+
+### Changed
+
+- **Modular Session Filters UI**: Refactored filter selectors, dropdown hooks, and search options into a shared `SessionFilters` component reused across the main Sessions explorer and Agent Access settings.
+- **Documentation Cleanup**: Cleaned up outdated architectural draft specifications and internal audit notes across the repository.
+
 ## 0.1.5
 
 ### Added
@@ -11,12 +26,16 @@ All notable changes to Hopilo will be documented in this file.
 - **Offline model limit defaults**: Preconfigured offline limits for Perplexity (`sonar-pro`), Qwen Code (`qwen3-coder-plus`), and Kimi CLI (`kimi-k3.1-pro`).
 - **In-app file previewer**: Built-in preview modal and components supporting multi-format files including PDF documents, audio and video playback, and formatted text/code files via bounded IPC chunk streaming.
 - **Rich markdown, code syntax highlighting & Mermaid diagrams**: Enhanced markdown rendering with syntax-highlighted code blocks, copy actions, language tags, and interactive Mermaid diagram rendering across session transcripts and file previews.
+- **Source capture timestamps**: Preserves and exposes the original `captured_at` timestamp when loading session sources from the database.
+- **Markdown prose skeleton**: Added animated prose skeleton loading state while markdown content is being parsed and rendered.
+- **Code syntax highlighting in file preview**: Supported syntax highlighting for standalone source code files in the file preview modal.
 - **Encrypted library backups & retention**: Password-encrypted, authenticated `.hopilo-backup` archive creation and restoration with customizable background auto-backup schedules, retention policies, and integrity checks in **Settings › Backups**.
 - **Cross-platform Node.js build & release tooling**: Migrated automation scripts to Node.js ESM (`scripts/build.mjs`, `scripts/bump-version.mjs`, `scripts/clean.mjs`, `scripts/ship.mjs`, `sidecar.mjs`), ensuring reliable build, versioning, and installation flows across macOS, Windows, and Linux.
 
 ### Fixed
 
 - **Copilot default model**: GitHub Copilot CLI and VS Code Copilot default to the Copilot catalog model `github-copilot/gpt-5.6-sol` instead of an OpenAI ID Copilot does not list.
+- **Sidebar zero-count badge suppression**: Hides the count badge on the right side of sidebar navigation items when the count is zero, showing numbers only when items are present.
 - **Atomic file writes**: Backend commands use temporary file buffering and atomic replacement to prevent partial writes and corrupted states during unexpected interruptions.
 - **WebGL context recovery**: Added WebGL context loss handling and automatic shader/canvas recreation in the animated header background (`Flow`), preventing black banners after system sleep or GPU resets.
 - **Settings synchronization**: Reactive updates in React hooks ensure preference and configuration changes propagate immediately across windows, quick panel, and background workers.
