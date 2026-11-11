@@ -820,7 +820,7 @@ fn session_files_and_count_match_with_or_without_attachment_rows() {
     ];
     let outcome = db.upsert_session(&source, &msgs, None).unwrap();
     let row = db.session_row(&outcome.source_id).unwrap();
-    let files = db.session_files(&msgs);
+    let files = db.session_files(&msgs).unwrap();
     assert_eq!(row.file_count, 3);
     assert_eq!(files.len(), 3);
     assert_eq!(files[0].file_name, "test.png");
@@ -922,7 +922,7 @@ fn manual_file_removal_preserves_native_refs_other_files_snapshots_and_sync() {
     assert_eq!(after.len(), 2, "empty manual upload message is removed");
     assert!(db.manual_file_messages(&id).unwrap().is_empty());
     assert_eq!(db.query_sessions(&SessionQuery::default()).unwrap().rows[0].file_count, 1);
-    assert_eq!(db.session_files(&after)[0].file_name, first.name);
+    assert_eq!(db.session_files(&after).unwrap()[0].file_name, first.name);
     assert_eq!(snapshot.messages.len(), 3, "existing snapshots remain immutable");
     assert_eq!(db.attachment_bytes(&a.sha256).unwrap(), first.bytes);
     assert_eq!(db.attachment_bytes(&b.sha256).unwrap(), second.bytes);
@@ -990,4 +990,13 @@ fn folder_list_values_filter_back_to_their_sessions() {
     let mut expected = vec![ids[0].clone(), ids[1].clone()];
     expected.sort();
     assert_eq!(app, expected);
+}
+
+#[test]
+fn today_counts_follow_the_local_day() {
+    let tz = chrono::FixedOffset::east_opt(6 * 3600).unwrap();
+    let now = chrono::TimeZone::with_ymd_and_hms(&tz, 2026, 11, 11, 3, 0, 0).unwrap();
+    let (start, end) = crate::local_day_bounds(now);
+    assert_eq!(start, "2026-11-10T18:00:00Z");
+    assert_eq!(end, "2026-11-11T18:00:00Z");
 }

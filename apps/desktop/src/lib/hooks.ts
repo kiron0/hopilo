@@ -187,13 +187,17 @@ export function useLoad<T>(loader: () => Promise<T>, query: QueryKey, opts: { re
   const [loading, setLoading] = useState(() => !queryCache.has(key));
   const seq = useRef(0);
   const shownKey = useRef(key);
-  const reload = useCallback(() => {
+  const load = useCallback((force: boolean) => {
     const n = ++seq.current;
     const cached = queryCache.get(key) as T | undefined;
     if (cached !== undefined) setData(cached);
     else if (shownKey.current !== key) setData(null);
     shownKey.current = key;
     setError(null);
+    if (!force && cached !== undefined && cachedTicks.get(key) === useApp.getState().tick) {
+      setLoading(false);
+      return;
+    }
     setLoading(cached === undefined);
     request(key, loaderRef.current, cacheResult)
       .then((d) => {
@@ -206,12 +210,13 @@ export function useLoad<T>(loader: () => Promise<T>, query: QueryKey, opts: { re
       .finally(() => n === seq.current && setLoading(false));
 
   }, [key, cacheResult]);
+  const reload = useCallback(() => load(true), [load]);
   useEffect(() => {
-    reload();
+    load(false);
     return () => {
       seq.current += 1;
     };
-  }, [reload, tick]);
+  }, [load, tick]);
   useEffect(() => {
     const sync = () => {
       const cached = queryCache.get(key);

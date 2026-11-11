@@ -380,22 +380,29 @@ fn prepare_export(
     let mut framing = opts.framing(&d, &target);
     framing.note = None;
     let (red, _) = redactor(state, &opts.ignore);
-    with_store(state, |s| {
-        let pack = prepare_pack(s, ids, &opts, &red)?;
-        Ok(Prepared {
-            pack,
-            blob_root: s.root().join("attachments"),
-            ropts,
-            exclude_secrets: opts.exclude_secrets,
-            redactor: red,
-            framing,
-        })
+    let (pack, blob_root) = with_store(state, |s| Ok((load_pack(s, ids, &opts)?, s.root().join("attachments"))))?;
+    Ok(Prepared {
+        pack: finish_pack(pack, &opts, &red),
+        blob_root,
+        ropts,
+        exclude_secrets: opts.exclude_secrets,
+        redactor: red,
+        framing,
     })
 }
 
+#[cfg(test)]
 fn prepare_pack(store: &hopilo_database::Store, ids: &[String], opts: &CopyOptions, red: &Redactor) -> CmdResult<Pack> {
+    Ok(finish_pack(load_pack(store, ids, opts)?, opts, red))
+}
+
+fn load_pack(store: &hopilo_database::Store, ids: &[String], opts: &CopyOptions) -> CmdResult<Pack> {
     let mut pack = store.compose(ids).map_err(err)?;
     apply_selection(store, &mut pack, opts.selected.as_deref())?;
+    Ok(pack)
+}
+
+fn finish_pack(mut pack: Pack, opts: &CopyOptions, red: &Redactor) -> Pack {
     pack.created_at = pack.sources.iter().map(|s| s.captured_at.as_str()).max().unwrap_or("").to_string();
     pack.context.note = opts.note.clone();
     arrange_sources(&mut pack, opts.order.unwrap_or_default());
@@ -404,7 +411,7 @@ fn prepare_pack(store: &hopilo_database::Store, ids: &[String], opts: &CopyOptio
     if opts.exclude_secrets {
         redact_export_pack(&mut pack, red, false);
     }
-    Ok(pack)
+    pack
 }
 
 fn strip_local_paths(pack: &mut Pack) {
@@ -542,7 +549,7 @@ fn apply_selection(store: &hopilo_database::Store, pack: &mut Pack, selected: Op
         if pack.messages.is_empty() {
             return Err("Selected messages are no longer available".into());
         }
-        pack.attachments = store.session_files(&pack.messages);
+        pack.attachments = store.session_files(&pack.messages).map_err(err)?;
         pack.mode = hopilo_core::Mode::Selected;
     }
     Ok(())

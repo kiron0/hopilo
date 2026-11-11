@@ -13,7 +13,7 @@ type Metadata = Arc<crate::session_query::QueryMetadata>;
 const SOURCE_SLOTS: usize = 8;
 
 pub(crate) type Stamp = (u64, i64);
-pub(crate) type Transcript = Arc<(Source, Vec<Message>)>;
+pub type Transcript = Arc<(Source, Vec<Message>)>;
 
 #[derive(Default)]
 pub(crate) struct Cache {

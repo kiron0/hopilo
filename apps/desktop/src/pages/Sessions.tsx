@@ -73,6 +73,8 @@ const SYNC_EVERY_MS = 60_000;
 let lastSync = 0;
 
 
+export const contentSignature = (r: SessionRow) => [r.messageCount, r.tokenEstimate, r.missingCount, r.updatedAt].join("|");
+
 export const isUnanswered = (r: SessionRow) => r.kind === "local-agent" && r.replyCount === 0;
 
 export async function setPinned(id: string, pinned: boolean, title: string) {
@@ -777,7 +779,21 @@ function FileTile({ file, onOpen, onInfo, onRemove }: {
 }
 
 function SessionPage({ id }: { id: string }) {
-  const { data, error, loading } = useLoad(sessionLoader(id), ["session", id]);
+  const { data, error, loading, reload } = useLoad(sessionLoader(id), ["session", id], { refreshOnChange: false });
+  const hiddenView = data?.row.hidden ?? false;
+  const live = useLoad(() => api.querySessions({ ids: [id], filter: hiddenView ? "hidden" : "all", limit: 1, rowsOnly: true }), ["session-live", id, hiddenView]);
+  const liveRow = live.data?.rows.find((r) => r.id === id);
+  const stale = !!data && !!liveRow && contentSignature(liveRow) !== contentSignature(data.row);
+  useEffect(() => {
+    if (stale) reload();
+  }, [stale, reload]);
+  const tick = useApp((s) => s.tick);
+  const reloadedTick = useRef(tick);
+  useEffect(() => {
+    if (!live.error || reloadedTick.current === tick) return;
+    reloadedTick.current = tick;
+    reload();
+  }, [live.error, tick, reload]);
   const navigate = useApp((s) => s.navigate);
   const toast = useApp((s) => s.toast);
   const [tab, setTab] = useState<"conversation" | "files">("conversation");
@@ -872,7 +888,8 @@ function SessionPage({ id }: { id: string }) {
   if (error) return <ErrorNote text={error} />;
   if (loading && !data) return <SessionPageSkeleton />;
   if (!data) return null;
-  const { row, source, files, tokenEstimate } = data;
+  const { source, files, tokenEstimate } = data;
+  const row = liveRow ? { ...data.row, ...liveRow, fileCount: data.row.fileCount } : data.row;
   const agent = row.kind === "local-agent";
   const togglePin = () => void setPinned(id, !row.pinned, row.title);
 

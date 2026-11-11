@@ -347,11 +347,11 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    pub fn session_files(&self, messages: &[Message]) -> Vec<Attachment> {
+    pub fn session_files(&self, messages: &[Message]) -> Result<Vec<Attachment>> {
         let file_blocks: Vec<&Block> =
             messages.iter().flat_map(|m| m.blocks.iter()).filter(|b| matches!(b, Block::File { .. })).collect();
         if file_blocks.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         let shas: Vec<&str> = file_blocks
@@ -368,17 +368,15 @@ impl Store {
             let query = format!(
                 "SELECT id, file_name, media_type, size, sha256, origin_path, text FROM attachments WHERE sha256 IN ({placeholders})"
             );
-            let Ok(mut stmt) = self.conn.prepare(&query) else { continue };
-            let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(chunk.iter().copied()), Self::attachment_from_row)
-            else {
-                continue;
-            };
-            for row in rows.flatten() {
+            let mut stmt = self.conn.prepare(&query)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter().copied()), Self::attachment_from_row)?;
+            for row in rows {
+                let row = row?;
                 found.entry(row.sha256.clone()).or_insert(row);
             }
         }
 
-        file_blocks
+        Ok(file_blocks
             .into_iter()
             .enumerate()
             .filter_map(|(i, b)| match b {
@@ -402,7 +400,7 @@ impl Store {
                 }
                 _ => None,
             })
-            .collect()
+            .collect())
     }
 
     pub fn update_session(&mut self, id: &str, patch: &SessionPatch) -> Result<()> {
@@ -508,7 +506,7 @@ impl Store {
                 many.iter().map(|s| s.title.as_str()).collect::<Vec<_>>().join(" + ")
             ),
         };
-        let attachments = self.session_files(&messages);
+        let attachments = self.session_files(&messages)?;
         Ok(Pack {
             schema_version: SCHEMA_VERSION.into(),
             pack_id: ids.join(","),
@@ -608,7 +606,7 @@ impl Store {
             })
         });
         Ok(self
-            .session_files(messages)
+            .session_files(messages)?
             .into_iter()
             .zip(owners)
             .map(|(file, manual_message_id)| SessionFile { file, manual_message_id })
@@ -744,8 +742,9 @@ impl Store {
             rows.collect::<std::result::Result<_, _>>()?
         };
         for id in ids {
-            let (_, msgs) = self.get_source(&id)?;
-            self.conn.execute("UPDATE sources SET file_count = ?2 WHERE id = ?1", params![id, file_count(&msgs)])?;
+            let transcript = self.get_source_shared(&id)?;
+            self.conn
+                .execute("UPDATE sources SET file_count = ?2 WHERE id = ?1", params![id, file_count(&transcript.1)])?;
         }
         let packs: Vec<(String, bool)> = {
             let mut stmt =

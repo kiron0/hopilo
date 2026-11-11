@@ -199,6 +199,26 @@ describe("session file cards", () => {
   });
 });
 
+describe("session transcript refresh", () => {
+  it("reloads the transcript only when the session content changes", async () => {
+    let live = row("a");
+    useApp.setState({ route: { page: "sessions", id: "a" } });
+    vi.spyOn(api, "querySessions").mockImplementation(async () => ({ rows: [live], total: 1, offset: 0, providers: [], providerCounts: {}, models: [], folders: [], counts: { hidden: 0, total: 1, pinned: 0, agents: 0, web: 0, webToday: 0, unanswered: 0 } }));
+    const getSession = vi.spyOn(api, "getSession").mockImplementation(async () => ({ row: live, source: { sourceId: "a", title: "Session a", provider: "manual", kind: "manual", origin: null, project: null, model: null, capturedAt: "2026-11-09T00:00:00Z", captureStatus: "complete", omitted: [], missingItems: [] }, messages: [messages[0]], files: [], tokenEstimate: 4 }));
+    await act(async () => root.render(<Sessions />));
+    await settle();
+    expect(getSession).toHaveBeenCalledTimes(1);
+    live = { ...live, pinned: true };
+    await act(async () => useApp.getState().bump());
+    await settle();
+    expect(getSession).toHaveBeenCalledTimes(1);
+    live = { ...live, messageCount: 2, updatedAt: "2026-11-10T00:00:00Z" };
+    await act(async () => useApp.getState().bump());
+    await settle();
+    expect(getSession).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("Hidden permanent deletion", () => {
   it("supports single cancellation and a cross-page atomic batch with retry", async () => {
     const all = Array.from({ length: 12 }, (_, i) => ({ ...row(`h${i}`), hidden: true, kind: "local-agent", origin: `/hidden/${i}` }));

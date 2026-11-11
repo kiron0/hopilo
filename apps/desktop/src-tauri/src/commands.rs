@@ -346,28 +346,38 @@ pub async fn restore_session(app: AppHandle, id: String) -> CmdResult<()> {
     .await
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SessionDetail {
     row: SessionRow,
-    source: Source,
-    messages: Vec<Message>,
+    transcript: hopilo_database::Transcript,
     files: Vec<hopilo_database::SessionFile>,
     token_estimate: usize,
+}
+
+impl Serialize for SessionDetail {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = serializer.serialize_struct("SessionDetail", 5)?;
+        out.serialize_field("row", &self.row)?;
+        out.serialize_field("source", &self.transcript.0)?;
+        out.serialize_field("messages", &self.transcript.1)?;
+        out.serialize_field("files", &self.files)?;
+        out.serialize_field("tokenEstimate", &self.token_estimate)?;
+        out.end()
+    }
 }
 
 #[tauri::command]
 pub async fn get_session(app: AppHandle, id: String) -> CmdResult<SessionDetail> {
     blocking(app, move |_, state| {
-        let (mut row, source, messages, files) = with_store(&state, |s| {
+        let (mut row, transcript, files) = with_store(&state, |s| {
             let row = s.session_row(&id).map_err(err)?;
-            let (source, messages) = s.get_source(&id).map_err(err)?;
-            let files = s.session_file_entries(&id, &messages).map_err(err)?;
-            Ok((row, source, messages, files))
+            let transcript = s.get_source_shared(&id).map_err(err)?;
+            let files = s.session_file_entries(&id, &transcript.1).map_err(err)?;
+            Ok((row, transcript, files))
         })?;
         row.file_count = files.len() as i64;
         let token_estimate = row.token_estimate.max(0) as usize;
-        Ok(SessionDetail { files, token_estimate, row, source, messages })
+        Ok(SessionDetail { files, token_estimate, row, transcript })
     })
     .await
 }

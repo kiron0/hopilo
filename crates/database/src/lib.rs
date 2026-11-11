@@ -12,6 +12,7 @@ mod migrations;
 mod session_query;
 mod sessions;
 
+pub use cache::Transcript;
 pub use session_query::{SessionPage, SessionQuery};
 pub use sessions::{SessionFile, SessionPatch, SessionRow};
 
@@ -366,12 +367,16 @@ impl Store {
     }
 
     pub fn get_source(&self, id: &str) -> Result<(Source, Vec<Message>)> {
+        Ok((*self.get_source_shared(id)?).clone())
+    }
+
+    pub fn get_source_shared(&self, id: &str) -> Result<Transcript> {
         let now = cache::stamp(&self.conn);
         if let Some(hit) = cache::Cache::source(&self.cache, now, id) {
-            return Ok((*hit).clone());
+            return Ok(hit);
         }
-        let loaded = self.load_source(id)?;
-        cache::Cache::put_source(&self.cache, now, id, std::sync::Arc::new(loaded.clone()));
+        let loaded = std::sync::Arc::new(self.load_source(id)?);
+        cache::Cache::put_source(&self.cache, now, id, loaded.clone());
         Ok(loaded)
     }
 
@@ -894,12 +899,10 @@ impl Store {
 
     pub fn stats(&self) -> Result<Stats> {
         let count = |sql: &str| -> Result<i64> { Ok(self.conn.query_row(sql, [], |r| r.get(0))?) };
-        let now = chrono::Utc::now();
-        let today = now.format("%Y-%m-%d").to_string();
-        let tomorrow = (now + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        let (today, tomorrow) = local_day_bounds(chrono::Local::now());
         let since = |table: &str, col: &str| -> Result<i64> {
             Ok(self.conn.query_row(
-                &format!("SELECT COUNT(*) FROM {table} WHERE {col} >= ?1 AND {col} < ?2"),
+                &format!("SELECT COUNT(*) FROM {table} WHERE julianday({col}) >= julianday(?1) AND julianday({col}) < julianday(?2)"),
                 [&today, &tomorrow],
                 |r| r.get(0),
             )?)
@@ -950,6 +953,20 @@ impl Store {
         }
         Ok(())
     }
+}
+
+fn local_day_bounds<Tz: chrono::TimeZone>(now: chrono::DateTime<Tz>) -> (String, String) {
+    let tz = now.timezone();
+    let date = now.date_naive();
+    let start = |d: chrono::NaiveDate| {
+        let midnight = d.and_hms_opt(0, 0, 0).unwrap_or_default();
+        tz.from_local_datetime(&midnight)
+            .earliest()
+            .map(|t| t.with_timezone(&chrono::Utc))
+            .unwrap_or_else(|| midnight.and_utc())
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    };
+    (start(date), start(date.succ_opt().unwrap_or(date)))
 }
 
 fn insert_version(tx: &Transaction, pack: &mut Pack, label: Option<&str>) -> Result<()> {

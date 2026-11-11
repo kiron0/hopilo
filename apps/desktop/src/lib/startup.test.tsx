@@ -3,7 +3,8 @@ import { parseHTML } from "linkedom";
 import { act, lazy, StrictMode, Suspense } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { STARTUP_TIMEOUT_MS, StartupPageReady, StartupProvider } from "./startup";
-import { invalidateQuery, useLoad } from "./hooks";
+import { invalidateQuery, prefetch, useLoad } from "./hooks";
+import { useApp } from "./store";
 
 let root: Root;
 let frames: Map<number, FrameRequestCallback>;
@@ -76,5 +77,18 @@ describe("readiness-driven startup", () => {
     await act(async () => root.render(<StartupProvider ready onReady={ready}><QueryPage loader={() => new Promise(() => {})} /><StartupPageReady /></StartupProvider>));
     await act(async () => root.render(<StartupProvider ready onReady={ready}><div>New page</div><StartupPageReady /></StartupProvider>));
     await paintReady(); expect(ready).toHaveBeenCalledOnce();
+  });
+});
+
+describe("useLoad cache freshness", () => {
+  it("reuses a fresh prefetch on mount and refetches after the library changes", async () => {
+    const loader = vi.fn(() => Promise.resolve("Prefetched session"));
+    prefetch(loader, ["fresh"]);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => root.render(<StartupProvider ready onReady={() => undefined}><QueryPage id="fresh" loader={loader} /></StartupProvider>));
+    expect(document.body.textContent).toContain("Prefetched session");
+    expect(loader).toHaveBeenCalledOnce();
+    await act(async () => useApp.getState().bump());
+    expect(loader).toHaveBeenCalledTimes(2);
   });
 });

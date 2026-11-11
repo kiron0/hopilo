@@ -163,14 +163,14 @@ pub async fn compare_sessions(app: AppHandle, a: String, b: String) -> CmdResult
     blocking(app, move |_, state| {
         let ((ra, ma), (rb, mb)) = with_store(&state, |s| {
             let ra = s.session_row(&a).map_err(err)?;
-            let (_, ma) = s.get_source(&a).map_err(err)?;
+            let ma = s.get_source_shared(&a).map_err(err)?;
             let rb = s.session_row(&b).map_err(err)?;
-            let (_, mb) = s.get_source(&b).map_err(err)?;
+            let mb = s.get_source_shared(&b).map_err(err)?;
             Ok(((ra, ma), (rb, mb)))
         })?;
-        let sa = side(&a, &ra, &ma);
-        let sb = side(&b, &rb, &mb);
-        Ok(compare(sa, sb, &ma, &mb))
+        let sa = side(&a, &ra, &ma.1);
+        let sb = side(&b, &rb, &mb.1);
+        Ok(compare(sa, sb, &ma.1, &mb.1))
     })
     .await
 }
