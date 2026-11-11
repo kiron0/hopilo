@@ -1,4 +1,4 @@
-use crate::commands::{err, with_store, write_atomic, AppState, CmdResult};
+use crate::commands::{err, lock, try_lock, with_store, write_atomic, AppState, CmdResult};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Read,
@@ -114,7 +114,7 @@ fn file(app: &AppHandle) -> CmdResult<PathBuf> {
 
 fn catalog(app: &AppHandle) -> CmdResult<Arc<Catalog>> {
     let state = app.state::<LimitState>();
-    let mut slot = state.catalog.lock().map_err(err)?;
+    let mut slot = lock(&state.catalog);
     if let Some(catalog) = slot.as_ref() {
         return Ok(catalog.clone());
     }
@@ -153,12 +153,14 @@ pub async fn search_model_limits(app: AppHandle, query: String) -> CmdResult<Cat
 pub async fn sync_model_limits(app: AppHandle) -> CmdResult<CatalogPage> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<LimitState>();
-        let _guard = state.sync.try_lock().map_err(|_| "A model limit sync is already running")?;
+        let Some(_guard) = try_lock(&state.sync) else {
+            return Err("A model limit sync is already running".into());
+        };
         let models = parse_catalog(&fetch()?)?;
         let next = Catalog { updated_at: Some(chrono::Utc::now().to_rfc3339()), models };
         write_atomic(&file(&app)?, &serde_json::to_vec(&next).map_err(err)?)?;
         let next = Arc::new(next);
-        *state.catalog.lock().map_err(err)? = Some(next.clone());
+        *lock(&state.catalog) = Some(next.clone());
         Ok(search(&next, ""))
     })
     .await

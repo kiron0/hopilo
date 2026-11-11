@@ -1,4 +1,4 @@
-use crate::commands::{blocking, err, notify, save_setting_blocking, with_store, AppState, CmdResult};
+use crate::commands::{blocking, err, lock, notify, save_setting_blocking, try_lock, with_store, AppState, CmdResult};
 use hopilo_database::backup::{self, BackupReport};
 use serde::Serialize;
 use std::{
@@ -73,11 +73,11 @@ fn take_due(schedule: &mut Option<Schedule>, now: Instant) -> Option<(PathBuf, Z
 #[tauri::command]
 pub async fn backup_status(app: AppHandle) -> CmdResult<BackupStatus> {
     let runtime = app.state::<BackupRuntime>();
-    let schedule = runtime.schedule.lock().map_err(err)?;
+    let schedule = lock(&runtime.schedule);
     let saved = app.state::<AppState>().setting("backup.schedule");
     let saved_dir = saved.as_ref().and_then(|v| v.get("directory")).and_then(|v| v.as_str()).map(str::to_string);
     let saved_hours = saved.as_ref().and_then(|v| v.get("hours")).and_then(|v| v.as_u64());
-    let last_result = runtime.last.lock().map_err(err)?.clone();
+    let last_result = lock(&runtime.last).clone();
     Ok(BackupStatus {
         unlocked: schedule.is_some(),
         directory: schedule.as_ref().map(|s| s.directory.display().to_string()).or(saved_dir),
@@ -90,10 +90,10 @@ pub async fn create_backup(app: AppHandle, path: String, password: String) -> Cm
     let password = Zeroizing::new(password);
     blocking(app, move |app, state| {
         let runtime = app.state::<BackupRuntime>();
-        let _guard = runtime.operation.lock().map_err(err)?;
+        let _guard = lock(&runtime.operation);
         let prepared = with_store(&state, |s| s.prepare_backup(Path::new(&path), &password).map_err(err))?;
         let result = prepared.write(&password).map_err(err)?;
-        *runtime.last.lock().map_err(err)? = Some(format!("Verified backup saved: {path}"));
+        *lock(&runtime.last) = Some(format!("Verified backup saved: {path}"));
         Ok(result)
     })
     .await
@@ -114,8 +114,8 @@ pub async fn restore_backup(app: AppHandle, path: String, password: String) -> C
     let password = Zeroizing::new(password);
     blocking(app, move |app, state| {
         let runtime = app.state::<BackupRuntime>();
-        let _guard = runtime.operation.lock().map_err(err)?;
-        let _sync = state.sync_lock.lock().map_err(err)?;
+        let _guard = lock(&runtime.operation);
+        let _sync = lock(&state.sync_lock);
         let verified = backup::verify(Path::new(&path), &password).map_err(err)?;
         let (report, recovery_path, settings) = with_store(&state, |s| {
             let recovery_dir = s.root().join("recovery");
@@ -125,14 +125,14 @@ pub async fn restore_backup(app: AppHandle, path: String, password: String) -> C
             let report = s.restore_backup(verified).map_err(err)?;
             Ok((report, recovery.display().to_string(), s.settings().map_err(err)?))
         })?;
-        *state.settings.write().map_err(err)? = settings;
+        *state.settings.write().unwrap_or_else(|p| p.into_inner()) = settings;
         let shortcut = state.setting(crate::SHORTCUT_KEY).and_then(|v| v.as_str().map(str::to_string));
         if let Err(error) = crate::apply_shortcut(app, shortcut.as_deref()) {
             eprintln!("Restored shortcut could not be registered: {error}");
             save_setting_blocking(app, crate::SHORTCUT_KEY, serde_json::Value::Null)?;
         }
-        state.discovery.lock().map_err(err)?.clear();
-        *runtime.schedule.lock().map_err(err)? = None;
+        lock(&state.discovery).clear();
+        *lock(&runtime.schedule) = None;
         let _ = app.emit("hopilo://settings-changed", ("restored", serde_json::Value::Null));
         notify(app);
         Ok(RestoreResult { report, recovery_path })
@@ -162,14 +162,14 @@ pub async fn unlock_backup_schedule(app: AppHandle, directory: String, hours: u6
             serde_json::json!({"directory":directory.display().to_string(),"hours":hours}),
         )?;
         let runtime = app.state::<BackupRuntime>();
-        *runtime.schedule.lock().map_err(err)? = Some(Schedule { directory, password, hours, next: Instant::now() });
+        *lock(&runtime.schedule) = Some(Schedule { directory, password, hours, next: Instant::now() });
         Ok(())
     })
     .await
 }
 #[tauri::command]
 pub fn lock_backup_schedule(app: AppHandle) -> CmdResult<()> {
-    *app.state::<BackupRuntime>().schedule.lock().map_err(err)? = None;
+    *lock(&app.state::<BackupRuntime>().schedule) = None;
     Ok(())
 }
 
@@ -179,9 +179,9 @@ pub fn start(app: &AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(30));
         let runtime = app.state::<BackupRuntime>();
-        let Ok(_operation) = runtime.operation.try_lock() else { continue };
+        let Some(_operation) = try_lock(&runtime.operation) else { continue };
         let task = {
-            let Ok(mut schedule) = runtime.schedule.lock() else { continue };
+            let mut schedule = lock(&runtime.schedule);
             let Some(task) = take_due(&mut schedule, Instant::now()) else { continue };
             task
         };
@@ -192,12 +192,10 @@ pub fn start(app: &AppHandle) {
         if result.is_ok() {
             prune_scheduled(&task.0, KEEP_SCHEDULED);
         }
-        if let Ok(mut last) = runtime.last.lock() {
-            *last = Some(match result {
-                Ok(_) => format!("Verified backup saved: {}", path.display()),
-                Err(e) => format!("Scheduled backup failed: {e}"),
-            });
-        }
+        *lock(&runtime.last) = Some(match result {
+            Ok(_) => format!("Verified backup saved: {}", path.display()),
+            Err(e) => format!("Scheduled backup failed: {e}"),
+        });
         let _ = app.emit("hopilo://backup-changed", ());
     });
 }

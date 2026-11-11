@@ -62,16 +62,42 @@ export function useDebouncedValue<T>(value: T, delay = 150) {
   return debounced;
 }
 
+export const MAX_CACHED_TRANSCRIPTS = 4;
+const isTranscriptKey = (key: string) => key.startsWith('["session",');
+
+function forget(key: string) {
+  queryCache.delete(key);
+  cachedTicks.delete(key);
+}
+
 function remember(key: string, value: unknown) {
   queryCache.delete(key);
   queryCache.set(key, value);
   cachedTicks.set(key, useApp.getState().tick);
+  if (isTranscriptKey(key)) {
+    const transcripts = [...queryCache.keys()].filter(isTranscriptKey);
+    for (const old of transcripts.slice(0, Math.max(0, transcripts.length - MAX_CACHED_TRANSCRIPTS))) forget(old);
+  }
   while (queryCache.size > MAX_CACHED_QUERIES) {
     const oldest = queryCache.keys().next().value;
     if (oldest === undefined) break;
-    queryCache.delete(oldest);
-    cachedTicks.delete(oldest);
+    forget(oldest);
   }
+}
+
+let hoverPrefetch: ReturnType<typeof setTimeout> | undefined;
+
+export function prefetchSoon<T>(loader: () => Promise<T>, query: QueryKey, delay = 150) {
+  clearTimeout(hoverPrefetch);
+  hoverPrefetch = setTimeout(() => {
+    hoverPrefetch = undefined;
+    prefetch(loader, query);
+  }, delay);
+}
+
+export function cancelPrefetchSoon() {
+  clearTimeout(hoverPrefetch);
+  hoverPrefetch = undefined;
 }
 
 const cacheListeners = new Set<() => void>();

@@ -4,7 +4,6 @@ use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use hopilo_adapters::{adapter_by_id, all_adapters, AdapterInfo, DiscoveredSession};
-use hopilo_core::render::estimate_tokens;
 use hopilo_core::{new_id, now_rfc3339, Attachment, Block, CaptureStatus, Message, Role, Source, SourceKind};
 use hopilo_database::{ActivityRow, HandoffRow, ImportOutcome, SearchHit, SessionPatch, SessionRow, Stats, Store};
 use serde::Serialize;
@@ -81,8 +80,20 @@ pub(crate) async fn blocking<T: Send + 'static>(
 }
 
 pub(crate) fn with_store<T>(state: &State<AppState>, f: impl FnOnce(&mut Store) -> Result<T, String>) -> CmdResult<T> {
-    let mut store = state.store.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut store = lock(&state.store);
     f(&mut store)
+}
+
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub(crate) fn try_lock<T>(m: &Mutex<T>) -> Option<std::sync::MutexGuard<'_, T>> {
+    match m.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
 }
 
 #[derive(Serialize)]
@@ -355,8 +366,8 @@ pub async fn get_session(app: AppHandle, id: String) -> CmdResult<SessionDetail>
             Ok((row, source, messages, files))
         })?;
         row.file_count = files.len() as i64;
-        let text = messages.iter().flat_map(|m| m.blocks.iter().map(|b| b.plain_text())).collect::<Vec<_>>().join("\n");
-        Ok(SessionDetail { files, token_estimate: estimate_tokens(&text), row, source, messages })
+        let token_estimate = row.token_estimate.max(0) as usize;
+        Ok(SessionDetail { files, token_estimate, row, source, messages })
     })
     .await
 }
@@ -385,7 +396,7 @@ pub async fn remove_session(app: AppHandle, id: String) -> CmdResult<()> {
 #[tauri::command]
 pub async fn permanently_delete_sessions(app: AppHandle, ids: Vec<String>) -> CmdResult<()> {
     blocking(app, move |app, state| {
-        let _sync = state.sync_lock.lock().map_err(err)?;
+        let _sync = lock(&state.sync_lock);
         with_store(&state, |s| s.permanently_delete_sessions(&ids).map_err(err))?;
         notify(app);
         Ok(())
@@ -947,6 +958,23 @@ pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdRes
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn poisoned_locks_recover_instead_of_failing_forever() {
+        let m = std::sync::Arc::new(Mutex::new(1));
+        let poisoner = m.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = poisoner.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        assert!(m.is_poisoned());
+        *lock(&m) += 1;
+        assert_eq!(*try_lock(&m).unwrap(), 2);
+        let held = lock(&m);
+        assert!(try_lock(&m).is_none());
+        drop(held);
+    }
 
     #[test]
     fn origin_fallback_reads_only_the_recorded_size_and_hash() {

@@ -198,7 +198,7 @@ impl Store {
                 providers: provider_counts.keys().cloned().collect(),
                 provider_counts,
                 models: distinct("COALESCE(NULLIF(trim(model), ''), '__unknown')")?,
-                folders: distinct("COALESCE(project, '')")?.into_iter().filter(|s| !s.is_empty()).collect(),
+                folders: distinct("COALESCE(trim(project), '')")?.into_iter().filter(|s| !s.is_empty()).collect(),
                 counts,
             });
             crate::cache::Cache::put_metadata(&self.cache, stamp, meta_key, metadata.clone());

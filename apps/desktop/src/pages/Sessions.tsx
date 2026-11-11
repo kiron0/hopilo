@@ -34,7 +34,7 @@ import {
 import { api, errorText, type Attachment, type SessionRow } from "../lib/api";
 import { pickFiles, saveFileAs } from "../lib/actions";
 import { basename, bytes, plural, provider, relativeTime, tokens } from "../lib/format";
-import { invalidateQuery, prefetch, patchCachedSession, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
+import { cancelPrefetchSoon, invalidateQuery, prefetch, prefetchSoon, patchCachedSession, saveSetting, useDebouncedValue, useLoad } from "../lib/hooks";
 import { type SessionFilter, useApp } from "../lib/store";
 import { target, TARGETS } from "../lib/targets";
 import { Transcript } from "../components/Transcript";
@@ -277,8 +277,9 @@ function SessionList() {
           type="button"
           draggable
           onDragStart={(e) => e.dataTransfer.setData("text/plain", `hopilo://session/${r.id}`)}
-          onMouseEnter={() => prefetch(sessionLoader(r.id), ["session", r.id])}
-          onFocus={() => prefetch(sessionLoader(r.id), ["session", r.id])}
+          onMouseEnter={() => prefetchSoon(sessionLoader(r.id), ["session", r.id])}
+          onMouseLeave={cancelPrefetchSoon}
+          onFocus={() => prefetchSoon(sessionLoader(r.id), ["session", r.id])}
           onClick={() => openSession(r)}
           className="min-w-0 flex-1 text-left"
         >
@@ -298,7 +299,7 @@ function SessionList() {
         <div className="flex items-start gap-3">
           <Checkbox label={`Select ${r.title}`} checked={on} onChange={() => toggle(r.id)} />
           <ProviderBadge id={r.provider} size={34} />
-          <button type="button" onMouseEnter={() => prefetch(sessionLoader(r.id), ["session", r.id])} onFocus={() => prefetch(sessionLoader(r.id), ["session", r.id])} onClick={() => openSession(r)} className="min-w-0 flex-1 text-left">
+          <button type="button" onMouseEnter={() => prefetchSoon(sessionLoader(r.id), ["session", r.id])} onMouseLeave={cancelPrefetchSoon} onFocus={() => prefetchSoon(sessionLoader(r.id), ["session", r.id])} onClick={() => openSession(r)} className="min-w-0 flex-1 text-left">
             {titleLine(r)}
             <span className="mt-1 block truncate text-[12px] text-muted" title={r.project ?? undefined}>{basename(r.project) || "No folder"}</span>
           </button>
@@ -797,8 +798,10 @@ function SessionPage({ id }: { id: string }) {
   const back = () => navigate({ page: "sessions" });
 
   const messages = data?.messages;
-  const searchResults = useMemo(() => findTranscriptMatches(messages ?? [], searchQuery), [messages, searchQuery]);
+  const searchResults = useMemo(() => ({ ...findTranscriptMatches(messages ?? [], searchQuery), ready: !!messages }), [messages, searchQuery]);
   const matches = searchResults.matches;
+  const matchesRef = useRef(matches);
+  matchesRef.current = matches;
 
   const jumpTo = (targetIdx: number) => {
     if (matches.length === 0) return;
@@ -829,6 +832,7 @@ function SessionPage({ id }: { id: string }) {
 
   useEffect(() => {
     setMatchIndex(0);
+    const matches = matchesRef.current;
     if (matches.length > 0) {
       const first = matches[0];
       setActiveMatchId(first.matchId);
@@ -849,7 +853,7 @@ function SessionPage({ id }: { id: string }) {
       setActiveMatchId(undefined);
       setActiveMessageId(undefined);
     }
-  }, [matches, searchQuery]);
+  }, [searchQuery, searchResults.ready]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -997,7 +1001,7 @@ function SessionPage({ id }: { id: string }) {
               {search && (
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="font-mono text-[11px] text-faint select-none">
-                    {matches.length ? `${matchIndex + 1}/${matches.length}${searchResults.truncated ? "+" : ""}` : "0/0"}
+                    {matches.length ? `${Math.min(matchIndex, matches.length - 1) + 1}/${matches.length}${searchResults.truncated ? "+" : ""}` : "0/0"}
                   </span>
                   <div className="flex items-center border-l border-line pl-1 text-faint">
                     <button

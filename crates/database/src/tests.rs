@@ -962,3 +962,32 @@ fn permanent_hidden_deletion_is_atomic_and_allows_sync_reimport() {
     db.wipe().unwrap();
     assert!(db.list_sessions().unwrap().is_empty());
 }
+
+#[test]
+fn folder_list_values_filter_back_to_their_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let mut ids = Vec::new();
+    for (i, project) in [" /w/app ", "/w/app", "/w/other"].into_iter().enumerate() {
+        let (mut source, messages) = capture(&format!("/folder-{i}"), &format!("folder {i}"));
+        source.project = Some(project.to_string());
+        ids.push(db.upsert_session(&source, &messages, None).unwrap().source_id);
+    }
+    let page = db.query_sessions(&SessionQuery::default()).unwrap();
+    assert_eq!(page.folders, vec!["/w/app".to_string(), "/w/other".to_string()]);
+    for folder in page.folders {
+        let found = db.query_sessions(&SessionQuery { folder: folder.clone(), ..Default::default() }).unwrap();
+        assert!(found.total > 0, "folder {folder:?} from the list must match its sessions");
+    }
+    let mut app: Vec<String> = db
+        .query_sessions(&SessionQuery { folder: "/w/app".into(), ..Default::default() })
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    app.sort();
+    let mut expected = vec![ids[0].clone(), ids[1].clone()];
+    expected.sort();
+    assert_eq!(app, expected);
+}

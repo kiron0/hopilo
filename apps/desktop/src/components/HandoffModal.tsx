@@ -225,6 +225,8 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const [previewRevision, setPreviewRevision] = useState(0);
   const messages = useLoad(() => selecting ? api.handoffMessages(ids) : Promise.resolve([]), ["handoff-messages", ids, selecting], { cache: false });
   const messageKey = (source: string, id: string) => JSON.stringify([source, id]);
+  const keyedMessages = useMemo(() => (messages.data ?? []).map((message) => ({ ...message, id: messageKey(message.sourceId, message.id) })), [messages.data]);
+  const allMessageKeys = useMemo(() => new Set(keyedMessages.map((message) => message.id)), [keyedMessages]);
 
   const { data, loading, error } = useLoad(() => api.preflightHandoff(ids), ["preflight", ...ids]);
   const rows = useLoad(() => api.querySessions({ ids, limit: 200 }), ["handoff-rows", ...ids], { refreshOnChange: false });
@@ -452,9 +454,9 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
             {messages.loading && <p role="status">Loading messages…</p>}
             {messages.error && <p role="alert" className="text-danger">{messages.error}</p>}
             <div className="max-h-80 overflow-auto">
-              <Transcript messages={(messages.data ?? []).map((message) => ({ ...message, id: messageKey(message.sourceId, message.id) }))}
-                selected={selectedKeys ?? new Set((messages.data ?? []).map((message) => messageKey(message.sourceId, message.id)))}
-                onToggle={(key) => setSelectedKeys((prev) => { const next = new Set(prev ?? (messages.data ?? []).map((message) => messageKey(message.sourceId, message.id))); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />
+              <Transcript messages={keyedMessages}
+                selected={selectedKeys ?? allMessageKeys}
+                onToggle={(key) => setSelectedKeys((prev) => { const next = new Set(prev ?? allMessageKeys); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />
             </div>
           </>}
         </section>

@@ -257,47 +257,59 @@ impl Redactor {
     }
 
     pub fn redact_text(&self, text: &str) -> String {
-        let mut out = text.to_string();
+        self.redact_cow(text).into_owned()
+    }
+
+    pub fn redact_cow<'t>(&self, text: &'t str) -> std::borrow::Cow<'t, str> {
+        let mut out = std::borrow::Cow::Borrowed(text);
         for rule in &self.rules {
             if !rule.re.is_match(&out) {
                 continue;
             }
-            out = rule
-                .re
-                .replace_all(&out, |c: &regex::Captures| {
-                    let m = &c[0];
-                    if self.ignore.contains(&fingerprint(m)) {
-                        m.to_string()
-                    } else {
-                        format!("[REDACTED: {}]", rule.kind)
-                    }
-                })
-                .into_owned();
+            let replaced = rule.re.replace_all(&out, |c: &regex::Captures| {
+                let m = &c[0];
+                if self.ignore.contains(&fingerprint(m)) {
+                    m.to_string()
+                } else {
+                    format!("[REDACTED: {}]", rule.kind)
+                }
+            });
+            if let std::borrow::Cow::Owned(next) = replaced {
+                if next != *out {
+                    out = std::borrow::Cow::Owned(next);
+                }
+            }
         }
         out
+    }
+
+    fn redact_in_place(&self, text: &mut String) {
+        if let std::borrow::Cow::Owned(next) = self.redact_cow(text) {
+            *text = next;
+        }
     }
 
     pub fn redact_pack(&self, pack: &mut Pack) {
         for m in &mut pack.messages {
             for b in &mut m.blocks {
                 match b {
-                    crate::model::Block::Text { text } => *text = self.redact_text(text),
+                    crate::model::Block::Text { text } => self.redact_in_place(text),
                     crate::model::Block::ToolCall { name, input } => {
-                        *name = self.redact_text(name);
-                        *input = self.redact_text(input);
+                        self.redact_in_place(name);
+                        self.redact_in_place(input);
                     }
                     crate::model::Block::ToolResult { name, output, .. } => {
                         if let Some(name) = name {
-                            *name = self.redact_text(name);
+                            self.redact_in_place(name);
                         }
-                        *output = self.redact_text(output);
+                        self.redact_in_place(output);
                     }
-                    crate::model::Block::Missing { description } => *description = self.redact_text(description),
-                    crate::model::Block::File { name, .. } => *name = self.redact_text(name),
+                    crate::model::Block::Missing { description } => self.redact_in_place(description),
+                    crate::model::Block::File { name, .. } => self.redact_in_place(name),
                 }
             }
         }
-        pack.title = self.redact_text(&pack.title);
+        self.redact_in_place(&mut pack.title);
         let context = &mut pack.context;
         for text in context
             .note
@@ -309,10 +321,10 @@ impl Redactor {
             .chain(context.next_steps.iter_mut())
             .chain(pack.tags.iter_mut())
         {
-            *text = self.redact_text(text);
+            self.redact_in_place(text);
         }
         for source in &mut pack.sources {
-            source.title = self.redact_text(&source.title);
+            self.redact_in_place(&mut source.title);
             for text in source
                 .origin
                 .iter_mut()
@@ -320,16 +332,16 @@ impl Redactor {
                 .chain(source.model.iter_mut())
                 .chain(source.missing_items.iter_mut())
             {
-                *text = self.redact_text(text);
+                self.redact_in_place(text);
             }
         }
         for a in &mut pack.attachments {
-            a.file_name = self.redact_text(&a.file_name);
+            self.redact_in_place(&mut a.file_name);
             if let Some(path) = &mut a.origin_path {
-                *path = self.redact_text(path);
+                self.redact_in_place(path);
             }
             if let Some(t) = &mut a.text {
-                *t = self.redact_text(t);
+                self.redact_in_place(t);
             }
         }
     }
@@ -438,6 +450,17 @@ pub fn test_rule(pattern: &str, keyword: bool, sample: &str) -> RuleTest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redaction_only_allocates_when_text_changes() {
+        let red = Redactor::builtin();
+        assert!(matches!(red.redact_cow("plain words"), std::borrow::Cow::Borrowed(_)));
+        let changed = red.redact_cow("mail admin@example.com now");
+        assert!(matches!(changed, std::borrow::Cow::Owned(_)));
+        assert_eq!(changed, "mail [REDACTED: Email address] now");
+        let (kept, _) = Redactor::new(&RedactionRules::default(), [fingerprint("admin@example.com")]);
+        assert!(matches!(kept.redact_cow("mail admin@example.com"), std::borrow::Cow::Borrowed(_)));
+    }
 
     #[test]
     fn redacts_private_key_body_including_truncated_pem() {

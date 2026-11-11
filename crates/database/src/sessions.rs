@@ -654,11 +654,20 @@ impl Store {
             ],
         )?;
         tx.execute("DELETE FROM messages WHERE source_id = ?1", [id])?;
-        for (i, m) in messages.iter().enumerate() {
-            tx.execute(
+        {
+            let mut stmt = tx.prepare_cached(
                 "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id, i as i64, m.id, kebab(&m.role), m.created_at, serde_json::to_string(&m.blocks)?],
             )?;
+            for (i, m) in messages.iter().enumerate() {
+                stmt.execute(params![
+                    id,
+                    i as i64,
+                    m.id,
+                    kebab(&m.role),
+                    m.created_at,
+                    serde_json::to_string(&m.blocks)?
+                ])?;
+            }
         }
         tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [id])?;
         index(&tx, "source", id, &source.title, &text)?;

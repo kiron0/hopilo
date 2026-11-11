@@ -533,7 +533,9 @@ fn apply_selection(store: &hopilo_database::Store, pack: &mut Pack, selected: Op
         if wanted.is_empty() {
             return Err("Choose at least one message".into());
         }
-        if wanted.iter().any(|(source, id)| !pack.messages.iter().any(|m| m.source_id == *source && m.id == *id)) {
+        let present: std::collections::HashSet<_> =
+            pack.messages.iter().map(|m| (m.source_id.as_str(), m.id.as_str())).collect();
+        if !wanted.is_subset(&present) {
             return Err("Selected messages changed or are no longer available".into());
         }
         pack.messages.retain(|m| wanted.contains(&(m.source_id.as_str(), m.id.as_str())));
@@ -746,15 +748,30 @@ struct LatestCopied {
     source: String,
 }
 
+struct BusyGuard(&'static std::sync::atomic::AtomicBool);
+
+impl BusyGuard {
+    fn acquire(flag: &'static std::sync::atomic::AtomicBool) -> Option<Self> {
+        (!flag.swap(true, std::sync::atomic::Ordering::SeqCst)).then_some(Self(flag))
+    }
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 pub fn copy_latest_session(app: &AppHandle, source: &str) {
     use std::sync::atomic::Ordering;
     use tauri::Emitter;
-    if LATEST_BUSY.swap(true, Ordering::SeqCst) {
+    let Some(busy) = BusyGuard::acquire(&LATEST_BUSY) else {
         return;
-    }
+    };
     let app = app.clone();
     let source = source.to_string();
     tauri::async_runtime::spawn_blocking(move || {
+        let _busy = busy;
         let flash = |text: &str| {
             if let Some(tray) = app.tray_by_id("hopilo") {
                 let _ = tray.set_title(Some(text));
@@ -828,7 +845,6 @@ pub fn copy_latest_session(app: &AppHandle, source: &str) {
             }
         };
         let _ = app.emit("hopilo://latest-copied", event);
-        LATEST_BUSY.store(false, Ordering::SeqCst);
     });
 }
 
@@ -1024,6 +1040,57 @@ mod tests {
             );
         }
         assert_eq!(file.bytes, b"email admin@example.com", "original source remains unchanged");
+    }
+
+    #[test]
+    fn busy_guard_releases_after_panic() {
+        static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let guard = BusyGuard::acquire(&FLAG).unwrap();
+        assert!(BusyGuard::acquire(&FLAG).is_none());
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _held = guard;
+            panic!("render failed");
+        }));
+        assert!(outcome.is_err());
+        assert!(BusyGuard::acquire(&FLAG).is_some());
+    }
+
+    #[test]
+    fn selection_keeps_only_listed_messages_across_large_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = hopilo_database::Store::open(dir.path()).unwrap();
+        let source = Source {
+            source_id: "big".into(),
+            kind: SourceKind::Manual,
+            provider: "manual".into(),
+            title: "big".into(),
+            origin: None,
+            project: None,
+            model: None,
+            captured_at: "2026-11-09T00:00:00Z".into(),
+            capture_status: CaptureStatus::Complete,
+            missing_items: vec![],
+            omitted: vec![],
+        };
+        let messages: Vec<Message> = (0..3000)
+            .map(|i| Message {
+                id: format!("m{i}"),
+                source_id: "big".into(),
+                role: Role::User,
+                created_at: None,
+                blocks: vec![Block::text(format!("message {i}"))],
+            })
+            .collect();
+        let id = store.upsert_session(&source, &messages, None).unwrap().source_id;
+        let mut pack = store.compose(std::slice::from_ref(&id)).unwrap();
+        let selected: Vec<MessageRef> =
+            (0..3000).step_by(2).map(|i| MessageRef { source_id: id.clone(), id: format!("m{i}") }).collect();
+        apply_selection(&store, &mut pack, Some(&selected)).unwrap();
+        assert_eq!(pack.messages.len(), 1500);
+        assert!(pack.messages.iter().all(|m| m.id[1..].parse::<usize>().unwrap() % 2 == 0));
+        let mut pack = store.compose(std::slice::from_ref(&id)).unwrap();
+        let stale = vec![MessageRef { source_id: "other".into(), id: "m0".into() }];
+        assert!(apply_selection(&store, &mut pack, Some(&stale)).is_err());
     }
 
     #[test]

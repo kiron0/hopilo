@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { invalidateQuery, patchCachedSession, prefetch, readCached } from "./hooks";
+import { MAX_CACHED_TRANSCRIPTS, cancelPrefetchSoon, invalidateQuery, patchCachedSession, prefetch, prefetchSoon, readCached } from "./hooks";
 import type { SessionRow, Stats } from "./api";
 import { useApp } from "./store";
 
@@ -114,5 +114,38 @@ describe("cache patching", () => {
     expect(readCached(statsLoader, ["stats"])!.pinnedCount).toBe(0);
     invalidateQuery();
     expect(readCached(listLoader, ["sessions"])).toBeUndefined();
+  });
+});
+
+describe("transcript cache bounds", () => {
+  it("keeps only the most recent transcripts while leaving other queries", async () => {
+    prefetch(listLoader, ["sessions"]);
+    for (let i = 0; i < MAX_CACHED_TRANSCRIPTS + 3; i++) prefetch(() => Promise.resolve(`t${i}`), ["session", `id${i}`]);
+    await flush();
+    const kept = Array.from({ length: MAX_CACHED_TRANSCRIPTS + 3 }, (_, i) => readCached(() => Promise.resolve(""), ["session", `id${i}`]));
+    expect(kept.filter((v) => v !== undefined)).toHaveLength(MAX_CACHED_TRANSCRIPTS);
+    expect(kept.at(-1)).toBe(`t${MAX_CACHED_TRANSCRIPTS + 2}`);
+    expect(kept[0]).toBeUndefined();
+    expect(readCached(listLoader, ["sessions"])).toBeDefined();
+  });
+
+  it("only prefetches the row the pointer settles on", async () => {
+    vi.useFakeTimers();
+    try {
+      const a = vi.fn(() => Promise.resolve("a"));
+      const b = vi.fn(() => Promise.resolve("b"));
+      const c = vi.fn(() => Promise.resolve("c"));
+      prefetchSoon(a, ["session", "a"]);
+      prefetchSoon(b, ["session", "b"]);
+      await vi.advanceTimersByTimeAsync(200);
+      prefetchSoon(c, ["session", "c"]);
+      cancelPrefetchSoon();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(a).not.toHaveBeenCalled();
+      expect(b).toHaveBeenCalledTimes(1);
+      expect(c).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
