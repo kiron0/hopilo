@@ -108,8 +108,15 @@ export async function checkInAppUpdate(currentVersion: string): Promise<UpdateCh
 export async function installInAppUpdate(
   info: UpdateInfo,
   onProgress: (progress: UpdateInstallProgress) => void,
+  opts: { downloadOnly?: boolean; alreadyDownloaded?: boolean } = {},
 ): Promise<void> {
   if (!info.nativeUpdate) throw new Error("The signed update package is unavailable. Check for updates again.");
+  if (opts.alreadyDownloaded) {
+    onProgress({ phase: "installing", downloadedBytes: 0, percent: 100 });
+    await info.nativeUpdate.install();
+    await relaunch();
+    return;
+  }
 
   let downloadedBytes = 0;
   let totalBytes: number | undefined;
@@ -128,6 +135,7 @@ export async function installInAppUpdate(
   };
 
   await info.nativeUpdate.download(report, { timeout: 10 * 60_000 });
+  if (opts.downloadOnly) return;
   onProgress({ phase: "installing", downloadedBytes, totalBytes, percent: 100 });
   await info.nativeUpdate.install();
   await relaunch();

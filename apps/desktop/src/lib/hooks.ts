@@ -25,6 +25,8 @@ export function normalizeSettings(raw: Record<string, unknown>): Settings {
     defaultIntent: typeof merged.defaultIntent === "string" && merged.defaultIntent ? merged.defaultIntent : "continue",
     globalShortcut: typeof merged.globalShortcut === "string" && merged.globalShortcut ? merged.globalShortcut : null,
     agentAccess: normalizeAgentAccess(merged.agentAccess),
+    autoCheckUpdates: merged.autoCheckUpdates !== false,
+    autoDownloadUpdates: merged.autoDownloadUpdates === true,
   };
 }
 
@@ -325,6 +327,8 @@ const SETTING_LABELS: Partial<Record<keyof Settings, string>> = {
   agentAccess: "Agent access",
   shortcutScope: "Shortcut scope",
   shortcutRedact: "Shortcut redaction",
+  autoCheckUpdates: "Automatic update checks",
+  autoDownloadUpdates: "Automatic update downloads",
 };
 
 const savesInFlight = new Map<string, number>();

@@ -352,11 +352,11 @@ export function Overview() {
             <div className="flex items-center gap-2">
               <span className="font-semibold">Welcome to Hopilo</span>
               <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-500">
-                100% OFFLINE
+                LOCAL-FIRST
               </span>
             </div>
             <p className="mt-0.5 text-muted">
-              {`Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything works 100% offline and stays on this ${deviceNoun}.`}
+              {`Every AI session in one place, with its files. Hit a usage limit or want a second opinion? Copy the session and paste it into another AI. Everything works offline and stays on this ${deviceNoun}.`}
             </p>
           </div>
           <button
@@ -420,7 +420,7 @@ export function Overview() {
           </div>
           <div className="mt-5 flex items-center gap-2 font-mono text-[11px] text-faint">
             <span className={cx("h-1.5 w-1.5 rounded-full", total ? "bg-success" : "bg-faint")} />
-            {loading ? <Skeleton className="inline-block h-3 w-16 rounded" /> : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · 100% offline
+            {loading ? <Skeleton className="inline-block h-3 w-16 rounded" /> : plural(tools, "tool")} · copies for {target(settings.defaultTarget).label} · local-first
           </div>
         </Card>
         <SourcesMap counts={sessions.data?.providerCounts ?? {}} loading={loading} />
@@ -474,8 +474,8 @@ export function Overview() {
           icon={<ShieldCheck size={15} />}
           title="Privacy"
           value="100%"
-          unit="offline"
-          caption={`Nothing leaves this ${deviceNoun}`}
+          unit="local"
+          caption={`Your sessions never leave this ${deviceNoun}`}
           action="Details"
           onClick={() => navigate({ page: "settings", section: "privacy" })}
           delay={0.42}

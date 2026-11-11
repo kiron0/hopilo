@@ -298,8 +298,18 @@ pub async fn export_sessions_zip(
     formats: Vec<String>,
     path: String,
     opts: Option<CopyOptions>,
-) -> CmdResult<String> {
-    blocking(app, move |app, state| export_zip_blocking(app, &state, &ids, &formats, &path, opts)).await
+    include_files: Option<bool>,
+) -> CmdResult<ZipExport> {
+    let include_files = include_files.unwrap_or(false);
+    blocking(app, move |app, state| export_zip_blocking(app, &state, &ids, &formats, &path, opts, include_files)).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZipExport {
+    path: String,
+    files: usize,
+    missing_files: usize,
 }
 
 const EXPORT_FORMATS: [&str; 5] = ["md", "txt", "html", "json", "handoff"];
@@ -412,28 +422,60 @@ fn strip_local_paths(pack: &mut Pack) {
     }
 }
 
+fn attachment_bytes(p: &Prepared, a: &hopilo_core::Attachment) -> Option<Vec<u8>> {
+    if p.exclude_secrets {
+        if let Some(text) = &a.text {
+            return Some(text.as_bytes().to_vec());
+        }
+    }
+    if a.sha256.len() != 64 || !a.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    std::fs::File::open(p.blob_root.join(&a.sha256))
+        .ok()
+        .and_then(|file| hopilo_core::limits::read_bounded(file, hopilo_core::limits::DOCUMENT_BYTES).ok())
+}
+
+fn zip_file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = base
+        .chars()
+        .map(|c| if c.is_control() || matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') { '-' } else { c })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim();
+    if cleaned.is_empty() {
+        return "file".into();
+    }
+    if cleaned.chars().count() <= 120 {
+        return cleaned.to_string();
+    }
+    let (stem, ext) = match cleaned.rfind('.') {
+        Some(i) if i > 0 && cleaned.len() - i <= 12 => (&cleaned[..i], &cleaned[i..]),
+        _ => (cleaned, ""),
+    };
+    let stem: String = stem.chars().take(120 - ext.chars().count()).collect();
+    format!("{stem}{ext}")
+}
+
+fn unique_zip_name(used: &mut std::collections::HashSet<String>, name: &str) -> String {
+    let name = zip_file_name(name);
+    if used.insert(name.to_lowercase()) {
+        return name;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name.as_str(), ""),
+    };
+    (2..)
+        .map(|n| format!("{stem} ({n}){ext}"))
+        .find(|candidate| used.insert(candidate.to_lowercase()))
+        .unwrap_or_default()
+}
+
 fn write_export(p: &Prepared, format: &str, file: &mut std::fs::File) -> CmdResult<()> {
     use std::io::Write;
     if format == "handoff" {
-        return hopilo_pack_format::write_handoff(
-            &p.pack,
-            &p.ropts,
-            &|a| {
-                if p.exclude_secrets {
-                    if let Some(text) = &a.text {
-                        return Some(text.as_bytes().to_vec());
-                    }
-                }
-                if a.sha256.len() != 64 || !a.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-                    return None;
-                }
-                std::fs::File::open(p.blob_root.join(&a.sha256))
-                    .ok()
-                    .and_then(|file| hopilo_core::limits::read_bounded(file, hopilo_core::limits::DOCUMENT_BYTES).ok())
-            },
-            file,
-        )
-        .map_err(err);
+        return hopilo_pack_format::write_handoff(&p.pack, &p.ropts, &|a| attachment_bytes(p, a), file).map_err(err);
     }
     if format == "json" {
         return serde_json::to_writer_pretty(file, &p.pack).map_err(err);
@@ -506,6 +548,7 @@ pub struct HandoffPreview {
     message_count: usize,
     format: String,
     truncated: bool,
+    file_count: usize,
 }
 
 const PREVIEW_BYTES: usize = 4 * 1024 * 1024;
@@ -534,6 +577,7 @@ pub async fn preview_handoff(
             hash,
             token_estimate,
             message_count: prepared.pack.messages.len(),
+            file_count: prepared.pack.attachments.len(),
             format,
             text,
             truncated,
@@ -578,7 +622,8 @@ fn export_zip_blocking(
     formats: &[String],
     path: &str,
     opts: Option<CopyOptions>,
-) -> CmdResult<String> {
+    include_files: bool,
+) -> CmdResult<ZipExport> {
     let mut formats: Vec<&str> = formats.iter().map(String::as_str).collect();
     formats.sort_by_key(|f| EXPORT_FORMATS.iter().position(|x| x == f));
     formats.dedup();
@@ -590,6 +635,8 @@ fn export_zip_blocking(
     check_review(&prepared, opts.reviewed.as_ref())?;
     let title = &prepared.pack.title;
     let dest = PathBuf::from(path);
+    let mut files = 0;
+    let mut missing_files = 0;
     write_atomic_with(&dest, |file| {
         use std::io::Seek;
         let mut zip = zip::ZipWriter::new(file);
@@ -606,14 +653,39 @@ fn export_zip_blocking(
             .map_err(err)?;
             std::io::copy(&mut entry, &mut zip).map_err(err)?;
         }
+        if include_files {
+            use std::io::Write;
+            let mut used = std::collections::HashSet::new();
+            let mut seen = std::collections::HashSet::new();
+            for a in &prepared.pack.attachments {
+                if !seen.insert(a.sha256.as_str()) {
+                    continue;
+                }
+                let Some(bytes) = attachment_bytes(&prepared, a) else {
+                    missing_files += 1;
+                    continue;
+                };
+                let name = format!("files/{}", unique_zip_name(&mut used, &a.file_name));
+                zip.start_file(
+                    name,
+                    zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+                )
+                .map_err(err)?;
+                zip.write_all(&bytes).map_err(err)?;
+                files += 1;
+            }
+        }
         zip.finish().map_err(err)?;
         Ok(())
     })?;
-    with_store(state, |s| {
-        s.record_copy(ids, "file", &format!("export-zip-{}", formats.join("+")), "exported").map_err(err)
-    })?;
+    let kind = if include_files {
+        format!("export-zip-{}+files", formats.join("+"))
+    } else {
+        format!("export-zip-{}", formats.join("+"))
+    };
+    with_store(state, |s| s.record_copy(ids, "file", &kind, "exported").map_err(err))?;
     notify(app);
-    Ok(dest.display().to_string())
+    Ok(ZipExport { path: dest.display().to_string(), files, missing_files })
 }
 
 #[derive(Serialize)]
@@ -933,5 +1005,23 @@ mod tests {
             );
         }
         assert_eq!(file.bytes, b"email admin@example.com", "original source remains unchanged");
+    }
+
+    #[test]
+    fn zip_file_names_stay_inside_files_folder_and_are_unique() {
+        assert_eq!(zip_file_name("../../etc/passwd"), "passwd");
+        assert_eq!(zip_file_name("C:\\Users\\me\\notes.md"), "notes.md");
+        assert_eq!(zip_file_name("a:b*c?.txt"), "a-b-c-.txt");
+        assert_eq!(zip_file_name(".."), "file");
+        assert_eq!(zip_file_name(""), "file");
+        let long = format!("{}.json", "x".repeat(300));
+        let short = zip_file_name(&long);
+        assert!(short.ends_with(".json") && short.chars().count() == 120);
+        let mut used = std::collections::HashSet::new();
+        assert_eq!(unique_zip_name(&mut used, "report.md"), "report.md");
+        assert_eq!(unique_zip_name(&mut used, "Report.md"), "Report (2).md");
+        assert_eq!(unique_zip_name(&mut used, "dir/report.md"), "report (3).md");
+        assert_eq!(unique_zip_name(&mut used, "Makefile"), "Makefile");
+        assert_eq!(unique_zip_name(&mut used, "Makefile"), "Makefile (2)");
     }
 }

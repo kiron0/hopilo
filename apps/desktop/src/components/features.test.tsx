@@ -315,7 +315,7 @@ it("switches export preview to prompt text when intent changes, then sends the r
   vi.stubGlobal("localStorage", { getItem: () => '["md","txt"]', setItem: vi.fn() });
   const preview = mockHandoff();
   preview.mockImplementation(async (_ids, format, opts = {}) => ({ text: `${format}: ${opts.intent}`, hash: `${format}-${opts.intent}`, format, tokenEstimate: 4, messageCount: 2 }));
-  const exported = vi.spyOn(api, "exportSessionsZip").mockResolvedValue("/tmp/export.zip");
+  const exported = vi.spyOn(api, "exportSessionsZip").mockResolvedValue({ path: "/tmp/export.zip", files: 0, missingFiles: 0 });
   vi.spyOn(api, "suggestExportName").mockResolvedValue("export.zip");
   vi.mocked(save).mockResolvedValue("/tmp/export.zip");
   await act(async () => root.render(<HandoffModal ids={["a"]} action="export" onClose={vi.fn()} />));
@@ -328,7 +328,8 @@ it("switches export preview to prompt text when intent changes, then sends the r
   expect(text()).toBe("txt: review");
   await click(button("Export 2 formats"));
   expect(exported).toHaveBeenCalled();
-  expect(exported.mock.calls[0].at(-1)).toMatchObject({ intent: "review", reviewed: { format: "txt", hash: "txt-review" } });
+  expect(exported.mock.calls[0][3]).toMatchObject({ intent: "review", reviewed: { format: "txt", hash: "txt-review" } });
+  expect(exported.mock.calls[0][4]).toBe(false);
 });
 
 describe("model limit settings", () => {

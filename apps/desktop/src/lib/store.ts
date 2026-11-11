@@ -153,6 +153,8 @@ export interface Settings {
   shortcutScope: "any" | "agents";
   shortcutRedact: boolean;
   agentAccess: AgentAccess;
+  autoCheckUpdates: boolean;
+  autoDownloadUpdates: boolean;
 }
 
 export interface AgentAccess {
@@ -187,6 +189,8 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcutScope: "any",
   shortcutRedact: true,
   agentAccess: { enabled: false, mode: "all", sessions: [] },
+  autoCheckUpdates: true,
+  autoDownloadUpdates: false,
 };
 
 interface State {

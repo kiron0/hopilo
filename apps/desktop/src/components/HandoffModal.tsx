@@ -1,8 +1,7 @@
-import { StructuredTextViewer } from "./StructuredTextViewer";
 import { structuredLanguage } from "../lib/structuredText";
-import { MarkdownViewer } from "./MarkdownPreview";
+import { MarkdownPreview } from "./MarkdownPreview";
+import { CodeBlock } from "./CodeBlock";
 import { Transcript } from "./Transcript";
-import { Select } from "./Select";
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDownIcon,
@@ -25,6 +24,48 @@ import { Button, Checkbox, cx, Modal, Segmented, Skeleton, TargetSelect, TextAre
 
 const FORMAT_KEYS = Object.keys(FORMATS) as Format[];
 const EXPORT_PICK_KEY = "hopilo.exportFormats";
+const EXPORT_FILES_KEY = "hopilo.exportFiles";
+
+function loadIncludeFiles(): boolean {
+  try {
+    return localStorage.getItem(EXPORT_FILES_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveIncludeFiles(on: boolean) {
+  try {
+    localStorage.setItem(EXPORT_FILES_KEY, on ? "1" : "0");
+  } catch {}
+}
+
+type PreviewView = "rendered" | "source";
+
+function previewLanguage(format: string, text: string, style: PromptStyle) {
+  if (format === "json" || format === "handoff") return "json";
+  if (format === "txt") return style === "xml" ? "xml" : structuredLanguage(text) ?? null;
+  return null;
+}
+
+function PreviewBody({ text, format, style, view }: { text: string; format: string; style: PromptStyle; view: PreviewView }) {
+  const language = previewLanguage(format, text, style);
+  if (view === "rendered" && format === "md") {
+    return <div className="max-h-[360px] overflow-auto rounded-xl border border-line bg-card px-4 py-3" aria-label="Rendered Markdown preview"><MarkdownPreview text={text} /></div>;
+  }
+  if (view === "rendered" && format === "html") {
+    return <iframe sandbox="" referrerPolicy="no-referrer" title="Rendered web page preview" srcDoc={text} className="block h-[360px] w-full rounded-xl border border-line bg-white" />;
+  }
+  if (view === "rendered" && language) {
+    return <div className="max-h-[360px] overflow-auto rounded-xl"><CodeBlock code={text} language={language} /></div>;
+  }
+  return <TextArea aria-label="Final handoff preview" readOnly value={text} rows={12} className="max-h-[360px] min-h-40 font-mono text-[11px]" />;
+}
+
+function renderLabel(format: string, text: string, style: PromptStyle) {
+  if (format === "md" || format === "html") return "Rendered";
+  return previewLanguage(format, text, style) ? "Highlighted" : null;
+}
 
 function loadPicked(): Format[] {
   try {
@@ -107,7 +148,7 @@ function BudgetMeter({ used, window, label }: { used: number; window: number; la
     <div>
       <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
         <span className="text-muted">
-          <strong className="font-mono text-ink">~{tokens(used)}</strong> tokens · <strong className={cx("font-mono", b.tone === "over" ? "text-danger" : b.tone === "tight" ? "text-warning" : "text-success")}>{b.pct < 1 ? "<1" : Math.round(b.pct)}%</strong> of {label}
+          <strong className="font-mono text-ink">{tokens(used)}</strong> tokens · <strong className={cx("font-mono", b.tone === "over" ? "text-danger" : b.tone === "tight" ? "text-warning" : "text-success")}>{b.pct < 1 ? "<1" : Math.round(b.pct)}%</strong> of {label}
         </span>
         <span className="font-mono text-[10.5px] text-faint">{tokens(window)} budget</span>
       </div>
@@ -134,6 +175,8 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [showSecretDetails, setShowSecretDetails] = useState(false);
   const [picked, setPicked] = useState<Format[]>(loadPicked);
+  const [includeFiles, setIncludeFiles] = useState(loadIncludeFiles);
+  const [view, setView] = useState<PreviewView>("source");
   const [busy, setBusy] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string> | null>(null);
@@ -220,7 +263,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
     try {
       const out =
         action === "export"
-          ? await exportSessionsAs(sendIds, picked, { ...common, reviewed })
+          ? await exportSessionsAs(sendIds, picked, { ...common, reviewed }, includeFiles)
           : await copySessions(sendIds, { ...common, reviewed });
       if (out) {
         onSuccess?.();
@@ -247,9 +290,15 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
       ? "Copy Markdown"
       : picked.length === 0
       ? "Export"
+      : includeFiles
+      ? picked.length === 1 ? `Export ${FORMATS[picked[0]].name} + files` : `Export ${picked.length} formats + files`
       : picked.length === 1
       ? `Export ${FORMATS[picked[0]].name}`
       : `Export ${picked.length} formats`;
+  const fileCount = preview.data?.fileCount ?? 0;
+  const viewLabel = preview.data ? renderLabel(previewFormat, preview.data.text, style) : null;
+  const effectiveView: PreviewView = viewLabel ? view : "source";
+  const showDestination = isCopy || (action === "export" && picked.includes("txt"));
 
   return (
     <Modal
@@ -259,8 +308,8 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
       dismissible={!busy}
       footer={(close) => (
         <>
-          {data && action !== "export" && (
-            <span className="mr-auto hidden font-mono text-[11px] text-faint sm:inline">~{tokens(used)} tokens · {style === "xml" ? "XML" : style === "markdown" ? "Markdown" : "Context first"}</span>
+          {data && showDestination && (
+            <span className="mr-auto hidden font-mono text-[11px] text-faint sm:inline">{tokens(used)} tokens · {style === "xml" ? "XML" : style === "markdown" ? "Markdown" : "Context first"}</span>
           )}
           <Button variant="ghost" onClick={close}>
             Cancel
@@ -278,16 +327,67 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
       )}
     >
       <div className="space-y-4">
-        <section className="space-y-2 rounded-xl border border-line p-3" aria-label="Exact handoff preview">
+        {action === "export" && (
+          <div>
+            <div className="mb-2 text-[12.5px] font-semibold text-muted">Choose export formats</div>
+            <div role="group" aria-label="Formats" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {FORMAT_KEYS.map((f) => {
+                const on = picked.includes(f);
+                return (
+                  <label
+                    key={f}
+                    className={cx(
+                      "relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border px-2 pb-2.5 pt-3 text-center transition-all",
+                      on ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-surface text-faint hover:border-line-strong hover:bg-surface-2",
+                    )}
+                  >
+                    <span className="absolute right-2 top-2 flex">
+                      <Checkbox label={`Include ${FORMATS[f].name}`} checked={on} onChange={() => toggleFormat(f)} />
+                    </span>
+                    <FormatThumb format={f} />
+                    <span className="mt-0.5 block">
+                      <span className="block text-[12px] font-semibold text-ink">{FORMATS[f].name}</span>
+                      <span className="block text-[10px] leading-tight text-faint">{FORMATS[f].hint}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-line bg-surface px-3 py-2.5">
+              <span className="mt-0.5 flex"><Checkbox label="Include attached files" checked={includeFiles} onChange={() => setIncludeFiles((on) => { saveIncludeFiles(!on); return !on; })} /></span>
+              <span className="min-w-0">
+                <span className="block text-[12.5px] font-semibold text-ink">Include attached files</span>
+                <span className="block text-[11.5px] text-faint">{includeFiles ? `Saves one .zip with your formats and a files/ folder${preview.data ? ` (${plural(fileCount, "file")})` : ""}.` : picked.length > 1 ? "Formats are saved together in one .zip." : "Add the session's files next to the export in a .zip."}</span>
+              </span>
+            </label>
+          </div>
+        )}
+
+        <section className="space-y-2.5 rounded-xl border border-line p-3" aria-label="Exact handoff preview">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[13px] font-semibold">Exact preview</h3>
-            <Button size="sm" variant="secondary" onClick={() => setSelecting(!selecting)}>{selecting ? "Hide messages" : "Select messages"}</Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {viewLabel && <Segmented label="Preview view" value={effectiveView} onChange={setView} options={[{ value: "rendered", label: viewLabel }, { value: "source", label: "Source" }]} />}
+              <Button size="sm" variant="secondary" onClick={() => setSelecting(!selecting)}>{selecting ? "Hide messages" : "Select messages"}</Button>
+            </div>
           </div>
-          {action === "export" && picked.length > 1 && <Select label="Preview format" value={previewFormat} onChange={(value) => setPreviewChoice(value as Format)} options={picked.map((format) => ({ value: format, label: FORMATS[format].name }))} />}
-          <p className="text-[12px] text-muted">{previewFormat === "handoff" ? "Bundle normalized JSON; original files are included separately." : "Final text after selection, level, layout and redaction."} Token count is estimated.{action === "export" && picked.includes("txt") && " Intent and prompt layout apply to TXT; Markdown, HTML, JSON and bundles preserve the transcript."}</p>
-          {(preview.loading || unsettled) && <p role="status" className="text-[12px] text-muted">Updating preview…</p>}
-          {preview.error && <p role="alert" className="text-danger">{preview.error}</p>}
-          {preview.data && (previewFormat === "md" ? <MarkdownViewer text={preview.data.text} initialMode="source" sourceLabel="Final handoff preview" /> : previewFormat === "json" || previewFormat === "txt" && (style === "xml" || structuredLanguage(preview.data.text)) ? <StructuredTextViewer key={`${previewFormat}-${style}`} text={preview.data.text} language={previewFormat === "json" ? "json" : style === "xml" ? "xml" : structuredLanguage(preview.data.text)!} sourceLabel="Final handoff preview" /> : <TextArea aria-label="Final handoff preview" readOnly value={preview.data.text} rows={8} className="font-mono text-[11px]" />)}
+          {action === "export" && picked.length > 1 && (
+            <Segmented label="Preview format" value={previewFormat} onChange={(value) => setPreviewChoice(value as Format)} options={picked.map((format) => ({ value: format, label: FORMATS[format].name }))} />
+          )}
+          <p className="text-[12px] text-muted">{previewFormat === "handoff" ? "Bundle data as normalized JSON. Original files travel inside the bundle." : previewFormat === "html" ? "Self-contained web page, shown in a locked-down frame." : "Final text after selection, level, layout and redaction."}{previewFormat === "txt" ? " Intent and prompt layout shape this text." : ""}</p>
+          {preview.error ? (
+            <p role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-[12px] text-danger">{preview.error}</p>
+          ) : preview.data ? (
+            <div className={cx("transition-opacity", (preview.loading || unsettled) && "opacity-60")}>
+              <PreviewBody key={`${previewFormat}-${effectiveView}`} text={preview.data.text} format={previewFormat} style={style} view={effectiveView} />
+            </div>
+          ) : (
+            <Skeleton className="h-40 w-full rounded-xl" />
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-faint">
+            <span className="font-mono">{preview.data ? `${tokens(preview.data.tokenEstimate)} tokens · ${plural(preview.data.messageCount, "message")}${fileCount ? ` · ${plural(fileCount, "file")}` : ""}` : "\u00a0"}</span>
+            {(preview.loading || unsettled) && <span role="status">Updating preview…</span>}
+          </div>
           {preview.data?.truncated && <p className="text-[12px] text-muted">Preview shows the first 4 MiB. The full output is used when you continue.</p>}
           {selecting && <>
             <div className="flex items-center gap-2">
@@ -307,7 +407,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
         </section>
         {error && <div className="rounded-xl border border-danger/40 bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div>}
 
-        {action !== "copy-markdown" && (
+        {showDestination && (
           <div className="rounded-xl border border-line bg-surface-2 px-3.5 py-3 space-y-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -423,39 +523,10 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
           </div>
         )}
 
-        {action === "export" && (
-          <div>
-            <div className="mb-2 text-[12.5px] font-semibold text-muted">Choose export formats</div>
-            <div role="group" aria-label="Formats" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {FORMAT_KEYS.map((f) => {
-                const on = picked.includes(f);
-                return (
-                  <label
-                    key={f}
-                    className={cx(
-                      "relative flex cursor-pointer flex-col items-center gap-2 rounded-xl border px-2 pb-2.5 pt-3 text-center transition-all",
-                      on ? "border-accent bg-accent-soft text-accent-strong" : "border-line bg-surface text-faint hover:border-line-strong hover:bg-surface-2",
-                    )}
-                  >
-                    <span className="absolute right-2 top-2 flex">
-                      <Checkbox label={`Include ${FORMATS[f].name}`} checked={on} onChange={() => toggleFormat(f)} />
-                    </span>
-                    <FormatThumb format={f} />
-                    <span className="mt-0.5 block">
-                      <span className="block text-[12px] font-semibold text-ink">{FORMATS[f].name}</span>
-                      <span className="block text-[10px] leading-tight text-faint">{FORMATS[f].hint}</span>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         <div>
           <div className="mb-2 flex items-center justify-between text-[12.5px]">
             <span className="font-semibold text-muted">How much to include</span>
-            <span className="font-mono text-[11px] text-faint">{loading && !data ? "Calculating tokens…" : `Original: ~${tokens(fullTokens)} tokens`}</span>
+            <span className="font-mono text-[11px] text-faint">{loading && !data ? "Calculating tokens…" : `Original: ${tokens(fullTokens)} tokens`}</span>
           </div>
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -468,7 +539,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
             ).map((opt) => {
               const active = level === opt.key;
               const delta = conciseDelta(opt.key);
-              const tooBig = !!data && action !== "copy-markdown" && budget(levelTokens(opt.key), model.available ?? Number.POSITIVE_INFINITY).tone === "over";
+              const tooBig = !!data && showDestination && budget(levelTokens(opt.key), model.available ?? Number.POSITIVE_INFINITY).tone === "over";
               return (
                 <button
                   key={opt.key}
@@ -496,7 +567,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
                       <Skeleton className="h-4 w-24 rounded" />
                     ) : (
                       <div className="flex items-baseline gap-1.5 font-mono text-[12px] text-ink">
-                        <strong>~{tokens(opt.stats?.tokenEstimate ?? 0)}</strong>
+                        <strong>{tokens(opt.stats?.tokenEstimate ?? 0)}</strong>
                         <span className="text-[11px] text-faint">tokens</span>
                         <span className="text-faint">·</span>
                         <span className="text-[11.5px]">{plural(opt.stats?.messageCount ?? 0, "msg")}</span>

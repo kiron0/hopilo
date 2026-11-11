@@ -905,7 +905,7 @@ function SessionPage({ id }: { id: string }) {
             {row.project && <span title={row.project}>· {basename(row.project)}</span>}
             {row.model && <span>· {row.model}</span>}
             <span>· {plural(data.messages.length, "message")}</span>
-            <span>· ~{tokens(tokenEstimate)} tokens</span>
+            <span>· {tokens(tokenEstimate)} tokens</span>
             <span>· {relativeTime(row.updatedAt)}</span>
             {row.lastCopiedAt && <span>· copied {relativeTime(row.lastCopiedAt)}</span>}
           </span>

@@ -8,10 +8,14 @@ export function UpdateModal({
   update,
   currentVersion,
   onClose,
+  prepared = false,
+  preparing = false,
 }: {
   update: UpdateInfo;
   currentVersion: string;
   onClose: () => void;
+  prepared?: boolean;
+  preparing?: boolean;
 }) {
   const [progress, setProgress] = useState<UpdateInstallProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -19,9 +23,9 @@ export function UpdateModal({
 
   const install = async () => {
     setError(null);
-    setProgress({ phase: "downloading", downloadedBytes: 0 });
+    setProgress(prepared ? { phase: "installing", downloadedBytes: 0, percent: 100 } : { phase: "downloading", downloadedBytes: 0 });
     try {
-      await installInAppUpdate(update, setProgress);
+      await installInAppUpdate(update, setProgress, { alreadyDownloaded: prepared });
     } catch (cause) {
       setProgress(null);
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -30,7 +34,7 @@ export function UpdateModal({
 
   return (
     <Modal
-      title="Update Available"
+      title={prepared ? "Update Ready" : "Update Available"}
       onClose={onClose}
       dismissible={!busy}
       footer={(close) => (
@@ -40,11 +44,11 @@ export function UpdateModal({
           </Button>
           <Button
             variant="primary"
-            busy={busy}
+            busy={busy || (preparing && !prepared)}
             icon={<SparkIcon size={13} />}
             onClick={install}
           >
-            {progress?.phase === "installing" ? "Installing…" : error ? "Try Again" : busy ? "Downloading…" : "Update Now"}
+            {progress?.phase === "installing" ? "Installing…" : error ? "Try Again" : busy ? "Downloading…" : preparing && !prepared ? "Downloading…" : prepared ? "Restart to Update" : "Update Now"}
           </Button>
         </div>
       )}
@@ -69,6 +73,10 @@ export function UpdateModal({
             </p>
           </div>
         </div>
+
+        {prepared && !progress && !error && (
+          <p className="rounded-xl border border-line bg-card p-3.5 text-[12px] text-muted">Downloaded and verified in the background. Restart to finish installing.</p>
+        )}
 
         {progress && (
           <div className="rounded-xl border border-line bg-card p-3.5" aria-live="polite">

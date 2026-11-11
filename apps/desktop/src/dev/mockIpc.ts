@@ -80,9 +80,15 @@ export function installMockIpc() {
         if (options.selected?.length === 0) throw new Error("Choose at least one message");
         const messages = (a.ids as string[]).flatMap((sourceId) => MESSAGES.map((m) => ({ ...m, sourceId })))
           .filter((m) => !options.selected || options.selected.some((s: { sourceId: string; id: string }) => s.sourceId === m.sourceId && s.id === m.id));
-        const text = mockHandoffText(messages.map((m) => `${m.role}: ${m.blocks.map((b) => "text" in b ? b.text : "[tool]").join("\n")}`).join("\n\n"), a.format, options, a.ids.length);
+        const transcript = messages.map((m) => `${m.role}: ${m.blocks.map((b) => "text" in b ? b.text : "[tool]").join("\n")}`).join("\n\n");
+        const escape = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const text = a.format === "html"
+          ? `<!doctype html><html><head><meta charset="utf-8"><title>Development export</title><style>body{font:14px/1.6 system-ui;margin:24px;color:#1d1d1f}pre{white-space:pre-wrap;background:#f4f4f6;padding:12px;border-radius:8px}</style></head><body><h1>Development export</h1><pre>${escape(transcript)}</pre></body></html>`
+          : a.format === "json" || a.format === "handoff"
+          ? JSON.stringify({ schemaVersion: "1", title: "Development export", messages: messages.map((m) => ({ id: m.id, sourceId: m.sourceId, role: m.role })) }, null, 2)
+          : mockHandoffText(transcript, a.format, options, a.ids.length);
         const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-        return { text, hash, tokenEstimate: Math.ceil(text.length / 4), messageCount: messages.length, format: a.format };
+        return { text, hash, tokenEstimate: Math.ceil(text.length / 4), messageCount: messages.length, format: a.format, fileCount: options.selected ? 0 : 2 };
       }
       case "search": return [];
       case "agent_cli_info": return { path: "/Applications/Hopilo.app/Contents/MacOS/hopilo", installed: true };

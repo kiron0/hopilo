@@ -61,7 +61,7 @@ const METRICS: { key: keyof CompareSide; label: string; fmt?: (n: number) => str
   { key: "assistantTurns", label: "Replies" },
   { key: "toolCalls", label: "Tool calls" },
   { key: "toolErrors", label: "Tool errors", lowerIsBetter: true },
-  { key: "tokenEstimate", label: "Tokens", fmt: (n) => `~${tokens(n)}` },
+  { key: "tokenEstimate", label: "Tokens", fmt: (n) => `${tokens(n)}` },
 ];
 
 function MetricRow({ label, a, b, fmt, lowerIsBetter }: { label: string; a: number; b: number; fmt?: (n: number) => string; lowerIsBetter?: boolean }) {

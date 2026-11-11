@@ -28,7 +28,7 @@ export const SETTINGS_SECTIONS: { id: string; label: string; group: SettingsGrou
   { id: "agents", label: "Agent access", group: "agents", keywords: "mcp cli hopilo command coding agents folders" },
   { id: "backups", label: "Encrypted backups", group: "library", keywords: "backup restore schedule password hbackup" },
   { id: "storage", label: "Storage", group: "library", keywords: "data folder space verify erase library" },
-  { id: "about", label: "About Hopilo", group: "about", keywords: "version updates github support" },
+  { id: "about", label: "About Hopilo", group: "about", keywords: "version updates automatic notifications download github support" },
 ];
 
 const LEGACY: Record<string, SettingsGroup> = { customize: "appearance", data: "privacy" };

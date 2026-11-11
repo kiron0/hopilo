@@ -13,6 +13,8 @@ import { Overview } from "./pages/Overview";
 import { Sessions } from "./pages/Sessions";
 import { RouteSkeleton } from "./components/Skeletons";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { UpdateModal } from "./components/UpdateModal";
+import { startUpdateScheduler, useUpdates } from "./lib/updateCenter";
 
 const Browser = lazy(() => import("./pages/Browser").then((m) => ({ default: m.Browser })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
@@ -33,6 +35,12 @@ function Page({ route }: { route: Route }) {
     case "compare":
       return <Compare />;
   }
+}
+
+function UpdateHost() {
+  const u = useUpdates();
+  if (!u.modalOpen || !u.update) return null;
+  return <UpdateModal update={u.update} currentVersion={u.currentVersion} prepared={u.prepared} preparing={u.preparing} onClose={u.closeModal} />;
 }
 
 export function App() {
@@ -113,6 +121,12 @@ export function App() {
 
   useEffect(() => {
     if (!ready) return;
+    if (import.meta.env.DEV && !(window as { __HOPILO_MOCK__?: boolean }).__HOPILO_MOCK__) return;
+    return startUpdateScheduler();
+  }, [ready]);
+
+  useEffect(() => {
+    if (!ready) return;
     requestAnimationFrame(() => requestAnimationFrame(() => invoke("app_ready").catch(() => undefined)));
   }, [ready]);
 
@@ -146,6 +160,7 @@ export function App() {
             </ErrorBoundary>
             <StartupPageReady />
           </Suspense>
+          <UpdateHost />
         </Shell>
       )}
       {hovering && !dropped && (

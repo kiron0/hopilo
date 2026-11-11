@@ -58,18 +58,30 @@ export async function exportSessions(ids: string[], format: Format, opts: CopyOp
   }
 }
 
-export async function exportSessionsAs(ids: string[], formats: Format[], opts: CopyOptions = {}) {
-  if (formats.length === 1) return exportSessions(ids, formats[0], opts);
+export function zipSummary(formats: number, files: number, missingFiles: number) {
+  const parts = [`${formats} ${formats === 1 ? "format" : "formats"}`];
+  if (files) parts.push(`${files} ${files === 1 ? "file" : "files"}`);
+  const missing = missingFiles ? ` · ${missingFiles} ${missingFiles === 1 ? "file" : "files"} unavailable` : "";
+  return `${parts.join(" and ")}${missing}`;
+}
+
+export async function exportSessionsAs(ids: string[], formats: Format[], opts: CopyOptions = {}, includeFiles = false) {
+  if (formats.length === 1 && !includeFiles) return exportSessions(ids, formats[0], opts);
   try {
     const suggested = await api.suggestExportName(ids, "zip");
     const path = await save({ defaultPath: suggested, filters: [{ name: "Zip archive", extensions: ["zip"] }] });
     if (!path) return null;
-    return await track(api.exportSessionsZip(ids, formats, path, opts), {
+    const out = await track(api.exportSessionsZip(ids, formats, path, opts, includeFiles), {
       key: "export",
-      pending: `Exporting ${formats.length} formats…`,
-      success: (written) => ({ kind: "success", text: `Saved ${formats.length} formats to ${written}`, action: { label: "Show", run: () => revealItemInDir(written).catch(() => undefined) } }),
+      pending: includeFiles ? "Exporting with files…" : `Exporting ${formats.length} formats…`,
+      success: (z) => ({
+        kind: z.missingFiles ? "warning" : "success",
+        text: `Saved ${zipSummary(formats.length, z.files, z.missingFiles)} to ${z.path}`,
+        action: { label: "Show", run: () => revealItemInDir(z.path).catch(() => undefined) },
+      }),
       error: "Export failed",
     });
+    return out ? out.path : null;
   } catch (e) {
     toast({ kind: "error", text: `Export failed: ${errorText(e)}` });
     return null;

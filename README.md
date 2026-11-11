@@ -5,13 +5,13 @@
 <h1 align="center">Hopilo</h1>
 
 <p align="center">
-  <strong>Universal AI Session Handoff · Offline by Default & Local-First</strong><br />
+  <strong>Universal AI Session Handoff · Works Offline & Local-First</strong><br />
   Every AI session in one place, with its files. Copy any of them, ready to paste into another AI.
 </p>
 
 <p align="center">
   <a href="https://github.com/kiron0/hopilo/actions/workflows/ci.yml"><img src="https://github.com/kiron0/hopilo/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
-  <img src="https://img.shields.io/badge/Offline%20by%20Default-Local--First-22c55e" alt="Offline by default" />
+  <img src="https://img.shields.io/badge/Works%20Offline-Local--First-22c55e" alt="Works offline, local-first" />
   <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-black?logo=tauri" alt="macOS, Windows, Linux" />
   <img src="https://img.shields.io/badge/Rust-stable-orange?logo=rust" alt="Rust" />
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri" alt="Tauri 2" />

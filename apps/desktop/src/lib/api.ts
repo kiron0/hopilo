@@ -225,7 +225,8 @@ export interface HandoffPreflight {
 }
 
 export interface MessageRef { sourceId: string; id: string }
-export interface HandoffPreview { text: string; hash: string; tokenEstimate: number; messageCount: number; format: string; truncated?: boolean }
+export interface ZipExport { path: string; files: number; missingFiles: number }
+export interface HandoffPreview { text: string; hash: string; tokenEstimate: number; messageCount: number; format: string; truncated?: boolean; fileCount?: number }
 export interface BackupReport { createdAt: string; files: number; sessions: number; verified: boolean }
 export interface BackupStatus { unlocked: boolean; directory: string | null; hours: number | null; lastResult: string | null }
 
@@ -389,8 +390,8 @@ export const api = {
   preflightHandoff: (ids: string[]) => invoke<HandoffPreflight>("preflight_handoff", { ids }),
   suggestExportName: (ids: string[], ext: string) => invoke<string>("suggest_export_name", { ids, ext }),
   exportSessions: (ids: string[], format: string, path: string, opts: CopyOptions = {}) => invoke<string>("export_sessions", { ids, format, path, opts }),
-  exportSessionsZip: (ids: string[], formats: string[], path: string, opts: CopyOptions = {}) =>
-    invoke<string>("export_sessions_zip", { ids, formats, path, opts }),
+  exportSessionsZip: (ids: string[], formats: string[], path: string, opts: CopyOptions = {}, includeFiles = false) =>
+    invoke<ZipExport>("export_sessions_zip", { ids, formats, path, opts, includeFiles }),
 
   importText: (text: string, kind: "clipboard" | "manual", title?: string, label?: string) =>
     invoke<ImportOutcome>("import_text", { text, kind, title, label }),

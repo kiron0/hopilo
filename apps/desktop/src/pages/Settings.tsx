@@ -37,11 +37,9 @@ import {
   BUY_ME_A_COFFEE_URL,
   REPOSITORY_URL,
   ISSUES_URL,
-  checkInAppUpdate,
   openExternal,
-  type UpdateCheckResult,
 } from "../lib/updates";
-import { UpdateModal } from "../components/UpdateModal";
+import { checkForUpdates, useUpdates } from "../lib/updateCenter";
 import { RedactionSettings, ShortcutSettings, TemplateSettings } from "../components/HandoffSettings";
 import { SettingsRowsSkeleton } from "../components/Skeletons";
 import { AlertDialog, Badge, Button, Card, PageHeader, SectionLabel, Segmented, Skeleton, TargetSelect, Toggle, cx } from "../components/ui";
@@ -88,31 +86,24 @@ export function Settings() {
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [confirmErase, setConfirmErase] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [updateState, setUpdateState] = useState<UpdateCheckResult>({
-    status: "idle",
-    currentVersion: "",
-  });
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const updateState = useUpdates();
+  const setShowUpdateModal = (open: boolean) => (open ? updateState.openModal() : updateState.closeModal());
 
   useEffect(() => {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
   }, []);
 
   useEffect(() => {
-    if (info.data?.version) {
-      setUpdateState((prev) => ({ ...prev, currentVersion: info.data!.version }));
+    if (info.data?.version && !useUpdates.getState().currentVersion) {
+      useUpdates.setState({ currentVersion: info.data.version });
     }
   }, [info.data?.version]);
 
   const runUpdateCheck = async () => {
-    setUpdateState((prev) => ({ ...prev, status: "checking" }));
-    const ver = info.data?.version ?? (await api.appInfo().then((a) => a.version).catch(() => "0.0.0"));
-    const res = await checkInAppUpdate(ver);
-    setUpdateState(res);
-    if (res.status === "available") {
-      setShowUpdateModal(true);
-    } else if (res.status === "upToDate") {
-      toast({ kind: "success", text: `Hopilo is up to date (v${ver}).` });
+    await checkForUpdates(true);
+    const res = useUpdates.getState();
+    if (res.status === "upToDate") {
+      toast({ kind: "success", text: `Hopilo is up to date (v${res.currentVersion}).` });
     } else if (res.status === "error") {
       toast({ kind: "warning", text: res.error ?? "Could not check for updates." });
     }
@@ -290,8 +281,8 @@ export function Settings() {
         {tab === "privacy" && (
         <>
         <Group id="privacy" title="Privacy">
-          <Row label="Network" hint="Works offline. No accounts, analytics, telemetry or AI calls. Check for Updates contacts GitHub; Refresh catalog fetches context limits for destination providers from models.dev. Both run only when clicked.">
-            <span className="text-[12.5px] font-medium text-success">{`Offline by default · Chats stay on your ${deviceNoun}`}</span>
+          <Row label="Network" hint="Works offline. No accounts, analytics, telemetry or AI calls. Update checks contact GitHub a few times a day; turn them off in About. Refresh catalog fetches context limits for destination providers from models.dev only when clicked. Neither sends your sessions.">
+            <span className="text-[12.5px] font-medium text-success">{`Local-first · Chats stay on your ${deviceNoun}`}</span>
           </Row>
           <Row label="Clipboard" hint="Read only when you save the clipboard as a session. Hopilo never submits a message: copies are drafts you paste yourself.">
             <span className="text-[12.5px] text-muted">On request</span>
@@ -381,11 +372,11 @@ export function Settings() {
                       VERSION {info.data ? info.data.version : "…"}
                     </span>
                     <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-emerald-500 border border-emerald-500/20">
-                      100% OFFLINE
+                      LOCAL-FIRST
                     </span>
                   </div>
                   <div className="mt-0.5 text-[12px] text-muted">
-                    Universal AI Session Handoff · Offline by Default & Local-First
+                    Universal AI Session Handoff · Works Offline & Local-First
                   </div>
                   <div className="mt-1 flex items-center gap-1.5 text-[11.5px] text-faint">
                     {updateState.status === "checking" && (
@@ -403,7 +394,9 @@ export function Settings() {
                     {updateState.status === "available" && (
                       <>
                         <SparkIcon size={12} className="text-accent" />
-                        <span className="font-semibold text-accent">Version {updateState.update?.version} available</span>
+                        <span className="font-semibold text-accent">
+                          {updateState.prepared ? `Version ${updateState.update?.version} ready to install` : updateState.preparing ? `Downloading version ${updateState.update?.version}…` : `Version ${updateState.update?.version} available`}
+                        </span>
                       </>
                     )}
                     {updateState.status === "error" && (
@@ -431,7 +424,7 @@ export function Settings() {
                     icon={<SparkIcon size={13} />}
                     onClick={() => setShowUpdateModal(true)}
                   >
-                    View Update
+                    {updateState.prepared ? "Restart to Update" : "View Update"}
                   </Button>
                 ) : (
                   <Button
@@ -448,16 +441,22 @@ export function Settings() {
             </div>
           </div>
 
+          <Row label="Check for updates automatically" hint="Looks for a new signed release on GitHub a few times a day and notifies you. Nothing about your sessions is sent.">
+            <Toggle label="Check for updates automatically" checked={s.autoCheckUpdates} onChange={(v) => saveSetting("autoCheckUpdates", v)} />
+          </Row>
+          <Row label="Download updates in the background" hint={s.autoCheckUpdates ? "Downloads and verifies new versions so you only need to restart." : "Turn on automatic checks first."}>
+            <Toggle label="Download updates in the background" checked={s.autoCheckUpdates && s.autoDownloadUpdates} disabled={!s.autoCheckUpdates} onChange={(v) => saveSetting("autoDownloadUpdates", v)} />
+          </Row>
           <div className="py-4">
             <div className="mb-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Why Hopilo</div>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <div className="rounded-xl border border-line bg-card p-3 shadow-item">
                 <div className="font-semibold text-[12.5px] flex items-center gap-1.5">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  <span>Offline by default</span>
+                  <span>Works offline</span>
                 </div>
                 <div className="mt-1 text-[11px] leading-relaxed text-muted">
-                  Everything runs locally on your device with fast storage.
+                  Everything runs locally. Only update checks go online, and you can turn them off.
                 </div>
               </div>
               <div className="rounded-xl border border-line bg-card p-3 shadow-item">
@@ -572,13 +571,6 @@ export function Settings() {
         )}
       </div>
 
-      {showUpdateModal && updateState.update && (
-        <UpdateModal
-          update={updateState.update}
-          currentVersion={info.data?.version ?? updateState.currentVersion}
-          onClose={() => setShowUpdateModal(false)}
-        />
-      )}
 
       {confirmErase && (
         <AlertDialog
