@@ -533,7 +533,7 @@ describe("agent access settings", () => {
     expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ q: "s1", offset: 0 }));
     await click(button("Clear selection"));
     expect(saved).toHaveBeenLastCalledWith("agentAccess", { enabled: true, mode: "selected", sessions: [] });
-    expect(document.body.textContent).toContain("The hopilo command was not found");
+    expect(document.body.textContent).toContain("The hopilo-cli command was not found");
   });
   it("normalizes stored agent access", () => {
     expect(normalizeAgentAccess(null)).toEqual({ enabled: false, mode: "all", sessions: [] });

@@ -6,7 +6,7 @@ license.workspace = true
 description = "Read-only command line and MCP access to Hopilo sessions for coding agents"
 
 [[bin]]
-name = "hopilo"
+name = "hopilo-cli"
 path = "src/main.rs"
 
 [lib]

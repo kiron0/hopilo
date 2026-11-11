@@ -4,17 +4,17 @@ use std::process::ExitCode;
 use hopilo_agent_cli::mcp::{handle_line, MAX_LINE};
 use hopilo_agent_cli::{handoff, open_library, parse_level, search, AgentError};
 
-const USAGE: &str = "hopilo: read-only access to Hopilo sessions for coding agents
+const USAGE: &str = "hopilo-cli: read-only access to Hopilo sessions for coding agents
 
 Usage:
-  hopilo sessions [--project <folder>] [--query <text>] [--limit <1-50>] [--json]
-  hopilo handoff <session-id>... [--level minimal|balanced|full] [--json]
-  hopilo mcp
-  hopilo --help | --version
+  hopilo-cli sessions [--project <folder>] [--query <text>] [--limit <1-50>] [--json]
+  hopilo-cli handoff <session-id>... [--level minimal|balanced|full] [--json]
+  hopilo-cli mcp
+  hopilo-cli --help | --version
 
 Agent access must be turned on in Hopilo → Settings → Agent access.
 It reads sessions saved in Hopilo (all of them, or only those selected there), never hidden ones.
-`hopilo mcp` serves the Model Context Protocol over stdin/stdout.";
+`hopilo-cli mcp` serves the Model Context Protocol over stdin/stdout.";
 
 enum Failure {
     Usage(String),
@@ -150,7 +150,7 @@ fn main() -> ExitCode {
         Some("handoff") => handoff_cmd(&args[1..]),
         Some("mcp") if args.len() == 1 => serve(),
         Some("--version" | "-V") => {
-            println!("hopilo {}", env!("CARGO_PKG_VERSION"));
+            println!("hopilo-cli {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         Some("--help" | "-h" | "help") => {
@@ -162,11 +162,11 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(Failure::Usage(m)) => {
-            eprintln!("hopilo: {m}\n\n{USAGE}");
+            eprintln!("hopilo-cli: {m}\n\n{USAGE}");
             ExitCode::from(2)
         }
         Err(Failure::Agent(e)) => {
-            eprintln!("hopilo: {e}");
+            eprintln!("hopilo-cli: {e}");
             ExitCode::from(1)
         }
     }

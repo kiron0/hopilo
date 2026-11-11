@@ -100,7 +100,7 @@ export function installMockIpc() {
         ] : null };
       }
       case "search": return [];
-      case "agent_cli_info": return { path: "/Applications/Hopilo.app/Contents/MacOS/hopilo", installed: true };
+      case "agent_cli_info": return { path: "/Applications/Hopilo.app/Contents/MacOS/hopilo-cli", installed: true };
       case "backup_status": return schedule;
       case "unlock_backup_schedule": schedule = { unlocked: true, directory: a.directory, hours: a.hours, lastResult: "Development mock: no backup written" }; return null;
       case "lock_backup_schedule": schedule = { ...schedule, unlocked: false }; return null;

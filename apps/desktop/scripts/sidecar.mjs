@@ -28,7 +28,7 @@ const exe = triple.includes("windows") ? ".exe" : "";
 
 const sidecars = [
   { pkg: "hopilo-native-host", bin: "hopilo-native-host" },
-  { pkg: "hopilo-agent-cli", bin: "hopilo" },
+  { pkg: "hopilo-agent-cli", bin: "hopilo-cli" },
 ];
 
 const profile = release ? "release" : "debug";

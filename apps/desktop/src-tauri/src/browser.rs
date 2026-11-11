@@ -151,7 +151,7 @@ pub fn host_binary() -> Option<PathBuf> {
 
 pub fn agent_cli_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let name = if cfg!(windows) { "hopilo.exe" } else { "hopilo" };
+    let name = if cfg!(windows) { "hopilo-cli.exe" } else { "hopilo-cli" };
     Some(exe.parent()?.join(name))
 }
 

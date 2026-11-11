@@ -54,7 +54,7 @@
     "shortDescription": "Universal AI Session Handoff",
     "externalBin": [
       "binaries/hopilo-native-host",
-      "binaries/hopilo"
+      "binaries/hopilo-cli"
     ],
     "windows": {
       "nsis": {

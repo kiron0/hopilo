@@ -96,10 +96,10 @@ export function AgentAccessSettings() {
   const selectedKey = access.sessions.join(",");
   const live = useLoad(() => (picking && access.sessions.length ? api.querySessions({ ids: access.sessions, limit: 1, rowsOnly: true }) : Promise.resolve(null)), ["agent-access-selected-count", picking, selectedKey]);
   const liveCount = access.sessions.length ? live.data?.total ?? access.sessions.length : 0;
-  const bin = info.data?.path ? quote(info.data.path) : "hopilo";
+  const bin = info.data?.path ? quote(info.data.path) : "hopilo-cli";
   const commands = [
     { label: "Claude Code", text: `claude mcp add hopilo -- ${bin} mcp` },
-    { label: "Codex, Cursor and other MCP clients", text: JSON.stringify({ mcpServers: { hopilo: { command: info.data?.path ?? "hopilo", args: ["mcp"] } } }, null, 2) },
+    { label: "Codex, Cursor and other MCP clients", text: JSON.stringify({ mcpServers: { hopilo: { command: info.data?.path ?? "hopilo-cli", args: ["mcp"] } } }, null, 2) },
   ];
   const copy = async (label: string, text: string) => {
     try { await writeText(text); setCopied(label); } catch (e) { setError(errorText(e)); }
@@ -126,8 +126,8 @@ export function AgentAccessSettings() {
       </div>
       <div className="space-y-2 border-t border-line pt-4">
         <h3 className="text-[13px] font-semibold">Connect an agent</h3>
-        <p className="text-[12px] text-muted">Nothing to install. The <code>hopilo</code> command ships inside Hopilo; agents start it from the path below over MCP, the same way they run any local tool. Paste one of these into your agent's setup once.</p>
-        {info.data && !info.data.installed && <p role="status" className="text-[12px] text-warning">The hopilo command was not found next to the app. Rebuild Hopilo (cargo build -p hopilo-agent-cli).</p>}
+        <p className="text-[12px] text-muted">Nothing to install. The <code>hopilo-cli</code> command ships inside Hopilo; agents start it from the path below over MCP, the same way they run any local tool. Paste one of these into your agent's setup once.</p>
+        {info.data && !info.data.installed && <p role="status" className="text-[12px] text-warning">The hopilo-cli command was not found next to the app. Rebuild Hopilo (cargo build -p hopilo-agent-cli).</p>}
         {commands.map((c) => <div key={c.label} className="space-y-1">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[12px] text-muted">{c.label}</span>

@@ -49,7 +49,7 @@ export const SETTINGS_SUBTITLES: Record<SettingsGroup, string> = {
   handoff: "What Copy puts on the clipboard, handoff intents and destination context limits.",
   sources: `Coding agents Hopilo reads on this ${deviceNoun}. Their files are only read, never changed.`,
   privacy: "What Hopilo can see and send, and the rules that hide sensitive text in copies and exports.",
-  agents: `Let coding agents on this ${deviceNoun} read your sessions through the hopilo command or MCP.`,
+  agents: `Let coding agents on this ${deviceNoun} read your sessions through the hopilo-cli command or MCP.`,
   library: `Encrypted backups and the one folder on this ${deviceNoun} where your library lives.`,
   about: "Hopilo: every AI session in one place.",
 };
