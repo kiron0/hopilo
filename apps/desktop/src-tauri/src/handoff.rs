@@ -436,6 +436,13 @@ fn attachment_bytes(p: &Prepared, a: &hopilo_core::Attachment) -> Option<Vec<u8>
         .and_then(|file| hopilo_core::limits::read_bounded(file, hopilo_core::limits::DOCUMENT_BYTES).ok())
 }
 
+fn attachment_available(p: &Prepared, a: &hopilo_core::Attachment) -> bool {
+    (p.exclude_secrets && a.text.is_some())
+        || (a.sha256.len() == 64
+            && a.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+            && p.blob_root.join(&a.sha256).is_file())
+}
+
 fn zip_file_name(name: &str) -> String {
     let base = name.rsplit(['/', '\\']).next().unwrap_or("");
     let cleaned: String = base
@@ -549,6 +556,7 @@ pub struct HandoffPreview {
     format: String,
     truncated: bool,
     file_count: usize,
+    bundle_entries: Option<Vec<hopilo_pack_format::HandoffEntry>>,
 }
 
 const PREVIEW_BYTES: usize = 4 * 1024 * 1024;
@@ -564,6 +572,16 @@ pub async fn preview_handoff(
         let prepared = prepare_export(&state, &ids, &[&format], Some(opts))?;
         let mut text = render_text_export(&prepared, &format)?;
         let hash = hopilo_pack_format::sha256_hex(text.as_bytes());
+        let bundle_entries = if format == "handoff" {
+            Some(
+                hopilo_pack_format::handoff_entries(&prepared.pack, &prepared.ropts, &|a| {
+                    attachment_available(&prepared, a)
+                })
+                .map_err(err)?,
+            )
+        } else {
+            None
+        };
         let token_estimate = estimate_tokens(&text);
         let truncated = text.len() > PREVIEW_BYTES;
         if truncated {
@@ -578,6 +596,7 @@ pub async fn preview_handoff(
             token_estimate,
             message_count: prepared.pack.messages.len(),
             file_count: prepared.pack.attachments.len(),
+            bundle_entries,
             format,
             text,
             truncated,

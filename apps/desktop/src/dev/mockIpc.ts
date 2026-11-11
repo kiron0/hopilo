@@ -88,7 +88,16 @@ export function installMockIpc() {
           ? JSON.stringify({ schemaVersion: "1", title: "Development export", messages: messages.map((m) => ({ id: m.id, sourceId: m.sourceId, role: m.role })) }, null, 2)
           : mockHandoffText(transcript, a.format, options, a.ids.length);
         const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-        return { text, hash, tokenEstimate: Math.ceil(text.length / 4), messageCount: messages.length, format: a.format, fileCount: options.selected ? 0 : 2 };
+        return { text, hash, tokenEstimate: Math.ceil(text.length / 4), messageCount: messages.length, format: a.format, fileCount: options.selected ? 0 : 2, bundleEntries: a.format === "handoff" ? [
+          { path: "conversation/normalized.json", size: text.length, kind: "data" },
+          { path: "conversation/transcript.md", size: 1840, kind: "transcript" },
+          { path: "context/full.md", size: 2210, kind: "transcript" },
+          { path: "context/handoff-prompt.md", size: 2630, kind: "prompt" },
+          { path: "provenance/source-map.json", size: null, kind: "meta" },
+          ...(options.selected ? [] : [{ path: "attachments/4b0bbbb51a3d-diagram.svg", size: 5120, kind: "file" }, { path: "attachments/9c1e2f7a0b44-requirements.md", size: 912, kind: "file" }]),
+          { path: "manifest.json", size: null, kind: "meta" },
+          { path: "checksums.sha256", size: null, kind: "meta" },
+        ] : null };
       }
       case "search": return [];
       case "agent_cli_info": return { path: "/Applications/Hopilo.app/Contents/MacOS/hopilo", installed: true };

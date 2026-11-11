@@ -1,8 +1,7 @@
-import { structuredLanguage } from "../lib/structuredText";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { CodeBlock } from "./CodeBlock";
+import { LargeCodeBlock } from "./CodeBlock";
 import { Transcript } from "./Transcript";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   Copy,
@@ -13,9 +12,9 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from "./Icons";
-import { api, type CopyOptions, type Level, type PromptStyle, type SessionOrder } from "../lib/api";
+import { api, type BundleEntry, type CopyOptions, type HandoffPreview, type Level, type PromptStyle, type SessionOrder } from "../lib/api";
 import { copySessions, exportSessionsAs, FORMATS, type Format } from "../lib/actions";
-import { plural, provider, tokens } from "../lib/format";
+import { bytes, plural, provider, tokens } from "../lib/format";
 import { budget, fittingLevel, intentChoices, modelFor, resolveIntent, STYLES } from "../lib/handoff";
 import { useDebouncedValue, useLoad } from "../lib/hooks";
 import { useApp } from "../lib/store";
@@ -42,29 +41,71 @@ function saveIncludeFiles(on: boolean) {
 
 type PreviewView = "rendered" | "source";
 
-function previewLanguage(format: string, text: string, style: PromptStyle) {
+function previewLanguage(format: string) {
   if (format === "json" || format === "handoff") return "json";
-  if (format === "txt") return style === "xml" ? "xml" : structuredLanguage(text) ?? null;
+  if (format === "txt") return "markdown";
   return null;
 }
 
-function PreviewBody({ text, format, style, view }: { text: string; format: string; style: PromptStyle; view: PreviewView }) {
-  const language = previewLanguage(format, text, style);
-  if (view === "rendered" && format === "md") {
-    return <div className="max-h-[360px] overflow-auto rounded-xl border border-line bg-card px-4 py-3" aria-label="Rendered Markdown preview"><MarkdownPreview text={text} /></div>;
-  }
-  if (view === "rendered" && format === "html") {
-    return <iframe sandbox="" referrerPolicy="no-referrer" title="Rendered web page preview" srcDoc={text} className="block h-[360px] w-full rounded-xl border border-line bg-white" />;
-  }
-  if (view === "rendered" && language) {
-    return <div className="max-h-[360px] overflow-auto rounded-xl"><CodeBlock code={text} language={language} /></div>;
-  }
-  return <TextArea aria-label="Final handoff preview" readOnly value={text} rows={12} className="max-h-[360px] min-h-40 font-mono text-[11px]" />;
+const ENTRY_HINTS: Record<string, string> = {
+  "conversation/normalized.json": "Structured data, same as the JSON export",
+  "conversation/transcript.md": "Transcript without file contents",
+  "context/full.md": "Transcript with file text, same as the Markdown export",
+  "context/handoff-prompt.md": "Ready-to-paste prompt for the next AI",
+  "provenance/source-map.json": "Which tool each message came from",
+  "manifest.json": "Bundle details and file list",
+  "checksums.sha256": "SHA-256 of every file, checked on import",
+};
+
+function BundleContents({ entries }: { entries: BundleEntry[] }) {
+  return (
+    <div className="h-80 overflow-auto rounded-xl border border-line bg-card" aria-label="Bundle contents">
+      <ul className="divide-y divide-line">
+        {entries.map((e) => (
+          <li key={e.path} className="flex items-center gap-3 px-3 py-2">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-mono text-[11.5px] text-ink">{e.path}</span>
+              <span className="block text-[11px] text-faint">{ENTRY_HINTS[e.path] ?? (e.kind === "file" ? "Original attached file" : "")}</span>
+            </span>
+            {e.size != null && <span className="shrink-0 font-mono text-[11px] text-faint">{bytes(e.size)}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
-function renderLabel(format: string, text: string, style: PromptStyle) {
+function SourceText({ text }: { text: string }) {
+  return <textarea aria-label="Final handoff preview" readOnly value={text} spellCheck={false} data-selectable className="block h-80 min-h-80 max-h-80 w-full resize-none overflow-auto rounded-xl border border-line bg-card px-3 py-2.5 font-mono text-[11px] leading-relaxed text-ink focus:border-accent focus:outline-none" />;
+}
+
+const PreviewBody = memo(function PreviewBody({ text, format, view, entries }: { text: string; format: string; view: PreviewView; entries?: BundleEntry[] }) {
+  if (view === "rendered" && format === "handoff" && entries) return <BundleContents entries={entries} />;
+  if (format === "handoff") return <SourceText text={text} />;
+  const language = previewLanguage(format);
+  if (view === "rendered" && format === "md") {
+    return <div className="h-80 overflow-auto rounded-xl border border-line bg-card px-4 py-3" aria-label="Rendered Markdown preview"><MarkdownPreview text={text} /></div>;
+  }
+  if (view === "rendered" && format === "html") {
+    return <iframe sandbox="" referrerPolicy="no-referrer" title="Rendered web page preview" srcDoc={text} className="block h-80 w-full rounded-xl border border-line bg-white" />;
+  }
+  if (view === "rendered" && language) {
+    return <div className="preview-flat h-80 overflow-auto rounded-xl border border-line bg-card"><LargeCodeBlock code={text} language={language} /></div>;
+  }
+  return <SourceText text={text} />;
+});
+
+const PreviewViews = memo(function PreviewViews({ text, format, view, entries }: { text: string; format: string; view: PreviewView; entries?: BundleEntry[] }) {
+  const [seen, setSeen] = useState<PreviewView[]>([view]);
+  useEffect(() => setSeen((prev) => (prev.includes(view) ? prev : [...prev, view])), [view]);
+  const mounted = seen.includes(view) ? seen : [...seen, view];
+  return <div className="relative">{mounted.map((v) => <div key={v} inert={v !== view} aria-hidden={v !== view} className={cx(v !== view && "pointer-events-none invisible absolute inset-x-0 top-0")}><PreviewBody text={text} format={format} view={v} entries={entries} /></div>)}</div>;
+});
+
+function renderLabel(format: string) {
+  if (format === "handoff") return "Contents";
   if (format === "md" || format === "html") return "Rendered";
-  return previewLanguage(format, text, style) ? "Highlighted" : null;
+  return previewLanguage(format) ? "Highlighted" : null;
 }
 
 function loadPicked(): Format[] {
@@ -176,7 +217,7 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const [showSecretDetails, setShowSecretDetails] = useState(false);
   const [picked, setPicked] = useState<Format[]>(loadPicked);
   const [includeFiles, setIncludeFiles] = useState(loadIncludeFiles);
-  const [view, setView] = useState<PreviewView>("source");
+  const [views, setViews] = useState<Record<string, PreviewView>>({ handoff: "rendered" });
   const [busy, setBusy] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string> | null>(null);
@@ -253,7 +294,18 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const debouncedJSON = useDebouncedValue(optionsJSON, 200);
   const debouncedOptions = useMemo(() => JSON.parse(debouncedJSON) as CopyOptions, [debouncedJSON]);
   const unsettled = optionsJSON !== debouncedJSON;
-  const preview = useLoad(() => api.previewHandoff(sendIds, previewFormat, debouncedOptions), ["handoff-preview", sendIds, previewFormat, debouncedOptions, previewRevision], { cache: false });
+  const loaded = useLoad(() => api.previewHandoff(sendIds, previewFormat, debouncedOptions), ["handoff-preview", sendIds, previewFormat, debouncedOptions, previewRevision], { cache: false });
+  const previewKey = JSON.stringify([sendIds, previewFormat, debouncedOptions]);
+  const previewCache = useRef(new Map<string, HandoffPreview>());
+  useEffect(() => {
+    if (!loaded.data || loaded.loading || loaded.data.format !== previewFormat) return;
+    const cache = previewCache.current;
+    cache.delete(previewKey);
+    cache.set(previewKey, loaded.data);
+    if (cache.size > 6) cache.delete(cache.keys().next().value!);
+  }, [loaded.data, loaded.loading, previewKey, previewFormat]);
+  const cachedPreview = previewCache.current.get(previewKey);
+  const preview = { ...loaded, data: loaded.data?.format === previewFormat ? loaded.data : cachedPreview ?? null, loading: loaded.loading || loaded.data?.format !== previewFormat };
   const used = preview.data?.tokenEstimate ?? estimatedUsed;
   const overBudget = !!preview.data && budget(used, model.available ?? Number.POSITIVE_INFINITY).tone === "over";
   const handleExecute = async () => {
@@ -296,8 +348,9 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
       ? `Export ${FORMATS[picked[0]].name}`
       : `Export ${picked.length} formats`;
   const fileCount = preview.data?.fileCount ?? 0;
-  const viewLabel = preview.data ? renderLabel(previewFormat, preview.data.text, style) : null;
-  const effectiveView: PreviewView = viewLabel ? view : "source";
+  const viewLabel = preview.data ? renderLabel(previewFormat) : null;
+  const effectiveView: PreviewView = viewLabel ? views[previewFormat] ?? "source" : "source";
+  const setView = (v: PreviewView) => setViews((prev) => ({ ...prev, [previewFormat]: v }));
   const showDestination = isCopy || (action === "export" && picked.includes("txt"));
 
   return (
@@ -374,12 +427,12 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
           {action === "export" && picked.length > 1 && (
             <Segmented label="Preview format" value={previewFormat} onChange={(value) => setPreviewChoice(value as Format)} options={picked.map((format) => ({ value: format, label: FORMATS[format].name }))} />
           )}
-          <p className="text-[12px] text-muted">{previewFormat === "handoff" ? "Bundle data as normalized JSON. Original files travel inside the bundle." : previewFormat === "html" ? "Self-contained web page, shown in a locked-down frame." : "Final text after selection, level, layout and redaction."}{previewFormat === "txt" ? " Intent and prompt layout shape this text." : ""}</p>
+          <p className="text-[12px] text-muted">{previewFormat === "handoff" ? effectiveView === "rendered" ? "Files inside the .hopilo bundle. Open it in Hopilo to restore the session with its files." : "Bundle data as normalized JSON, reviewed before export." : previewFormat === "html" ? "Self-contained web page, shown in a locked-down frame." : "Final text after selection, level, layout and redaction."}{previewFormat === "txt" ? " Intent and prompt layout shape this text." : ""}</p>
           {preview.error ? (
             <p role="alert" className="rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-[12px] text-danger">{preview.error}</p>
           ) : preview.data ? (
             <div className={cx("transition-opacity", (preview.loading || unsettled) && "opacity-60")}>
-              <PreviewBody key={`${previewFormat}-${effectiveView}`} text={preview.data.text} format={previewFormat} style={style} view={effectiveView} />
+              <PreviewViews key={previewFormat} text={preview.data.text} format={previewFormat} view={effectiveView} entries={preview.data.bundleEntries ?? undefined} />
             </div>
           ) : (
             <Skeleton className="h-40 w-full rounded-xl" />

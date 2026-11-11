@@ -30,7 +30,7 @@ export function MarkdownTree({ nodes, prefix, onOpen }: { nodes: MdNode[]; prefi
       case "math": {
         const html = mathHtml(node.v, node.display);
         if (html === null) return <code key={i}>{node.v}</code>;
-        return node.display ? <div key={i} className="math math-display" dangerouslySetInnerHTML={{ __html: html }} /> : <span key={i} className="math math-inline" dangerouslySetInnerHTML={{ __html: html }} />;
+        return node.display ? <span key={i} className="math math-display block" dangerouslySetInnerHTML={{ __html: html }} /> : <span key={i} className="math math-inline" dangerouslySetInnerHTML={{ __html: html }} />;
       }
       case "code":
         if (node.lang.toLowerCase() === "mermaid") return <Suspense key={i} fallback={<CodeBlock code={node.v} language="mermaid" />}><MermaidBlock code={node.v} /></Suspense>;
@@ -75,6 +75,19 @@ export function MarkdownTree({ nodes, prefix, onOpen }: { nodes: MdNode[]; prefi
   return <>{render(nodes)}</>;
 }
 
+const parsedCache = new Map<string, Promise<MdNode[] | null>>();
+
+function parseCached(text: string): Promise<MdNode[] | null> {
+  let pending = parsedCache.get(text);
+  if (!pending) {
+    if (parsedCache.size >= 48) parsedCache.delete(parsedCache.keys().next().value!);
+    pending = api.parseMarkdown(text);
+    parsedCache.set(text, pending);
+    pending.catch(() => parsedCache.delete(text));
+  }
+  return pending;
+}
+
 function MarkdownContent({ text, className = "" }: { text: string; className?: string }) {
   const prefix = `md-${useId().replace(/[^a-z0-9]/gi, "")}`;
   const [parsed, setParsed] = useState<{ text: string; nodes: MdNode[] | null } | null>(null);
@@ -83,7 +96,7 @@ function MarkdownContent({ text, className = "" }: { text: string; className?: s
   useEffect(() => {
     if (tooLarge) return;
     let live = true;
-    api.parseMarkdown(text).then((nodes) => { if (live) setParsed({ text, nodes }); }).catch(() => { if (live) setParsed({ text, nodes: null }); });
+    parseCached(text).then((nodes) => { if (live) setParsed({ text, nodes }); }).catch(() => { if (live) setParsed({ text, nodes: null }); });
     return () => { live = false; };
   }, [text, tooLarge]);
   const open = (href: string) => { setError(""); void openExternal(href).catch(() => setError("Could not open link.")); };

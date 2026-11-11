@@ -1,6 +1,7 @@
 import { structuredLanguage } from "../lib/structuredText";
-import { CodeBlock } from "./CodeBlock";
-import { Component, lazy, memo, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { CodeBlock, LargeCodeBlock, usePreviewVisible } from "./CodeBlock";
+import { Component, lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { MARKDOWN_CHUNK, splitMarkdown } from "../lib/markdown";
 import { Button, ProseSkeleton, Segmented } from "./ui";
 const MarkdownContent = lazy(() => import("./MarkdownContent"));
 
@@ -10,9 +11,24 @@ class PreviewBoundary extends Component<{ text: string; children: ReactNode }, {
   componentDidUpdate(previous: { text: string }) { if (previous.text !== this.props.text && this.state.failed) this.setState({ failed: false }); }
   render() { return this.state.failed ? <div><p role="status" className="mb-2 text-[12px] text-muted">Rich preview unavailable. Source remains readable.</p><pre className="whitespace-pre-wrap break-words font-mono text-[12px]" data-selectable>{this.props.text}</pre></div> : this.props.children; }
 }
+function MarkdownChunk({ text, className }: { text: string; className: string }) {
+  const { ref, visible } = usePreviewVisible();
+  if (!visible) {
+    const lines = Math.min(400, text.split("\n").length);
+    return <div ref={ref} aria-hidden="true" style={{ minHeight: `${Math.max(48, lines * 14)}px` }} />;
+  }
+  return <PreviewBoundary text={text}><Suspense fallback={<ProseSkeleton text={text} />}><MarkdownContent text={text} className={className} /></Suspense></PreviewBoundary>;
+}
+
+function ChunkedMarkdown({ text, className }: { text: string; className: string }) {
+  const chunks = useMemo(() => splitMarkdown(text), [text]);
+  return <div className="min-w-0">{chunks.map((chunk, i) => <MarkdownChunk key={i} text={chunk} className={className} />)}</div>;
+}
+
 export const MarkdownPreview = memo(function MarkdownPreview({ text, className = "" }: { text: string; className?: string }) {
-  const language = structuredLanguage(text);
-  if (language) return <CodeBlock code={text} language={language} />;
+  const language = useMemo(() => structuredLanguage(text), [text]);
+  if (language) return text.length > MARKDOWN_CHUNK ? <LargeCodeBlock code={text} language={language} /> : <CodeBlock code={text} language={language} />;
+  if (text.length > MARKDOWN_CHUNK) return <ChunkedMarkdown text={text} className={className} />;
   return <PreviewBoundary text={text}><Suspense fallback={<ProseSkeleton text={text} />}><MarkdownContent text={text} className={className} /></Suspense></PreviewBoundary>;
 });
 

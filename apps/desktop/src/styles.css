@@ -1798,6 +1798,9 @@
 .markdown-code-block pre.code-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .markdown-code-block code { display: block; min-width: fit-content; }
 .markdown-code-block pre.code-wrap code { min-width: 0; }
+.preview-flat > .markdown-code-block { margin: 0; border: 0; border-radius: 0; overflow: visible; }
+.preview-flat > .markdown-code-block > pre { max-height: none; overflow: visible; }
+.preview-flat > .markdown-code-block > .markdown-code-toolbar { position: sticky; top: 0; left: 0; z-index: 1; background: var(--color-card); }
 .code-line-number { display: inline-block; min-width: 3em; margin-right: 1em; text-align: right; user-select: none; color: var(--color-faint); }
 .syntax-token { color: var(--syntax-light, inherit); background-color: var(--syntax-light-bg, transparent); font-style: var(--syntax-light-font-style, normal); font-weight: var(--syntax-light-font-weight, normal); text-decoration: var(--syntax-light-text-decoration, none); }
 :root[data-theme="dark"] .syntax-token { color: var(--syntax-dark, inherit); background-color: var(--syntax-dark-bg, transparent); font-style: var(--syntax-dark-font-style, normal); font-weight: var(--syntax-dark-font-weight, normal); text-decoration: var(--syntax-dark-text-decoration, none); }

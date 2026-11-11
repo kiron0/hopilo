@@ -226,7 +226,8 @@ export interface HandoffPreflight {
 
 export interface MessageRef { sourceId: string; id: string }
 export interface ZipExport { path: string; files: number; missingFiles: number }
-export interface HandoffPreview { text: string; hash: string; tokenEstimate: number; messageCount: number; format: string; truncated?: boolean; fileCount?: number }
+export interface BundleEntry { path: string; size: number | null; kind: "data" | "transcript" | "prompt" | "file" | "meta" }
+export interface HandoffPreview { text: string; hash: string; tokenEstimate: number; messageCount: number; format: string; truncated?: boolean; fileCount?: number; bundleEntries?: BundleEntry[] | null }
 export interface BackupReport { createdAt: string; files: number; sessions: number; verified: boolean }
 export interface BackupStatus { unlocked: boolean; directory: string | null; hours: number | null; lastResult: string | null }
 

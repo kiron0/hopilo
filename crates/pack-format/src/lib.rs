@@ -125,6 +125,55 @@ fn sanitize_attachment_name(name: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffEntry {
+    pub path: String,
+    pub size: Option<u64>,
+    pub kind: &'static str,
+}
+
+pub fn handoff_entries(
+    pack: &Pack,
+    opts: &RenderOptions,
+    available: &dyn Fn(&Attachment) -> bool,
+) -> Result<Vec<HandoffEntry>> {
+    let transcript_opts = RenderOptions { include_attachments_inline: false, ..opts.clone() };
+    let mut entries = vec![
+        HandoffEntry {
+            path: "conversation/normalized.json".into(),
+            size: Some(serde_json::to_vec_pretty(pack)?.len() as u64),
+            kind: "data",
+        },
+        HandoffEntry {
+            path: "conversation/transcript.md".into(),
+            size: Some(render_markdown(pack, &transcript_opts).len() as u64),
+            kind: "transcript",
+        },
+        HandoffEntry {
+            path: "context/full.md".into(),
+            size: Some(render_markdown(pack, opts).len() as u64),
+            kind: "transcript",
+        },
+        HandoffEntry {
+            path: "context/handoff-prompt.md".into(),
+            size: Some(render_handoff_prompt(pack, opts).len() as u64),
+            kind: "prompt",
+        },
+        HandoffEntry { path: "provenance/source-map.json".into(), size: None, kind: "meta" },
+    ];
+    let mut seen = std::collections::HashSet::new();
+    for a in &pack.attachments {
+        let path = attachment_path(a);
+        if seen.insert(path.clone()) && available(a) {
+            entries.push(HandoffEntry { path, size: Some(a.size), kind: "file" });
+        }
+    }
+    entries.push(HandoffEntry { path: "manifest.json".into(), size: None, kind: "meta" });
+    entries.push(HandoffEntry { path: "checksums.sha256".into(), size: None, kind: "meta" });
+    Ok(entries)
+}
+
 pub fn write_handoff<W: Write + Seek>(
     pack: &Pack,
     opts: &RenderOptions,
@@ -344,6 +393,33 @@ mod tests {
             integrity: Integrity::default(),
         };
         (pack, img)
+    }
+
+    #[test]
+    fn handoff_entries_match_written_archive() {
+        let (pack, img) = sample();
+        let opts = RenderOptions::default();
+        let mut buf = Cursor::new(Vec::new());
+        let bytes = img.clone();
+        write_handoff(&pack, &opts, &move |_| Some(bytes.clone()), &mut buf).unwrap();
+        let mut zip = zip::ZipArchive::new(Cursor::new(buf.into_inner())).unwrap();
+        let mut written: Vec<(String, u64)> = (0..zip.len())
+            .map(|i| {
+                let f = zip.by_index(i).unwrap();
+                (f.name().to_string(), f.size())
+            })
+            .collect();
+        written.sort();
+        let listed = handoff_entries(&pack, &opts, &|_| true).unwrap();
+        let mut names: Vec<String> = listed.iter().map(|e| e.path.clone()).collect();
+        names.sort();
+        assert_eq!(names, written.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>());
+        for e in listed.iter().filter(|e| e.size.is_some()) {
+            let actual = written.iter().find(|(n, _)| *n == e.path).unwrap().1;
+            assert_eq!(e.size, Some(actual), "size of {}", e.path);
+        }
+        let without_files = handoff_entries(&pack, &opts, &|_| false).unwrap();
+        assert!(without_files.iter().all(|e| e.kind != "file"));
     }
 
     #[test]
