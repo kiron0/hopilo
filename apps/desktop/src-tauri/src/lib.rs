@@ -32,7 +32,10 @@ fn fit_main_to_display_on(w: &tauri::WebviewWindow, monitor: Option<Monitor>) {
     let area = m.work_area().size.to_logical::<f64>(scale);
     let min = LogicalSize::new((area.width * MAIN_MIN_SHARE).round(), (area.height * MAIN_MIN_SHARE).round());
     let _ = w.set_min_size(Some(min));
-    let _ = w.set_max_size(Some(area));
+    let _ = w.set_max_size(None::<LogicalSize<f64>>);
+    if w.is_fullscreen().unwrap_or(false) {
+        return;
+    }
     if let (Ok(size), Ok(ws)) = (w.inner_size(), w.scale_factor()) {
         let s = size.to_logical::<f64>(ws);
         let fit = LogicalSize::new(s.width.clamp(min.width, area.width), s.height.clamp(min.height, area.height));
