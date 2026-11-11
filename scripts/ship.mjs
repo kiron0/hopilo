@@ -37,7 +37,7 @@ const run = (cmd, args, opts = {}) => {
   const res = spawnSync(cmd, args, {
     cwd: root,
     stdio: "inherit",
-    shell: true,
+    shell: process.platform === "win32" && cmd === "pnpm",
     ...opts,
     env: { ...process.env, ...opts.env },
   });

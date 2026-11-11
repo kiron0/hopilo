@@ -52,7 +52,7 @@ if (existsSync(targetDir)) {
 }
 
 if (process.argv.includes("--all")) {
-  const res = spawnSync("cargo", ["clean"], { cwd: root, stdio: "inherit", shell: true });
+  const res = spawnSync("cargo", ["clean"], { cwd: root, stdio: "inherit" });
   if (res.error) {
     console.error(res.error);
     process.exit(1);

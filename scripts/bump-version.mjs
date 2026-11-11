@@ -144,11 +144,10 @@ if (nextCargo !== cargo) {
 try {
   const res = spawnSync("cargo", ["check", "--workspace", "--quiet"], {
     cwd: root,
-    shell: true,
     stdio: "ignore",
   });
   if (res.status !== 0) {
-    spawnSync("cargo", ["check", "--workspace"], { cwd: root, shell: true, stdio: "inherit" });
+    spawnSync("cargo", ["check", "--workspace"], { cwd: root, stdio: "inherit" });
   }
   console.log("  ✓ Updated Cargo.lock");
 } catch {}
@@ -156,13 +155,13 @@ try {
 try {
   const res = spawnSync("pnpm", ["install", "--lockfile-only", "--quiet"], {
     cwd: root,
-    shell: true,
+    shell: process.platform === "win32",
     stdio: "ignore",
   });
   if (res.status !== 0) {
     spawnSync("pnpm", ["install", "--no-frozen-lockfile"], {
       cwd: root,
-      shell: true,
+      shell: process.platform === "win32",
       stdio: "inherit",
     });
   }
