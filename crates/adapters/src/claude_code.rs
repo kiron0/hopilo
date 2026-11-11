@@ -22,7 +22,40 @@ struct LineHead {
     summary: Option<String>,
     is_meta: bool,
     is_sidechain: bool,
+    origin: Option<LineOrigin>,
     message: Option<Box<serde_json::value::RawValue>>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct LineOrigin {
+    kind: String,
+}
+
+const TASK_NOTIFICATION: &str = "task-notification";
+const TASK_NOTIFICATION_OPEN: &str = "<task-notification>";
+
+impl LineHead {
+    fn is_task_notification(&self) -> bool {
+        self.kind == "user"
+            && (self.origin.as_ref().is_some_and(|o| o.kind == TASK_NOTIFICATION)
+                || self.message.as_ref().is_some_and(|m| m.get().contains(&format!("\"{TASK_NOTIFICATION_OPEN}"))))
+    }
+}
+
+fn is_task_notification(v: &Value) -> bool {
+    if v.get("type").and_then(Value::as_str) != Some("user") {
+        return false;
+    }
+    if v.pointer("/origin/kind").and_then(Value::as_str) == Some(TASK_NOTIFICATION) {
+        return true;
+    }
+    let starts = |t: &Value| t.as_str().is_some_and(|s| s.starts_with(TASK_NOTIFICATION_OPEN));
+    match v.pointer("/message/content") {
+        Some(Value::Array(items)) => items.iter().any(|b| b.get("text").is_some_and(starts)),
+        Some(text) => starts(text),
+        None => false,
+    }
 }
 
 impl LocalAgentAdapter for ClaudeCode {
@@ -85,7 +118,7 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
         match h.kind.as_str() {
             "custom-title" => title = h.custom_title.or(title),
             "summary" if title.is_none() => title = h.summary,
-            "user" | "assistant" if !h.is_meta && !h.is_sidechain => {
+            "user" | "assistant" if !h.is_meta && !h.is_sidechain && !h.is_task_notification() => {
                 count += 1;
                 if project.is_none() {
                     project = h.cwd;
@@ -235,7 +268,7 @@ fn read_session(path: &Path) -> Result<Capture> {
             t.sidechain += 1;
             continue;
         }
-        if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
+        if v.get("isMeta").and_then(Value::as_bool) == Some(true) || is_task_notification(&v) {
             t.meta += 1;
             continue;
         }
@@ -477,6 +510,37 @@ mod tests {
         let blocks = &cap.messages[0].blocks;
         assert_eq!(blocks.iter().filter(|b| matches!(b, Block::File { .. })).count(), 2);
         assert_eq!(blocks.iter().filter(|b| matches!(b, Block::Missing { .. })).count(), 1);
+    }
+
+    #[test]
+    fn task_notifications_are_not_user_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("proj")).unwrap();
+        let path = dir.path().join("proj").join("s.jsonl");
+        let note = "<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n</task-notification>";
+        let lines = [
+            serde_json::json!({ "type": "user", "cwd": "/work/x", "uuid": "u1",
+                "message": { "role": "user", "content": "Ship it" } }),
+            serde_json::json!({ "type": "assistant", "uuid": "a1",
+                "message": { "role": "assistant", "content": [{ "type": "text", "text": "Running" }] } }),
+            serde_json::json!({ "type": "user", "uuid": "u2", "origin": { "kind": "task-notification" },
+                "message": { "role": "user", "content": note } }),
+            serde_json::json!({ "type": "user", "uuid": "u3",
+                "message": { "role": "user", "content": [{ "type": "text", "text": note }] } }),
+            serde_json::json!({ "type": "user", "uuid": "u4",
+                "message": { "role": "user", "content": "Why does <task-notification> show up?" } }),
+        ];
+        let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&path, body).unwrap();
+
+        let cap = ClaudeCode.read(&path).unwrap();
+        let texts: Vec<_> = cap.messages.iter().map(|m| m.blocks[0].plain_text()).collect();
+        assert_eq!(texts, vec!["Ship it", "Running", "Why does <task-notification> show up?"]);
+        let meta = cap.source.omitted.iter().find(|o| o.what == "agent-injected meta messages").unwrap();
+        assert_eq!(meta.count, 2);
+
+        let found = ClaudeCode.discover(dir.path()).unwrap();
+        assert_eq!(found[0].message_count, 3);
     }
 
     #[test]
