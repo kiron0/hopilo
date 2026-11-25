@@ -142,10 +142,9 @@ impl Store {
             let q = bind(&mut values, needle);
             let providers = bind(&mut values, serde_json::to_string(&query.search_providers)?);
             predicates.push(format!(
-                "(instr(hopilo_lower(title), {q}) > 0 OR instr(hopilo_lower(COALESCE(project, '')), {q}) > 0
-                OR instr(hopilo_lower(COALESCE(model, '')), {q}) > 0 OR instr(hopilo_lower(provider), {q}) > 0
+                "(hopilo_match({q}, title, project, model, provider)
                 OR provider IN (SELECT value FROM json_each({providers}))
-                OR EXISTS(SELECT 1 FROM json_each(tags) WHERE instr(hopilo_lower(value), {q}) > 0))"
+                OR (tags <> '[]' AND EXISTS(SELECT 1 FROM json_each(tags) WHERE instr(hopilo_lower(value), {q}) > 0)))"
             ));
         }
         let where_sql = predicates.join(" AND ");
@@ -186,7 +185,7 @@ impl Store {
                 Ok(rows)
             };
             let counts = self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(pinned),0), COALESCE(SUM(kind='local-agent'),0),
-            COALESCE(SUM(kind='browser-chat'),0), COALESCE(SUM(kind='browser-chat' AND julianday(COALESCE(updated_at,captured_at)) >= julianday(?2)),0),
+            COALESCE(SUM(kind='browser-chat'),0), COALESCE(SUM(CASE WHEN kind='browser-chat' AND julianday(COALESCE(updated_at,captured_at)) >= julianday(?2) THEN 1 ELSE 0 END),0),
             COALESCE(SUM(kind='local-agent' AND reply_count=0),0), (SELECT COUNT(*) FROM sources WHERE hidden=1) FROM sources WHERE hidden=?1", rusqlite::params![hidden, query.since],
             |r| Ok(LibraryCounts { total:r.get(0)?, pinned:r.get(1)?, agents:r.get(2)?, web:r.get(3)?, web_today:r.get(4)?, unanswered:r.get(5)?, hidden:r.get(6)? }))?;
             let provider_counts: std::collections::BTreeMap<String, usize> = self

@@ -107,33 +107,61 @@ fn handoff_cmd(args: &[String]) -> Result<(), Failure> {
     Ok(())
 }
 
-fn read_line(input: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<Option<bool>> {
+enum LineRead {
+    Ok,
+    TooLarge,
+}
+
+fn read_line(input: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<Option<LineRead>> {
     buf.clear();
-    let n = input.by_ref().take(MAX_LINE as u64 + 1).read_until(b'\n', buf)?;
+    let n = input.by_ref().take(MAX_LINE as u64 + 3).read_until(b'\n', buf)?;
     if n == 0 {
         return Ok(None);
     }
-    if buf.len() > MAX_LINE && buf.last() != Some(&b'\n') {
-        let mut sink = Vec::new();
-        loop {
-            sink.clear();
-            let m = input.by_ref().take(64 * 1024).read_until(b'\n', &mut sink)?;
-            if m == 0 || sink.last() == Some(&b'\n') {
-                break;
+    let ended = buf.last() == Some(&b'\n');
+    if ended {
+        buf.pop();
+        if buf.last() == Some(&b'\r') {
+            buf.pop();
+        }
+    }
+    if buf.len() > MAX_LINE {
+        if !ended {
+            let mut sink = Vec::new();
+            loop {
+                sink.clear();
+                let m = input.by_ref().take(64 * 1024).read_until(b'\n', &mut sink)?;
+                if m == 0 || sink.last() == Some(&b'\n') {
+                    break;
+                }
             }
         }
-        return Ok(Some(false));
+        return Ok(Some(LineRead::TooLarge));
     }
-    Ok(Some(true))
+    Ok(Some(LineRead::Ok))
 }
 
 fn serve() -> Result<(), Failure> {
     let mut input = BufReader::new(io::stdin().lock());
     let mut out = io::stdout().lock();
     let mut buf = Vec::new();
-    while let Some(fits) = read_line(&mut input, &mut buf).map_err(|e| Failure::Usage(e.to_string()))? {
-        let line = if fits { String::from_utf8_lossy(&buf).into_owned() } else { " ".repeat(MAX_LINE + 1) };
-        if let Some(resp) = handle_line(&line, &open_library) {
+    while let Some(status) = read_line(&mut input, &mut buf).map_err(|e| Failure::Usage(e.to_string()))? {
+        let resp = match status {
+            LineRead::TooLarge => Some(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": serde_json::Value::Null,
+                "error": { "code": -32600, "message": "Request too large" }
+            })),
+            LineRead::Ok => match std::str::from_utf8(&buf) {
+                Ok(line) => handle_line(line, &open_library),
+                Err(_) => Some(serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": serde_json::Value::Null,
+                    "error": { "code": -32700, "message": "Parse error: invalid UTF-8" }
+                })),
+            },
+        };
+        if let Some(resp) = resp {
             let text = serde_json::to_string(&resp).unwrap_or_default();
             if writeln!(out, "{text}").and_then(|_| out.flush()).is_err() {
                 break;

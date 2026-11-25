@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import { Globe, ClipboardPaste, Copy, FileUp, GitBranch, OverviewIcon, MessagesSquare, Search, Settings, X } from "./Icons";
@@ -26,9 +26,20 @@ export function CommandPalette() {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [closing, setClosing] = useState(false);
   const [active, setActive] = useState(open);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (open) {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
       setActive(true);
       setClosing(false);
     } else if (active && !closing) {
@@ -44,7 +55,9 @@ export function CommandPalette() {
   const requestClose = useCallback(() => {
     if (closing) return;
     setClosing(true);
-    setTimeout(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
       setOpen(false);
       setActive(false);
       setClosing(false);

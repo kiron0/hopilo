@@ -170,7 +170,7 @@ pub fn expand(paths: &[String]) -> (Vec<PathBuf>, Vec<String>) {
     (out, notes)
 }
 
-pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight {
+pub(crate) fn preflight(path: &Path) -> (FilePreflight, Option<String>) {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let (media_type, kind) = classify(path);
     let mut pf = FilePreflight {
@@ -188,7 +188,7 @@ pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight 
         Ok(m) => m,
         Err(e) => {
             pf.error = Some(format!("Cannot read: {e}"));
-            return pf;
+            return (pf, None);
         }
     };
     if meta.file_type().is_symlink() {
@@ -196,7 +196,7 @@ pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight 
             Ok(real) => pf.warnings.push(format!("Symlink — will import the target {}", real.display())),
             Err(_) => {
                 pf.error = Some("Broken symlink".into());
-                return pf;
+                return (pf, None);
             }
         }
     }
@@ -204,17 +204,17 @@ pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight 
         Ok(m) if m.is_file() => m,
         Ok(_) => {
             pf.error = Some("Not a regular file".into());
-            return pf;
+            return (pf, None);
         }
         Err(e) => {
             pf.error = Some(format!("Cannot read: {e}"));
-            return pf;
+            return (pf, None);
         }
     };
     pf.size = meta.len();
     if pf.size > MAX_FILE_BYTES {
         pf.error = Some(format!("Larger than the {} MB limit", MAX_FILE_BYTES / 1024 / 1024));
-        return pf;
+        return (pf, None);
     }
     let lower = name.to_lowercase();
     if SENSITIVE_NAMES.iter().any(|s| lower == *s || lower.starts_with(&format!("{s}."))) {
@@ -229,20 +229,20 @@ pub fn preflight(path: &Path, is_known: &dyn Fn(&str) -> bool) -> FilePreflight 
         "binary" => pf.warnings.push("Unrecognized type — kept as a file only".into()),
         _ => {}
     }
-    match read_bounded(path) {
-        Ok(bytes) => {
-            if matches!(kind, "text" | "html") && std::str::from_utf8(&bytes).is_err() {
+    let check_utf8 = matches!(kind, "text" | "html");
+    match std::fs::File::open(path).and_then(|f| hopilo_pack_format::sha256_bounded(f, MAX_FILE_BYTES, check_utf8)) {
+        Ok((sha, _len, valid_utf8)) => {
+            if check_utf8 && !valid_utf8 {
                 pf.warnings.push("Not valid UTF-8 text — kept as a file only".into());
             }
-            pf.duplicate = is_known(&sha256_hex(&bytes));
-            if pf.duplicate {
-                pf.warnings.push("Already in your library — the existing copy will be reused".into());
-            }
             pf.accepted = true;
+            (pf, Some(sha))
         }
-        Err(e) => pf.error = Some(format!("Cannot read: {e}")),
+        Err(e) => {
+            pf.error = Some(format!("Cannot read: {e}"));
+            (pf, None)
+        }
     }
-    pf
 }
 
 pub fn load(path: &Path) -> Result<(Attachment, Vec<u8>), String> {

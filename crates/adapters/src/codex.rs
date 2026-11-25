@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
-use rusqlite::OpenFlags;
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -97,10 +96,7 @@ fn thread_names(base: &Path) -> HashMap<String, String> {
                 s.starts_with("state_") && s.ends_with(".sqlite")
             });
             if is_state_db {
-                if let Ok(conn) = rusqlite::Connection::open_with_flags(
-                    &p,
-                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-                ) {
+                if let Ok(conn) = crate::open_sqlite_ro(&p) {
                     if let Ok(mut stmt) = conn.prepare(
                         "SELECT id, COALESCE(NULLIF(trim(name), ''), NULLIF(trim(title), ''))
                          FROM threads

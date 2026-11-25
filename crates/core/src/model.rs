@@ -82,11 +82,9 @@ impl CapturedFile {
     }
 
     pub fn attachment(&self) -> Attachment {
-        let texty = self.media_type.starts_with("text/")
-            || matches!(
-                self.media_type.as_str(),
-                "application/json" | "application/xml" | "application/x-yaml" | "application/javascript"
-            );
+        let mime = self.media_type.split(';').next().unwrap_or("").trim();
+        let texty = mime.starts_with("text/")
+            || matches!(mime, "application/json" | "application/xml" | "application/x-yaml" | "application/javascript");
         Attachment {
             id: crate::new_id(),
             file_name: self.name.clone(),
@@ -94,7 +92,7 @@ impl CapturedFile {
             size: self.bytes.len() as u64,
             sha256: self.sha256(),
             origin_path: None,
-            text: if texty { String::from_utf8(self.bytes.clone()).ok() } else { None },
+            text: if texty { std::str::from_utf8(&self.bytes).ok().map(str::to_owned) } else { None },
         }
     }
 
@@ -109,10 +107,16 @@ impl CapturedFile {
             }
             data = payload;
         }
-        let clean: String = data.chars().filter(|c| !c.is_whitespace()).collect();
+        let cleaned_owned;
+        let clean: &str = if data.bytes().any(|b| b.is_ascii_whitespace()) || data.chars().any(char::is_whitespace) {
+            cleaned_owned = data.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+            &cleaned_owned
+        } else {
+            data
+        };
         let bytes = base64::engine::general_purpose::STANDARD
-            .decode(&clean)
-            .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(&clean))
+            .decode(clean)
+            .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(clean))
             .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(clean.trim_end_matches('=')))
             .ok()?;
         if bytes.is_empty() {

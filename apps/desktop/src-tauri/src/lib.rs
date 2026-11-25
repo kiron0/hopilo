@@ -20,17 +20,23 @@ use tauri::{
     WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
-const MAIN_MIN_SHARE: f64 = 0.8;
+const MAIN_MIN_WIDTH: f64 = 960.0;
+const MAIN_MIN_HEIGHT: f64 = 640.0;
+const MAIN_MAX_MIN_SHARE: f64 = 0.8;
 
 fn fit_main_to_display(w: &tauri::WebviewWindow) {
-    fit_main_to_display_on(w, w.current_monitor().ok().flatten().or_else(|| w.primary_monitor().ok().flatten()));
+    let monitor = w.current_monitor().ok().flatten().or_else(|| w.primary_monitor().ok().flatten());
+    fit_main_to_display_on(w, monitor.as_ref());
 }
 
-fn fit_main_to_display_on(w: &tauri::WebviewWindow, monitor: Option<Monitor>) {
+fn fit_main_to_display_on(w: &tauri::WebviewWindow, monitor: Option<&Monitor>) {
     let Some(m) = monitor else { return };
     let scale = m.scale_factor();
     let area = m.work_area().size.to_logical::<f64>(scale);
-    let min = LogicalSize::new((area.width * MAIN_MIN_SHARE).round(), (area.height * MAIN_MIN_SHARE).round());
+    let min = LogicalSize::new(
+        MAIN_MIN_WIDTH.min((area.width * MAIN_MAX_MIN_SHARE).round()),
+        MAIN_MIN_HEIGHT.min((area.height * MAIN_MAX_MIN_SHARE).round()),
+    );
     let _ = w.set_min_size(Some(min));
     let _ = w.set_max_size(None::<LogicalSize<f64>>);
     if w.is_fullscreen().unwrap_or(false) {
@@ -41,12 +47,14 @@ fn fit_main_to_display_on(w: &tauri::WebviewWindow, monitor: Option<Monitor>) {
         let fit = LogicalSize::new(s.width.clamp(min.width, area.width), s.height.clamp(min.height, area.height));
         if (fit.width - s.width).abs() > 0.5 || (fit.height - s.height).abs() > 0.5 {
             let _ = w.set_size(fit);
-            let _ = w.center();
         }
     }
 }
+#[derive(Default)]
 struct PanelState {
     hidden_at: Mutex<Option<Instant>>,
+    main_ready: Mutex<bool>,
+    pending_bundles: Mutex<Vec<BundleImport>>,
 }
 
 const FIRST_LAUNCH_KEY: &str = "firstLaunchAt";
@@ -55,10 +63,19 @@ const WELCOME_TOP_OFFSET: f64 = 110.0;
 
 #[tauri::command]
 fn app_ready(window: tauri::Window, height: Option<f64>) {
+    let app = window.app_handle();
+    if window.label() == "main" {
+        let state = app.state::<PanelState>();
+        *commands::lock(&state.main_ready) = true;
+        let queued: Vec<BundleImport> = commands::lock(&state.pending_bundles).drain(..).collect();
+        for item in queued {
+            let _ = app.emit_to("main", "hopilo://bundle-imported", item);
+        }
+        return;
+    }
     if window.label() != "welcome" {
         return;
     }
-    let app = window.app_handle();
     let Some(w) = app.get_webview_window("welcome") else { return };
     if let Some(h) = height.filter(|h| h.is_finite() && *h > 100.0) {
         let _ = w.set_size(LogicalSize::new(WELCOME_WIDTH, h.ceil()));
@@ -112,7 +129,11 @@ fn cursor_monitor(w: &WebviewWindow) -> Option<Monitor> {
 }
 
 fn place_on_cursor_monitor(w: &WebviewWindow, placement: Placement) {
-    let Some(m) = cursor_monitor(w) else {
+    place_on_monitor(w, cursor_monitor(w).as_ref(), placement);
+}
+
+fn place_on_monitor(w: &WebviewWindow, monitor: Option<&Monitor>, placement: Placement) {
+    let Some(m) = monitor else {
         let _ = w.center();
         return;
     };
@@ -179,8 +200,10 @@ pub(crate) fn show_main(app: &AppHandle) {
         set_dock_presence(app, true);
         emit_visibility(app, "main", true);
         if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
-            fit_main_to_display_on(&w, cursor_monitor(&w));
-            place_on_cursor_monitor(&w, Placement::Center);
+            let monitor = cursor_monitor(&w);
+            place_on_monitor(&w, monitor.as_ref(), Placement::Center);
+            fit_main_to_display_on(&w, monitor.as_ref());
+            place_on_monitor(&w, monitor.as_ref(), Placement::Center);
         }
         let _ = w.unminimize();
         let _ = w.show();
@@ -207,15 +230,35 @@ fn apply_shortcut(app: &AppHandle, accelerator: Option<&str>) -> Result<(), Stri
 }
 
 #[tauri::command]
-fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Result<(), String> {
+async fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Result<(), String> {
     let previous = setting_str(&app, SHORTCUT_KEY);
-    if let Err(e) = apply_shortcut(&app, accelerator.as_deref()) {
-        let _ = apply_shortcut(&app, previous.as_deref());
-        return Err(e);
-    }
+    let next = accelerator.clone();
+    let app_reg = app.clone();
+    let restore_on_fail = previous.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let res = apply_shortcut(&app_reg, next.as_deref()).inspect_err(|_| {
+            let _ = apply_shortcut(&app_reg, restore_on_fail.as_deref());
+        });
+        let _ = tx.send(res);
+    })
+    .map_err(commands::err)?;
+    rx.recv().map_err(commands::err)??;
     let value =
         accelerator.filter(|a| !a.trim().is_empty()).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
-    commands::save_setting_blocking(&app, SHORTCUT_KEY, value)
+    let app_save = app.clone();
+    let saved =
+        tauri::async_runtime::spawn_blocking(move || commands::save_setting_blocking(&app_save, SHORTCUT_KEY, value))
+            .await
+            .map_err(commands::err)?;
+    if let Err(e) = saved {
+        let app_rb = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let _ = apply_shortcut(&app_rb, previous.as_deref());
+        });
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn is_bundle_path(p: &std::path::Path) -> bool {
@@ -250,9 +293,17 @@ fn open_bundles(app: &AppHandle, paths: Vec<std::path::PathBuf>) {
                 )),
             }
         }
-        show_main(&app);
-        std::thread::sleep(Duration::from_millis(400));
-        let _ = app.emit_to("main", "hopilo://bundle-imported", out);
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            show_main(&app2);
+            let panel = app2.state::<PanelState>();
+            let ready = *commands::lock(&panel.main_ready);
+            if ready {
+                let _ = app2.emit_to("main", "hopilo://bundle-imported", out);
+            } else {
+                commands::lock(&panel.pending_bundles).push(out);
+            }
+        });
     });
 }
 
@@ -293,21 +344,57 @@ fn toggle_quick_panel(app: &AppHandle, anchor_rect: Option<Rect>) {
     }
     let rect = anchor_rect.or_else(|| tray_rect(app));
     if let Some(rect) = rect {
-        let scale = w.scale_factor().unwrap_or(1.0);
+        let probe_scale = w.scale_factor().unwrap_or(1.0);
+        let raw_pos = rect.position.to_physical::<f64>(probe_scale);
+        let raw_size = rect.size.to_physical::<f64>(probe_scale);
+        let cx = raw_pos.x + raw_size.width / 2.0;
+        let cy = raw_pos.y + raw_size.height / 2.0;
+        let monitor = w.monitor_from_point(cx, cy).ok().flatten().or_else(|| cursor_monitor(&w));
+        let scale = monitor.as_ref().map_or(probe_scale, |m| m.scale_factor());
         let pos = rect.position.to_logical::<f64>(scale);
         let size = rect.size.to_logical::<f64>(scale);
-        let win = w.outer_size().unwrap_or_default().to_logical::<f64>(scale);
+        let win = match w.outer_size() {
+            Ok(s) if s.width > 0 && s.height > 0 => s.to_logical::<f64>(w.scale_factor().unwrap_or(scale)),
+            _ => LogicalSize::new(448.0, 610.0),
+        };
         let tray_center_x = pos.x + size.width / 2.0;
         let mut x = tray_center_x - win.width / 2.0;
-        let mut y = if cfg!(target_os = "macos") { pos.y + size.height } else { pos.y - win.height - 6.0 };
-        if let Ok(Some(m)) = w.current_monitor() {
-            let mp = m.position().to_logical::<f64>(scale);
-            let ms = m.size().to_logical::<f64>(scale);
-            x = x.min(mp.x + ms.width - win.width - 8.0).max(mp.x + 8.0);
-            y = y.max(mp.y);
+        let (top_edge, area) = monitor
+            .as_ref()
+            .map(|m| {
+                let wa = m.work_area();
+                let ap = wa.position.to_logical::<f64>(scale);
+                let asz = wa.size.to_logical::<f64>(scale);
+                let mp = m.position().to_logical::<f64>(scale);
+                let ms = m.size().to_logical::<f64>(scale);
+                let is_top =
+                    if cfg!(target_os = "macos") { true } else { pos.y + size.height / 2.0 < mp.y + ms.height / 2.0 };
+                (is_top, Some((ap, asz)))
+            })
+            .unwrap_or((cfg!(target_os = "macos"), None));
+        let mut y = if top_edge {
+            if cfg!(target_os = "macos") {
+                pos.y + size.height
+            } else {
+                pos.y + size.height + 6.0
+            }
+        } else {
+            pos.y - win.height - 6.0
+        };
+        if let Some((ap, asz)) = area {
+            x = x.min(ap.x + asz.width - win.width - 8.0).max(ap.x + 8.0);
+            y = y.min(ap.y + asz.height - win.height - 8.0).max(ap.y);
         }
         let _ = w.set_position(LogicalPosition::new(x, y));
         let _ = app.emit_to("quick", "hopilo://quick-anchor", tray_center_x - x);
+    } else {
+        place_on_monitor(&w, cursor_monitor(&w).as_ref(), Placement::Top(WELCOME_TOP_OFFSET));
+        let win_w = w
+            .outer_size()
+            .ok()
+            .filter(|s| s.width > 0)
+            .map_or(448.0, |s| s.to_logical::<f64>(w.scale_factor().unwrap_or(1.0)).width);
+        let _ = app.emit_to("quick", "hopilo://quick-anchor", win_w / 2.0);
     }
     let _ = w.set_shadow(false);
     emit_visibility(app, "quick", true);
@@ -374,8 +461,7 @@ pub fn run() {
             answer_relaunch(app);
         }
     }));
-    #[allow(unused_mut)]
-    let mut app = builder
+    let app = builder
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_denylist(&["quick", "welcome"])
@@ -411,6 +497,7 @@ pub fn run() {
             let _ = store.remove_setting("modelLimits");
             let settings = store.settings().unwrap_or_default();
             app.manage(AppState {
+                library_root: dir,
                 store: Mutex::new(store),
                 discovery: Mutex::new(Default::default()),
                 sync_lock: Mutex::new(()),
@@ -422,15 +509,13 @@ pub fn run() {
                 || (cfg!(debug_assertions) && std::env::var_os("HOPILO_SHOW_WELCOME").is_some());
             if !settings.contains_key(FIRST_LAUNCH_KEY) {
                 let stamp = serde_json::Value::String(hopilo_core::now_rfc3339());
-                if let Ok(mut store) = app.state::<AppState>().store.lock() {
-                    let _ = store.set_setting(FIRST_LAUNCH_KEY, &stamp);
-                }
-                if let Ok(mut mirror) = app.state::<AppState>().settings.write() {
-                    mirror.insert(FIRST_LAUNCH_KEY.into(), stamp);
-                }
+                let state = app.state::<AppState>();
+                let _ = commands::lock(&state.store).set_setting(FIRST_LAUNCH_KEY, &stamp);
+                state.set_setting_mirror(FIRST_LAUNCH_KEY.into(), stamp);
             }
             app.manage(model_limits::LimitState::default());
-            app.manage(PanelState { hidden_at: Mutex::new(None) });
+            app.manage(PanelState::default());
+            set_dock_presence(app.handle(), false);
             build_tray(app)?;
             backups::start(app.handle());
             if let Some(accel) = settings.get(SHORTCUT_KEY).and_then(|v| v.as_str()) {
@@ -460,6 +545,9 @@ pub fn run() {
 
             let sync_handle = app.handle().clone();
             std::thread::spawn(move || {
+                if let Ok(open_root) = sync_handle.path().app_cache_dir().map(|d| d.join("open")) {
+                    commands::prune_open_cache(&open_root, None);
+                }
                 std::thread::sleep(Duration::from_secs(1));
                 commands::sync_blocking(&sync_handle, commands::SyncMode::Background);
             });
@@ -552,9 +640,6 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Hopilo");
-
-    #[cfg(target_os = "macos")]
-    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     app.run(|app, event| {
         #[cfg(target_os = "macos")]

@@ -111,8 +111,17 @@ fn write_message(out: &mut String, m: &Message, opts: &RenderOptions) {
                 if matches!(opts.tool_detail, ToolDetail::Omit) {
                     continue;
                 }
-                let f = fence_for(input);
-                let _ = writeln!(out, "**Tool call: `{name}`**\n\n{f}\n{}\n{f}\n", input.trim_end());
+                let truncated;
+                let body: &str = match opts.tool_detail {
+                    ToolDetail::Truncated { limit } => {
+                        truncated = truncate_marked(input, limit);
+                        truncated.as_ref()
+                    }
+                    ToolDetail::Full | ToolDetail::Omit => input.as_str(),
+                };
+                let f = fence_for(body);
+                let safe_name = name.replace('`', "'");
+                let _ = writeln!(out, "**Tool call: `{safe_name}`**\n\n{f}\n{}\n{f}\n", body.trim_end());
             }
             Block::ToolResult { name, output, is_error } => {
                 let body = match opts.tool_detail {
@@ -226,21 +235,23 @@ fn write_attachments(out: &mut String, pack: &Pack, opts: &RenderOptions) {
     if !pack.attachments.is_empty() {
         out.push_str("## Attachments\n\n");
         for a in &pack.attachments {
-            let _ = writeln!(
-                *out,
-                "- `{}` · {} · {} bytes · sha256 `{}`",
-                a.file_name,
-                a.media_type,
-                a.size,
-                &a.sha256[..a.sha256.len().min(12)]
-            );
+            let short_sha: String = a.sha256.chars().take(12).collect();
+            let _ =
+                writeln!(*out, "- `{}` · {} · {} bytes · sha256 `{}`", a.file_name, a.media_type, a.size, short_sha);
         }
         out.push('\n');
         if opts.include_attachments_inline {
             for a in &pack.attachments {
                 if let Some(text) = &a.text {
                     let f = fence_for(text);
-                    let lang = a.file_name.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+                    let lang: String = a
+                        .file_name
+                        .rsplit_once('.')
+                        .map(|(_, e)| e)
+                        .unwrap_or("")
+                        .chars()
+                        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '+')
+                        .collect();
                     let _ = writeln!(*out, "### {}\n\n{f}{lang}\n{}\n{f}\n", a.file_name, text.trim_end());
                 }
             }
@@ -287,11 +298,14 @@ fn write_minimal(out: &mut String, msgs: &[&Message]) {
     out.push_str(
         "_Minimal handoff: the goal, the latest exchange and key references. The full transcript is in Hopilo._\n\n",
     );
-    if let Some(goal) = brief::first_user(msgs).and_then(|m| brief::excerpt(m, 1500)) {
+    let first_u = brief::first_user(msgs);
+    if let Some(goal) = first_u.and_then(|m| brief::excerpt(m, 1500)) {
         let _ = writeln!(*out, "## Original request\n\n{goal}\n");
     }
     let last_user = brief::last_with(msgs, Role::User);
-    if let Some(m) = last_user.filter(|m| Some(m.id.as_str()) != brief::first_user(msgs).map(|f| f.id.as_str())) {
+    if let Some(m) = last_user.filter(|m| {
+        Some((m.source_id.as_str(), m.id.as_str())) != first_u.map(|f| (f.source_id.as_str(), f.id.as_str()))
+    }) {
         if let Some(t) = brief::excerpt(m, 1500) {
             let _ = writeln!(*out, "## Latest request\n\n{t}\n");
         }

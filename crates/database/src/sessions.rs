@@ -4,10 +4,13 @@ use hopilo_core::{
     new_id, now_rfc3339, Attachment, Block, CaptureStatus, ContextBrief, Integrity, Message, Mode, Pack, Role, Source,
     SourceKind, SCHEMA_VERSION,
 };
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 
-use crate::{content_hash, event, index, kebab, messages_text, DbError, ImportOutcome, Result, Store};
+use crate::{
+    content_hash, delete_search_index, event, index, kebab, messages_text, update_search_index_title, DbError,
+    ImportOutcome, Result, Store,
+};
 use hopilo_core::render::estimate_tokens;
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,139 +137,10 @@ impl Store {
         updated_at: Option<&str>,
         manual: Option<&Message>,
     ) -> Result<ImportOutcome> {
-        let existing: Option<(String, String, bool, Option<String>)> = match &source.origin {
-            Some(origin) => self
-                .conn
-                .query_row(
-                    "SELECT id, content_hash, hidden, CASE WHEN title_edited THEN title END
-                     FROM sources WHERE origin = ?1 ORDER BY captured_at DESC LIMIT 1",
-                    [origin],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-                )
-                .optional()?,
-            None => None,
-        };
-        let updated = updated_at.map(str::to_string).unwrap_or_else(|| source.captured_at.clone());
-        let sid = existing.as_ref().map(|(id, ..)| id.as_str()).unwrap_or(&source.source_id);
-        let overlays = self.manual_file_messages(sid)?;
-        let mut combined;
-        let messages = if overlays.is_empty() {
-            messages
-        } else {
-            combined = messages.to_vec();
-            for message in overlays {
-                combined.retain(|m| m.id != message.id);
-                combined.push(message);
-            }
-            combined.as_slice()
-        };
-        let hash = content_hash(messages)?;
-        if let Some((id, old_hash, hidden, _)) = &existing {
-            if *old_hash == hash && !hidden {
-                let tx = self.conn.transaction()?;
-                let mut refreshed = source.clone();
-                refreshed.source_id = id.clone();
-                tx.execute(
-                    "UPDATE sources SET kind = ?2, provider = ?3, origin = ?4, project = ?5, model = ?6,
-                        capture_status = ?7, source_json = ?8, missing_count = ?9, file_count = ?10,
-                        updated_at = CASE WHEN updated_at IS NULL OR julianday(?11) >= julianday(updated_at)
-                            THEN ?11 ELSE updated_at END WHERE id = ?1",
-                    params![
-                        id,
-                        kebab(&source.kind),
-                        source.provider,
-                        source.origin,
-                        source.project,
-                        source.model,
-                        kebab(&source.capture_status),
-                        serde_json::to_string(&refreshed)?,
-                        source.missing_items.len() as i64,
-                        file_count(messages),
-                        updated,
-                    ],
-                )?;
-                let retitled = tx.execute(
-                    "UPDATE sources SET title = ?2 WHERE id = ?1 AND title_edited = 0 AND title <> ?2",
-                    params![id, source.title],
-                )?;
-                if retitled > 0 {
-                    tx.execute(
-                        "UPDATE search_index SET title = ?2 WHERE kind = 'source' AND ref_id = ?1",
-                        params![id, source.title],
-                    )?;
-                }
-                tx.commit()?;
-                return Ok(ImportOutcome { source_id: id.clone(), duplicate_of: Some(id.clone()) });
-            }
-        }
-        let id = existing.as_ref().map(|(id, ..)| id.clone()).unwrap_or_else(|| source.source_id.clone());
-        let title = existing.as_ref().and_then(|(.., t)| t.clone()).unwrap_or_else(|| source.title.clone());
-        let source = Source { source_id: id.clone(), title, ..source.clone() };
-        let text = messages_text(messages);
         let tx = self.conn.transaction()?;
-        let values = params![
-            id,
-            kebab(&source.kind),
-            source.provider,
-            source.title,
-            source.origin,
-            source.project,
-            source.model,
-            source.captured_at,
-            kebab(&source.capture_status),
-            serde_json::to_string(&source)?,
-            messages.len() as i64,
-            estimate_tokens(&text) as i64,
-            hash,
-            source.missing_items.len() as i64,
-            file_count(messages),
-            updated,
-            reply_count(messages),
-        ];
-        if existing.is_some() {
-            tx.execute(
-                "UPDATE sources SET kind = ?2, provider = ?3, title = ?4, origin = ?5, project = ?6, model = ?7,
-                    captured_at = ?8, capture_status = ?9, source_json = ?10, message_count = ?11, token_estimate = ?12,
-                    content_hash = ?13, missing_count = ?14, file_count = ?15, updated_at = ?16, reply_count = ?17, hidden = 0
-                 WHERE id = ?1",
-                values,
-            )?;
-            tx.execute("DELETE FROM messages WHERE source_id = ?1", [&id])?;
-            tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [&id])?;
-        } else {
-            tx.execute(
-                "INSERT INTO sources (id, kind, provider, title, origin, project, model, captured_at, capture_status,
-                    source_json, message_count, token_estimate, content_hash, missing_count, file_count, updated_at, reply_count)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-                values,
-            )?;
-        }
-        {
-            let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            )?;
-            for (i, m) in messages.iter().enumerate() {
-                stmt.execute(params![
-                    id,
-                    i as i64,
-                    m.id,
-                    kebab(&m.role),
-                    m.created_at,
-                    serde_json::to_string(&m.blocks)?
-                ])?;
-            }
-        }
-        index(&tx, "source", &id, &source.title, &text)?;
-        let verb = if existing.is_some() { "Updated" } else { "Captured" };
-        event(&tx, "capture", Some(&id), &format!("{verb} {} from {}", source.title, source.provider))?;
-        if let Some(message) = manual {
-            tx.execute(
-                "INSERT INTO manual_file_messages VALUES(?1,?2,?3)",
-                params![id, message.id, serde_json::to_string(message)?],
-            )?;
-        }
+        let outcome = upsert_session_tx(&tx, source, messages, updated_at, manual, true)?;
         tx.commit()?;
-        Ok(ImportOutcome { source_id: id, duplicate_of: None })
+        Ok(outcome)
     }
 
     pub fn list_sessions(&self) -> Result<Vec<SessionRow>> {
@@ -292,6 +166,17 @@ impl Store {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    pub fn latest_session(&self, agents_only: bool) -> Result<Option<SessionRow>> {
+        let filter = if agents_only { "AND kind = 'local-agent'" } else { "" };
+        let sql = format!(
+            "SELECT {ROW_COLUMNS} FROM sources
+             WHERE hidden = 0 AND message_count > 0 {filter}
+             ORDER BY julianday(COALESCE(updated_at, captured_at)) DESC, COALESCE(updated_at, captured_at) DESC, rowid DESC
+             LIMIT 1"
+        );
+        Ok(self.conn.query_row(&sql, [], row_from).optional()?)
+    }
+
     pub fn restore_session(&mut self, id: &str) -> Result<()> {
         let tx = self.conn.transaction()?;
         let title: String = tx
@@ -313,7 +198,7 @@ impl Store {
                 }
             }
         }
-        tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [id])?;
+        delete_search_index(&tx, "source", id)?;
         index(&tx, "source", id, &title, &text)?;
         event(&tx, "restore", Some(id), "Restored session")?;
         tx.commit()?;
@@ -415,7 +300,7 @@ impl Store {
             return Err(DbError::NotFound(format!("session {id}")));
         }
         if let Some(t) = title {
-            tx.execute("UPDATE search_index SET title = ?2 WHERE kind = 'source' AND ref_id = ?1", params![id, t])?;
+            update_search_index_title(&tx, "source", id, t)?;
         }
         tx.commit()?;
         Ok(())
@@ -426,7 +311,7 @@ impl Store {
         if row.kind == "local-agent" && row.origin.is_some() {
             let tx = self.conn.transaction()?;
             tx.execute("UPDATE sources SET hidden = 1, pinned = 0 WHERE id = ?1", [id])?;
-            tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [id])?;
+            delete_search_index(&tx, "source", id)?;
             event(&tx, "delete", Some(id), "Removed session")?;
             tx.commit()?;
             Ok(())
@@ -439,18 +324,36 @@ impl Store {
         if ids.is_empty() || ids.len() > 10_000 {
             return Err(DbError::NotFound("choose 1–10,000 hidden sessions".into()));
         }
+        let unique: Vec<&str> = {
+            let mut seen = HashSet::new();
+            ids.iter().map(String::as_str).filter(|id| seen.insert(*id)).collect()
+        };
         let tx = self.conn.transaction()?;
-        let unique: HashSet<_> = ids.iter().collect();
-        for id in &unique {
-            let hidden: bool =
-                tx.query_row("SELECT EXISTS(SELECT 1 FROM sources WHERE id=?1 AND hidden=1)", [id], |r| r.get(0))?;
-            if !hidden {
-                return Err(DbError::NotFound("hidden session".into()));
-            }
+        let mut hidden_matches = 0usize;
+        for chunk in unique.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let mut stmt =
+                tx.prepare(&format!("SELECT COUNT(*) FROM sources WHERE hidden = 1 AND id IN ({placeholders})"))?;
+            let n: usize = stmt.query_row(rusqlite::params_from_iter(chunk.iter().copied()), |r| r.get(0))?;
+            hidden_matches += n;
         }
-        for id in unique {
-            tx.execute("DELETE FROM sources WHERE id=?1", [id])?;
-            tx.execute("DELETE FROM search_index WHERE kind='source' AND ref_id=?1", [id])?;
+        if hidden_matches != unique.len() {
+            return Err(DbError::NotFound("hidden session".into()));
+        }
+        for chunk in unique.chunks(500) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let args = rusqlite::params_from_iter(chunk.iter().copied());
+            tx.execute(
+                &format!(
+                    "DELETE FROM search_index WHERE rowid IN (SELECT fts_rowid FROM search_index_map WHERE kind = 'source' AND ref_id IN ({placeholders}))"
+                ),
+                args.clone(),
+            )?;
+            tx.execute(
+                &format!("DELETE FROM search_index_map WHERE kind = 'source' AND ref_id IN ({placeholders})"),
+                args.clone(),
+            )?;
+            tx.execute(&format!("DELETE FROM sources WHERE id IN ({placeholders})"), args)?;
         }
         event(&tx, "delete", None, "Permanently deleted hidden sessions")?;
         tx.commit()?;
@@ -640,34 +543,20 @@ impl Store {
         let text = messages_text(messages);
         let tx = self.conn.transaction()?;
         tx.execute(
-            "UPDATE sources SET message_count = ?2, token_estimate = ?3, content_hash = ?4, file_count = ?5, updated_at = ?6, reply_count = ?7 WHERE id = ?1",
+            "UPDATE sources SET message_count = ?2, token_estimate = ?3, content_hash = ?4, file_count = ?5, reply_count = ?6 WHERE id = ?1",
             params![
                 id,
                 messages.len() as i64,
                 estimate_tokens(&text) as i64,
                 content_hash(messages)?,
                 file_count(messages),
-                now_rfc3339(),
                 reply_count(messages)
             ],
         )?;
         tx.execute("DELETE FROM messages WHERE source_id = ?1", [id])?;
-        {
-            let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            )?;
-            for (i, m) in messages.iter().enumerate() {
-                stmt.execute(params![
-                    id,
-                    i as i64,
-                    m.id,
-                    kebab(&m.role),
-                    m.created_at,
-                    serde_json::to_string(&m.blocks)?
-                ])?;
-            }
-        }
-        tx.execute("DELETE FROM search_index WHERE kind = 'source' AND ref_id = ?1", [id])?;
+        insert_messages_tx(&tx, id, messages)?;
+        sync_source_files_tx(&tx, id, messages)?;
+        delete_search_index(&tx, "source", id)?;
         index(&tx, "source", id, &source.title, &text)?;
         if let Some(message) = manual {
             if message.blocks.is_empty() {
@@ -685,85 +574,73 @@ impl Store {
     }
 
     pub fn adopt_pack(&mut self, pack: &Pack) -> Result<Vec<String>> {
-        let mut ids = Vec::new();
-        for s in &pack.sources {
-            let msgs: Vec<Message> = pack.messages.iter().filter(|m| m.source_id == s.source_id).cloned().collect();
-            let exists: bool =
-                self.conn
-                    .query_row("SELECT EXISTS(SELECT 1 FROM sources WHERE id = ?1)", [&s.source_id], |r| r.get(0))?;
-            if exists {
-                let hidden: bool =
-                    self.conn.query_row("SELECT hidden FROM sources WHERE id = ?1", [&s.source_id], |r| r.get(0))?;
-                if hidden {
-                    self.restore_session(&s.source_id)?;
-                }
-                ids.push(s.source_id.clone());
-            } else if !msgs.is_empty() {
-                ids.push(self.upsert_session(s, &msgs, None)?.source_id);
-            }
-        }
-        let in_messages: HashSet<&str> = pack
-            .messages
-            .iter()
-            .flat_map(|m| m.blocks.iter())
-            .filter_map(|b| if let Block::File { sha256, .. } = b { Some(sha256.as_str()) } else { None })
-            .collect();
-        let loose: Vec<&Attachment> =
-            pack.attachments.iter().filter(|a| !in_messages.contains(a.sha256.as_str())).collect();
-        let note = pack.context.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
-        if note.is_some() || !loose.is_empty() {
-            let source = manual_source(&pack.title, SourceKind::Pack);
-            let mut blocks: Vec<Block> = note.map(Block::text).into_iter().collect();
-            blocks.extend(loose.into_iter().map(file_block));
-            let msg = Message {
-                id: new_id(),
-                source_id: source.source_id.clone(),
-                role: Role::User,
-                created_at: None,
-                blocks,
-            };
-            ids.push(self.upsert_session(&source, &[msg], None)?.source_id);
-        }
+        let tx = self.conn.transaction()?;
+        let ids = adopt_pack_tx(&tx, pack)?;
+        tx.commit()?;
         Ok(ids)
     }
 
     pub(crate) fn upgrade_to_sessions(&mut self) -> Result<()> {
-        self.conn.execute_batch(
-            "DELETE FROM search_index WHERE kind = 'source' AND ref_id IN (
+        let tx = self.conn.transaction()?;
+        tx.execute_batch(
+            "DELETE FROM search_index WHERE rowid IN (
+                 SELECT fts_rowid FROM search_index_map WHERE kind = 'source' AND ref_id IN (
+                     SELECT id FROM sources s WHERE origin IS NOT NULL AND EXISTS (
+                         SELECT 1 FROM sources n WHERE n.origin = s.origin AND (n.captured_at > s.captured_at OR (n.captured_at = s.captured_at AND n.rowid > s.rowid)))));
+             DELETE FROM search_index_map WHERE kind = 'source' AND ref_id IN (
                  SELECT id FROM sources s WHERE origin IS NOT NULL AND EXISTS (
                      SELECT 1 FROM sources n WHERE n.origin = s.origin AND (n.captured_at > s.captured_at OR (n.captured_at = s.captured_at AND n.rowid > s.rowid))));
              DELETE FROM sources WHERE id IN (
                  SELECT id FROM sources s WHERE origin IS NOT NULL AND EXISTS (
                      SELECT 1 FROM sources n WHERE n.origin = s.origin AND (n.captured_at > s.captured_at OR (n.captured_at = s.captured_at AND n.rowid > s.rowid))));",
         )?;
-        let ids: Vec<String> = {
-            let mut stmt = self.conn.prepare_cached("SELECT id FROM sources")?;
-            let rows = stmt.query_map([], |r| r.get(0))?;
-            rows.collect::<std::result::Result<_, _>>()?
-        };
-        for id in ids {
-            let transcript = self.get_source_shared(&id)?;
-            self.conn
-                .execute("UPDATE sources SET file_count = ?2 WHERE id = ?1", params![id, file_count(&transcript.1)])?;
-        }
-        let packs: Vec<(String, bool)> = {
-            let mut stmt =
-                self.conn.prepare_cached("SELECT id, pinned FROM packs WHERE archived = 0 ORDER BY created_at")?;
+        let counts: Vec<(String, i64)> = {
+            let mut stmt = tx.prepare_cached(
+                "SELECT source_id, COUNT(*)
+                 FROM messages m, json_each(m.blocks_json) j
+                 WHERE m.blocks_json LIKE '%\"type\":\"file\"%'
+                   AND json_valid(m.blocks_json)
+                   AND json_extract(j.value, '$.type') = 'file'
+                 GROUP BY m.source_id",
+            )?;
             let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
-        for (pid, pinned) in packs {
-            let Ok(pack) = self.get_pack(&pid, None) else { continue };
-            for sid in self.adopt_pack(&pack)? {
+        for (id, fc) in counts {
+            tx.execute("UPDATE sources SET file_count = ?2 WHERE id = ?1", params![id, fc])?;
+        }
+        let packs: Vec<(String, i64, bool)> = {
+            let mut stmt = tx.prepare_cached(
+                "SELECT id, latest_version, pinned FROM packs WHERE archived = 0 ORDER BY created_at",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        for (pid, ver, pinned) in packs {
+            let Some(json): Option<String> = tx
+                .query_row(
+                    "SELECT snapshot_json FROM pack_versions WHERE pack_id = ?1 AND version = ?2",
+                    params![pid, ver],
+                    |r| r.get(0),
+                )
+                .optional()?
+            else {
+                continue;
+            };
+            let Ok(mut pack) = serde_json::from_str::<Pack>(&json) else { continue };
+            if let Ok(title) = tx.query_row("SELECT title FROM packs WHERE id = ?1", [&pid], |r| r.get(0)) {
+                pack.title = title;
+            }
+            for sid in adopt_pack_tx(&tx, &pack)? {
                 if pinned {
-                    self.conn.execute("UPDATE sources SET pinned = 1 WHERE id = ?1", [&sid])?;
+                    tx.execute("UPDATE sources SET pinned = 1 WHERE id = ?1", [&sid])?;
                 }
             }
         }
         let orphans: Vec<Attachment> = {
-            let mut stmt = self.conn.prepare_cached(
+            let mut stmt = tx.prepare_cached(
                 "SELECT id, file_name, media_type, size, sha256, origin_path, text FROM attachments a
-                 WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE instr(m.blocks_json, a.sha256) > 0)
+                 WHERE NOT EXISTS (SELECT 1 FROM source_files sf WHERE sf.sha256 = lower(a.sha256))
                  ORDER BY created_at",
             )?;
             let rows = stmt.query_map([], Self::attachment_from_row)?;
@@ -779,10 +656,232 @@ impl Store {
                 created_at: None,
                 blocks,
             };
-            self.upsert_session(&source, &[msg], None)?;
+            upsert_session_tx(&tx, &source, &[msg], None, None, false)?;
         }
+        tx.commit()?;
         Ok(())
     }
+}
+
+fn manual_file_messages_tx(tx: &Transaction, id: &str) -> Result<Vec<Message>> {
+    let mut stmt =
+        tx.prepare_cached("SELECT message_json FROM manual_file_messages WHERE source_id=?1 ORDER BY rowid")?;
+    let json = stmt.query_map([id], |r| r.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>()?;
+    json.into_iter().map(|s| serde_json::from_str(&s).map_err(DbError::from)).collect()
+}
+
+fn insert_messages_tx(tx: &Transaction, id: &str, messages: &[Message]) -> Result<()> {
+    let mut stmt = tx.prepare_cached(
+        "INSERT INTO messages (source_id, ordinal, id, role, created_at, blocks_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for (i, m) in messages.iter().enumerate() {
+        stmt.execute(params![id, i as i64, m.id, kebab(&m.role), m.created_at, serde_json::to_string(&m.blocks)?])?;
+    }
+    Ok(())
+}
+
+fn sync_source_files_tx(tx: &Transaction, source_id: &str, messages: &[Message]) -> Result<()> {
+    tx.execute("DELETE FROM source_files WHERE source_id = ?1", [source_id])?;
+    let mut shas = HashSet::new();
+    for m in messages {
+        for b in &m.blocks {
+            if let Block::File { sha256, .. } = b {
+                if !sha256.is_empty() {
+                    shas.insert(sha256.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    if !shas.is_empty() {
+        let mut stmt = tx.prepare_cached("INSERT OR IGNORE INTO source_files (source_id, sha256) VALUES (?1, ?2)")?;
+        for sha in shas {
+            stmt.execute(params![source_id, sha])?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn upsert_session_tx(
+    tx: &Transaction,
+    source: &Source,
+    messages: &[Message],
+    updated_at: Option<&str>,
+    manual: Option<&Message>,
+    match_by_origin: bool,
+) -> Result<ImportOutcome> {
+    let existing: Option<(String, String, bool, Option<String>)> = if match_by_origin {
+        match &source.origin {
+            Some(origin) => tx
+                .query_row(
+                    "SELECT id, content_hash, hidden, CASE WHEN title_edited THEN title END
+                     FROM sources WHERE origin = ?1 ORDER BY captured_at DESC LIMIT 1",
+                    [origin],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()?,
+            None => None,
+        }
+    } else {
+        tx.query_row(
+            "SELECT id, content_hash, hidden, CASE WHEN title_edited THEN title END FROM sources WHERE id = ?1",
+            [&source.source_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()?
+    };
+    let updated = updated_at.map(str::to_string).unwrap_or_else(|| source.captured_at.clone());
+    let sid = existing.as_ref().map(|(id, ..)| id.as_str()).unwrap_or(&source.source_id);
+    let overlays = manual_file_messages_tx(tx, sid)?;
+    let mut combined;
+    let messages = if overlays.is_empty() {
+        messages
+    } else {
+        combined = messages.to_vec();
+        for message in overlays {
+            combined.retain(|m| m.id != message.id);
+            combined.push(message);
+        }
+        combined.as_slice()
+    };
+    let hash = content_hash(messages)?;
+    if let Some((id, old_hash, hidden, _)) = &existing {
+        if *old_hash == hash && !hidden {
+            let mut refreshed = source.clone();
+            refreshed.source_id = id.clone();
+            tx.execute(
+                "UPDATE sources SET kind = ?2, provider = ?3, origin = ?4, project = ?5, model = ?6,
+                    capture_status = ?7, source_json = ?8, missing_count = ?9, file_count = ?10,
+                    updated_at = CASE WHEN updated_at IS NULL OR julianday(?11) >= julianday(updated_at)
+                        THEN ?11 ELSE updated_at END WHERE id = ?1",
+                params![
+                    id,
+                    kebab(&source.kind),
+                    source.provider,
+                    source.origin,
+                    source.project,
+                    source.model,
+                    kebab(&source.capture_status),
+                    serde_json::to_string(&refreshed)?,
+                    source.missing_items.len() as i64,
+                    file_count(messages),
+                    updated,
+                ],
+            )?;
+            let retitled = tx.execute(
+                "UPDATE sources SET title = ?2 WHERE id = ?1 AND title_edited = 0 AND title <> ?2",
+                params![id, source.title],
+            )?;
+            if retitled > 0 {
+                update_search_index_title(tx, "source", id, &source.title)?;
+            }
+            return Ok(ImportOutcome { source_id: id.clone(), duplicate_of: Some(id.clone()) });
+        }
+    }
+    let id = existing.as_ref().map(|(id, ..)| id.clone()).unwrap_or_else(|| source.source_id.clone());
+    let title = existing.as_ref().and_then(|(.., t)| t.clone()).unwrap_or_else(|| source.title.clone());
+    let source = Source { source_id: id.clone(), title, ..source.clone() };
+    let text = messages_text(messages);
+    let values = params![
+        id,
+        kebab(&source.kind),
+        source.provider,
+        source.title,
+        source.origin,
+        source.project,
+        source.model,
+        source.captured_at,
+        kebab(&source.capture_status),
+        serde_json::to_string(&source)?,
+        messages.len() as i64,
+        estimate_tokens(&text) as i64,
+        hash,
+        source.missing_items.len() as i64,
+        file_count(messages),
+        updated,
+        reply_count(messages),
+    ];
+    if existing.is_some() {
+        tx.execute(
+            "UPDATE sources SET kind = ?2, provider = ?3, title = ?4, origin = ?5, project = ?6, model = ?7,
+                captured_at = ?8, capture_status = ?9, source_json = ?10, message_count = ?11, token_estimate = ?12,
+                content_hash = ?13, missing_count = ?14, file_count = ?15, updated_at = ?16, reply_count = ?17, hidden = 0
+             WHERE id = ?1",
+            values,
+        )?;
+        tx.execute("DELETE FROM messages WHERE source_id = ?1", [&id])?;
+        delete_search_index(tx, "source", &id)?;
+    } else {
+        tx.execute(
+            "INSERT INTO sources (id, kind, provider, title, origin, project, model, captured_at, capture_status,
+                source_json, message_count, token_estimate, content_hash, missing_count, file_count, updated_at, reply_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            values,
+        )?;
+    }
+    insert_messages_tx(tx, &id, messages)?;
+    sync_source_files_tx(tx, &id, messages)?;
+    index(tx, "source", &id, &source.title, &text)?;
+    let verb = if existing.is_some() { "Updated" } else { "Captured" };
+    event(tx, "capture", Some(&id), &format!("{verb} {} from {}", source.title, source.provider))?;
+    if let Some(message) = manual {
+        tx.execute(
+            "INSERT INTO manual_file_messages VALUES(?1,?2,?3)",
+            params![id, message.id, serde_json::to_string(message)?],
+        )?;
+    }
+    Ok(ImportOutcome { source_id: id, duplicate_of: None })
+}
+
+fn adopt_pack_tx(tx: &Transaction, pack: &Pack) -> Result<Vec<String>> {
+    let mut ids = Vec::new();
+    for s in &pack.sources {
+        let msgs: Vec<Message> = pack.messages.iter().filter(|m| m.source_id == s.source_id).cloned().collect();
+        let hidden: Option<bool> =
+            tx.query_row("SELECT hidden FROM sources WHERE id = ?1", [&s.source_id], |r| r.get(0)).optional()?;
+        if let Some(hidden) = hidden {
+            if hidden {
+                let title: String =
+                    tx.query_row("SELECT title FROM sources WHERE id = ?1", [&s.source_id], |r| r.get(0))?;
+                tx.execute("UPDATE sources SET hidden = 0 WHERE id = ?1", [&s.source_id])?;
+                let mut text = String::new();
+                let mut stmt =
+                    tx.prepare_cached("SELECT blocks_json FROM messages WHERE source_id = ?1 ORDER BY ordinal")?;
+                let rows = stmt.query_map([&s.source_id], |r| r.get::<_, String>(0))?;
+                for r in rows {
+                    if let Ok(blocks) = serde_json::from_str::<Vec<Block>>(&r?) {
+                        for b in &blocks {
+                            text.push_str(b.plain_text());
+                            text.push('\n');
+                        }
+                    }
+                }
+                delete_search_index(tx, "source", &s.source_id)?;
+                index(tx, "source", &s.source_id, &title, &text)?;
+                event(tx, "restore", Some(&s.source_id), "Restored session")?;
+            }
+            ids.push(s.source_id.clone());
+        } else if !msgs.is_empty() {
+            ids.push(upsert_session_tx(tx, s, &msgs, None, None, false)?.source_id);
+        }
+    }
+    let in_messages: HashSet<String> = pack
+        .messages
+        .iter()
+        .flat_map(|m| m.blocks.iter())
+        .filter_map(|b| if let Block::File { sha256, .. } = b { Some(sha256.to_ascii_lowercase()) } else { None })
+        .collect();
+    let loose: Vec<&Attachment> =
+        pack.attachments.iter().filter(|a| !in_messages.contains(&a.sha256.to_ascii_lowercase())).collect();
+    let note = pack.context.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    if note.is_some() || !loose.is_empty() {
+        let source = manual_source(&pack.title, SourceKind::Pack);
+        let mut blocks: Vec<Block> = note.map(Block::text).into_iter().collect();
+        blocks.extend(loose.into_iter().map(file_block));
+        let msg =
+            Message { id: new_id(), source_id: source.source_id.clone(), role: Role::User, created_at: None, blocks };
+        ids.push(upsert_session_tx(tx, &source, &[msg], None, None, false)?.source_id);
+    }
+    Ok(ids)
 }
 
 fn manual_source(title: &str, kind: SourceKind) -> Source {

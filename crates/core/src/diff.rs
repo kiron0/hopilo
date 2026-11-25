@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -35,11 +35,13 @@ pub struct PackDiff {
 fn preview(m: &Message) -> String {
     let text = m.blocks.first().map(|b| b.plain_text()).unwrap_or("");
     let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    if line.chars().count() > 120 {
-        format!("{}…", line.chars().take(119).collect::<String>())
-    } else {
-        line.to_string()
+    let mut ci = line.char_indices();
+    if let Some((cut, _)) = ci.nth(119) {
+        if ci.next().is_some() {
+            return format!("{}…", &line[..cut]);
+        }
     }
+    line.to_string()
 }
 
 fn change(m: &Message) -> MessageChange {
@@ -47,7 +49,12 @@ fn change(m: &Message) -> MessageChange {
 }
 
 pub fn diff_packs(a: &Pack, b: &Pack) -> PackDiff {
-    let key = |m: &Message| (m.source_id.clone(), m.id.clone());
+    fn key(m: &Message) -> (&str, &str) {
+        (m.source_id.as_str(), m.id.as_str())
+    }
+    fn file_key(x: &crate::model::Attachment) -> (String, &str) {
+        (x.sha256.to_ascii_lowercase(), x.file_name.as_str())
+    }
     let before: HashMap<_, &Message> = a.messages.iter().map(|m| (key(m), m)).collect();
     let after: HashMap<_, &Message> = b.messages.iter().map(|m| (key(m), m)).collect();
     let mut d = PackDiff { from_version: a.version, to_version: b.version, ..Default::default() };
@@ -63,15 +70,17 @@ pub fn diff_packs(a: &Pack, b: &Pack) -> PackDiff {
             d.removed.push(change(m));
         }
     }
-    let titles = |p: &Pack| p.sources.iter().map(|s| (s.source_id.clone(), s.title.clone())).collect::<HashMap<_, _>>();
-    let (sa, sb) = (titles(a), titles(b));
-    d.sources_added = sb.iter().filter(|(k, _)| !sa.contains_key(*k)).map(|(_, t)| t.clone()).collect();
-    d.sources_removed = sa.iter().filter(|(k, _)| !sb.contains_key(*k)).map(|(_, t)| t.clone()).collect();
-    let files =
-        |p: &Pack| p.attachments.iter().map(|x| (x.sha256.clone(), x.file_name.clone())).collect::<HashMap<_, _>>();
-    let (fa, fb) = (files(a), files(b));
-    d.files_added = fb.iter().filter(|(k, _)| !fa.contains_key(*k)).map(|(_, t)| t.clone()).collect();
-    d.files_removed = fa.iter().filter(|(k, _)| !fb.contains_key(*k)).map(|(_, t)| t.clone()).collect();
+    let sa: HashSet<&str> = a.sources.iter().map(|s| s.source_id.as_str()).collect();
+    let sb: HashSet<&str> = b.sources.iter().map(|s| s.source_id.as_str()).collect();
+    d.sources_added =
+        b.sources.iter().filter(|s| !sa.contains(s.source_id.as_str())).map(|s| s.title.clone()).collect();
+    d.sources_removed =
+        a.sources.iter().filter(|s| !sb.contains(s.source_id.as_str())).map(|s| s.title.clone()).collect();
+    let fa: HashSet<_> = a.attachments.iter().map(file_key).collect();
+    let fb: HashSet<_> = b.attachments.iter().map(file_key).collect();
+    d.files_added = b.attachments.iter().filter(|x| !fa.contains(&file_key(x))).map(|x| x.file_name.clone()).collect();
+    d.files_removed =
+        a.attachments.iter().filter(|x| !fb.contains(&file_key(x))).map(|x| x.file_name.clone()).collect();
     if a.context.note != b.context.note {
         d.note_before = a.context.note.clone();
         d.note_after = b.context.note.clone();

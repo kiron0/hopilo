@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use hopilo_core::{new_id, Block, CaptureStatus, Message, Role, Source, SourceKind};
-use rusqlite::{Connection, OpenFlags};
+use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
+use rusqlite::Connection;
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -18,7 +18,7 @@ fn decode_record(data: &[u8], kind: &str) -> std::io::Result<Vec<u8>> {
 }
 
 fn open_ro(db: &Path) -> Result<Connection> {
-    Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+    crate::open_sqlite_ro(db)
         .map_err(|e| AdapterError::Io { path: db.display().to_string(), source: std::io::Error::other(e) })
 }
 
@@ -58,55 +58,58 @@ impl LocalAgentAdapter for Zed {
         if !db.is_file() {
             return Ok(vec![]);
         }
-        let size = std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
-        let conn = open_ro(&db)?;
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, summary, updated_at, folder_paths, data_type, data FROM threads WHERE length(data) <= ?1 ORDER BY updated_at DESC",
-            )
-            .map_err(sql_err(&db))?;
+        crate::db_memo_scan(&db, |db| {
+            let size = std::fs::metadata(db).map(|m| m.len()).unwrap_or(0);
+            let conn = open_ro(db)?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, summary, updated_at, folder_paths, data_type, data FROM threads WHERE length(data) <= ?1 ORDER BY updated_at DESC",
+                )
+                .map_err(sql_err(db))?;
 
-        let mut rows = stmt.query([hopilo_core::limits::DOCUMENT_BYTES]).map_err(sql_err(&db))?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next().map_err(sql_err(&db))? {
-            let id: String = row.get(0).map_err(sql_err(&db))?;
-            let summary: String = row.get(1).map_err(sql_err(&db))?;
-            let updated_at: String = row.get(2).map_err(sql_err(&db))?;
-            let folder_paths: Option<String> = row.get(3).ok();
-            let data_type: String = row.get(4).map_err(sql_err(&db))?;
-            let data: Vec<u8> = row.get(5).map_err(sql_err(&db))?;
+            let mut rows = stmt.query([hopilo_core::limits::DOCUMENT_BYTES]).map_err(sql_err(db))?;
+            let mut out = Vec::new();
+            while let Some(row) = rows.next().map_err(sql_err(db))? {
+                let id: String = row.get(0).map_err(sql_err(db))?;
+                let summary: String = row.get(1).map_err(sql_err(db))?;
+                let updated_at: String = row.get(2).map_err(sql_err(db))?;
+                let folder_paths: Option<String> = row.get(3).ok();
+                let data_type: String = row.get(4).map_err(sql_err(db))?;
+                let data: Vec<u8> = row.get(5).map_err(sql_err(db))?;
 
-            let decompressed = match decode_record(&data, &data_type) {
-                Ok(bytes) => bytes,
-                Err(_) => continue,
-            };
+                let decompressed = match decode_record(&data, &data_type) {
+                    Ok(bytes) => bytes,
+                    Err(_) => continue,
+                };
 
-            let Ok(json): std::result::Result<Value, _> = serde_json::from_slice(&decompressed) else {
-                continue;
-            };
+                let Ok(json): std::result::Result<Value, _> = serde_json::from_slice(&decompressed) else {
+                    continue;
+                };
 
-            let title = json.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).unwrap_or(&summary);
-            let message_count = json.get("messages").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0);
-            if message_count == 0 {
-                continue;
+                let title =
+                    json.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()).unwrap_or(&summary);
+                let message_count = json.get("messages").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0);
+                if message_count == 0 {
+                    continue;
+                }
+
+                let project =
+                    folder_paths.and_then(|p| p.lines().next().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
+
+                out.push(DiscoveredSession {
+                    adapter: "zed".into(),
+                    path: format!("{}#{}", db.display(), id),
+                    session_id: id,
+                    title: title_from(title),
+                    project,
+                    model: Some("Zed Assistant".to_string()),
+                    modified_at: updated_at,
+                    size_bytes: size,
+                    message_count,
+                });
             }
-
-            let project =
-                folder_paths.and_then(|p| p.lines().next().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
-
-            out.push(DiscoveredSession {
-                adapter: "zed".into(),
-                path: format!("{}#{}", db.display(), id),
-                session_id: id,
-                title: title_from(title),
-                project,
-                model: Some("Zed Assistant".to_string()),
-                modified_at: updated_at,
-                size_bytes: size,
-                message_count,
-            });
-        }
-        Ok(out)
+            Ok(out)
+        })
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
@@ -222,7 +225,7 @@ impl LocalAgentAdapter for Zed {
             origin: Some(format!("{}#{}", db.display(), id)),
             project,
             model: Some("Zed Assistant".to_string()),
-            captured_at: updated_at,
+            captured_at: now_rfc3339(),
             capture_status: CaptureStatus::Complete,
             missing_items: vec![],
             omitted: vec![],

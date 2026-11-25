@@ -4,7 +4,7 @@ use hopilo_core::brief::ContextLevel;
 use hopilo_core::render::{estimate_tokens, render_handoff_prompt, RenderOptions};
 use hopilo_core::scan::{RedactionRules, Redactor};
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
-use hopilo_database::Store;
+use hopilo_database::{DbError, Store};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -31,17 +31,21 @@ pub fn read_message(r: &mut impl Read) -> std::io::Result<Option<Value>> {
         Err(e) => return Err(e),
     }
     let n = u32::from_ne_bytes(len) as usize;
-    if n > MAX_INCOMING {
-        return Err(std::io::Error::other("message too large"));
+    if n == 0 || n > MAX_INCOMING {
+        return Err(std::io::Error::other("message size invalid"));
     }
-    let mut buf = vec![0u8; n];
-    r.read_exact(&mut buf)?;
+    let mut buf = Vec::with_capacity(n.min(64 * 1024));
+    r.take(n as u64).read_to_end(&mut buf)?;
+    if buf.len() != n {
+        return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+    }
     serde_json::from_slice(&buf).map(Some).map_err(std::io::Error::other)
 }
 
 pub fn write_message(w: &mut impl Write, v: &Value) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(v)?;
-    w.write_all(&(bytes.len() as u32).to_ne_bytes())?;
+    let len = u32::try_from(bytes.len()).map_err(|_| std::io::Error::other("message too large"))?;
+    w.write_all(&len.to_ne_bytes())?;
     w.write_all(&bytes)?;
     w.flush()
 }
@@ -58,13 +62,13 @@ pub fn fit_outgoing(resp: Value) -> Value {
 pub fn origin_allowed(origin: &str, allowed: &[String]) -> bool {
     let Some(rest) = origin.strip_prefix("chrome-extension://") else { return false };
     let id = rest.trim_end_matches('/');
-    !id.is_empty() && allowed.iter().any(|a| a == id)
+    !id.is_empty() && !id.contains('/') && allowed.iter().any(|a| a == id)
 }
 
 pub fn caller_allowed(args: &[String], allowed: &[String]) -> bool {
     match args {
         [origin, ..] if origin.starts_with("chrome-extension://") => origin_allowed(origin, allowed),
-        [_, ext_id, ..] => ext_id == FIREFOX_EXTENSION_ID,
+        [_, ext_id, ..] => ext_id == FIREFOX_EXTENSION_ID || allowed.iter().any(|a| a == ext_id),
         _ => false,
     }
 }
@@ -161,6 +165,27 @@ fn clean_url(u: &str) -> Option<String> {
     (u.starts_with("https://") && u.len() < 2048).then_some(u)
 }
 
+fn sanitize_file_name(raw: &str) -> String {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or("").trim();
+    let clean: String = base.chars().filter(|c| !c.is_control()).take(200).collect();
+    if clean.is_empty() || clean == "." || clean == ".." {
+        "file".into()
+    } else {
+        clean
+    }
+}
+
+fn base64_fits_limit(data: &str, max_bytes: usize) -> bool {
+    let trimmed = data.trim();
+    let payload =
+        trimmed.strip_prefix("data:").and_then(|rest| rest.split_once(',').map(|(_, p)| p)).unwrap_or(trimmed);
+    let max_encoded = (max_bytes.div_ceil(3)) * 4 + 4;
+    if payload.len() <= max_encoded {
+        return true;
+    }
+    payload.bytes().filter(|b| !b.is_ascii_whitespace()).take(max_encoded + 1).count() <= max_encoded
+}
+
 impl Host {
     pub fn handle(&mut self, req: &Value) -> Value {
         let id = req.get("requestId").cloned().unwrap_or(Value::Null);
@@ -169,7 +194,8 @@ impl Host {
             "hello" => {
                 let _ = self.store.set_setting("browser.lastSeen", &json!(now_rfc3339()));
                 if let Some(v) = req.get("extensionVersion").and_then(Value::as_str) {
-                    let _ = self.store.set_setting("browser.extensionVersion", &json!(v));
+                    let trimmed: String = v.trim().chars().take(64).collect();
+                    let _ = self.store.set_setting("browser.extensionVersion", &json!(trimmed));
                 }
                 ok(&id, json!({ "app": "hopilo", "protocol": PROTOCOL, "version": env!("CARGO_PKG_VERSION") }))
             }
@@ -211,7 +237,7 @@ impl Host {
                     return err(&id, "bad_request", "unknown provider");
                 }
                 let report = json!({
-                    "adapterVersion": req.get("adapterVersion").cloned().unwrap_or(Value::Null),
+                    "adapterVersion": req.get("adapterVersion").and_then(Value::as_str).map(|s| s.trim().chars().take(64).collect::<String>()),
                     "ok": req.get("ok").and_then(Value::as_bool).unwrap_or(false),
                     "messageCount": req.get("messageCount").and_then(Value::as_u64).unwrap_or(0),
                     "detail": req.get("detail").and_then(Value::as_str).map(|s| s.chars().take(300).collect::<String>()),
@@ -231,7 +257,7 @@ impl Host {
         if !WEB_PROVIDERS.contains(&provider) {
             return err(id, "bad_request", "unknown provider");
         }
-        let payload: CapturePayload = match req.get("payload").cloned().map(serde_json::from_value) {
+        let payload: CapturePayload = match req.get("payload").map(CapturePayload::deserialize) {
             Some(Ok(p)) => p,
             _ => return err(id, "bad_request", "malformed capture payload"),
         };
@@ -243,30 +269,23 @@ impl Host {
         }
         let source_id = new_id();
         let mut unrecovered: Vec<String> = Vec::new();
+        let mut pending_files: Vec<(hopilo_core::Attachment, Vec<u8>)> = Vec::new();
         let mut messages: Vec<Message> = Vec::new();
         for m in payload.messages {
             let mut blocks = Vec::new();
             for f in m.files.into_iter().take(50) {
-                let name: String = f.name.trim().chars().take(200).collect();
+                let name = sanitize_file_name(&f.name);
                 let file = f
                     .data
                     .as_deref()
-                    .and_then(|d| {
-                        hopilo_core::CapturedFile::from_base64(
-                            if name.is_empty() { "file".to_string() } else { name.clone() },
-                            f.media_type.clone(),
-                            d,
-                        )
-                    })
+                    .filter(|d| base64_fits_limit(d, MAX_FILE))
+                    .and_then(|d| hopilo_core::CapturedFile::from_base64(name.clone(), f.media_type.clone(), d))
                     .filter(|cf| cf.bytes.len() <= MAX_FILE);
                 match file {
-                    Some(cf) => match self.store.insert_attachment(&cf.attachment(), &cf.bytes) {
-                        Ok(_) => blocks.push(cf.block()),
-                        Err(_) => {
-                            blocks.push(Block::Missing { description: format!("file “{name}”") });
-                            unrecovered.push(name);
-                        }
-                    },
+                    Some(cf) => {
+                        blocks.push(cf.block());
+                        pending_files.push((cf.attachment(), cf.bytes));
+                    }
                     None => {
                         blocks.push(Block::Missing { description: format!("file “{name}”") });
                         unrecovered.push(name);
@@ -309,13 +328,16 @@ impl Host {
             title: if title.is_empty() { format!("{provider} conversation") } else { title },
             origin: payload.url.as_deref().and_then(clean_url),
             project: None,
-            model: payload.adapter_version.map(|v| format!("captured by web adapter {v}")),
+            model: payload.adapter_version.map(|v| {
+                let clean: String = v.trim().chars().take(64).collect();
+                format!("captured by web adapter {clean}")
+            }),
             captured_at: now_rfc3339(),
             capture_status: status,
             missing_items: missing,
             omitted: vec![],
         };
-        match self.store.insert_capture(&source, &messages) {
+        match self.store.insert_capture_with_attachments(&source, &messages, &pending_files) {
             Ok(out) => ok(
                 id,
                 json!({ "sourceId": out.source_id, "duplicateOf": out.duplicate_of, "messageCount": messages.len(), "status": status }),
@@ -329,6 +351,15 @@ impl Host {
         if ids.is_empty() {
             return err(id, "bad_request", "ids missing");
         }
+        for sid in &ids {
+            match self.store.session_row(sid) {
+                Ok(row) if !row.hidden => {}
+                Ok(_) | Err(DbError::NotFound(_)) => {
+                    return err(id, "not_found", format!("Session {sid} was not found."))
+                }
+                Err(e) => return err(id, "library", e.to_string()),
+            }
+        }
         let level = match req.get("level").and_then(Value::as_str) {
             Some("minimal") => ContextLevel::Minimal,
             Some("full") => ContextLevel::Full,
@@ -336,7 +367,8 @@ impl Host {
         };
         let mut pack = match self.store.compose(&ids) {
             Ok(p) => p,
-            Err(e) => return err(id, "not_found", e.to_string()),
+            Err(DbError::NotFound(m)) => return err(id, "not_found", m),
+            Err(e) => return err(id, "library", e.to_string()),
         };
         let rules: RedactionRules = self
             .store

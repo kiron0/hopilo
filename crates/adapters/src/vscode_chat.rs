@@ -73,12 +73,12 @@ impl LocalAgentAdapter for VsCodeChat {
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
-        read_session(path)
+        read_session(path, false)
     }
 }
 
 fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
-    let cap = read_session(path).ok()?;
+    let cap = read_session(path, true).ok()?;
     let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
     if count == 0 {
         return None;
@@ -97,6 +97,8 @@ fn quick_scan(path: &Path) -> Option<DiscoveredSession> {
     })
 }
 
+const MAX_PATCH_INDEX: usize = 100_000;
+
 fn slot<'a>(mut cur: &'a mut Value, path: &[Value]) -> Option<&'a mut Value> {
     for k in path {
         cur = match k {
@@ -107,7 +109,7 @@ fn slot<'a>(mut cur: &'a mut Value, path: &[Value]) -> Option<&'a mut Value> {
                 cur.as_object_mut()?.entry(s.clone()).or_insert(Value::Null)
             }
             Value::Number(n) => {
-                let i = n.as_u64()? as usize;
+                let i = usize::try_from(n.as_u64()?).ok().filter(|&i| i < MAX_PATCH_INDEX)?;
                 let arr = cur.as_array_mut()?;
                 if i >= arr.len() {
                     arr.resize(i + 1, Value::Null);
@@ -211,7 +213,7 @@ struct Tally {
     edits: usize,
 }
 
-fn response_blocks(parts: &[Value], t: &mut Tally) -> Vec<Block> {
+fn response_blocks(parts: &[Value], t: &mut Tally, quick: bool) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut text = String::new();
     let flush = |text: &mut String, blocks: &mut Vec<Block>| {
@@ -248,19 +250,24 @@ fn response_blocks(parts: &[Value], t: &mut Tally) -> Vec<Block> {
                     .or_else(|| p.get("invocationMessage").and_then(message_text))
                     .unwrap_or("tool")
                     .to_string();
-                let input = p
-                    .pointer("/toolSpecificData/commandLine/original")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .or_else(|| p.get("invocationMessage").and_then(message_text).map(str::to_string))
-                    .unwrap_or_default();
+                let input = if quick {
+                    String::new()
+                } else {
+                    p.pointer("/toolSpecificData/commandLine/original")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| p.get("invocationMessage").and_then(message_text).map(str::to_string))
+                        .unwrap_or_default()
+                };
                 blocks.push(Block::ToolCall { name: name.clone(), input });
-                let out = p
-                    .get("pastTenseMessage")
-                    .and_then(message_text)
-                    .or_else(|| p.pointer("/resultDetails/output").and_then(Value::as_str));
-                if let Some(o) = out {
-                    blocks.push(Block::ToolResult { name: Some(name), output: o.to_string(), is_error: false });
+                if !quick {
+                    let out = p
+                        .get("pastTenseMessage")
+                        .and_then(message_text)
+                        .or_else(|| p.pointer("/resultDetails/output").and_then(Value::as_str));
+                    if let Some(o) = out {
+                        blocks.push(Block::ToolResult { name: Some(name), output: o.to_string(), is_error: false });
+                    }
                 }
             }
             Some("thinking") => t.thinking += 1,
@@ -272,7 +279,7 @@ fn response_blocks(parts: &[Value], t: &mut Tally) -> Vec<Block> {
     blocks
 }
 
-fn read_session(path: &Path) -> Result<Capture> {
+fn read_session(path: &Path, quick: bool) -> Result<Capture> {
     let doc = load(path)?;
     let requests = doc
         .get("requests")
@@ -309,7 +316,7 @@ fn read_session(path: &Path) -> Result<Capture> {
             model = r.get("modelId").and_then(Value::as_str).map(|m| m.trim_start_matches("copilot/").to_string());
         }
         let parts = r.get("response").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-        let blocks = response_blocks(parts, &mut t);
+        let blocks = response_blocks(parts, &mut t, quick);
         if !blocks.is_empty() {
             messages.push(Message {
                 id: r.get("responseId").and_then(Value::as_str).map(str::to_string).unwrap_or_else(new_id),
@@ -384,6 +391,12 @@ mod tests {
         assert!(
             matches!(&cap.messages[1].blocks[1], Block::ToolCall { name, input } if name == "run_in_terminal" && input == "npm test")
         );
+    }
+
+    #[test]
+    fn rejects_excessive_patch_array_resize() {
+        let mut root = serde_json::json!({ "requests": [] });
+        assert!(slot(&mut root, &[serde_json::json!("requests"), serde_json::json!(1_000_000_000_u64)]).is_none());
     }
 
     #[test]

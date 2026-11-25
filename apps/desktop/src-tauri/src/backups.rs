@@ -16,10 +16,19 @@ struct Schedule {
     next: Instant,
 }
 #[derive(Default)]
+struct ScheduleState {
+    active: Option<Schedule>,
+    generation: u64,
+}
+#[derive(Default)]
 pub struct BackupRuntime {
-    schedule: Mutex<Option<Schedule>>,
+    schedule: Mutex<ScheduleState>,
     operation: Mutex<()>,
     last: Mutex<Option<String>>,
+}
+
+pub(crate) fn lock_operation(runtime: &BackupRuntime) -> std::sync::MutexGuard<'_, ()> {
+    lock(&runtime.operation)
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,15 +49,17 @@ fn destination(directory: &Path, prefix: &str) -> PathBuf {
     directory.join(format!("{prefix}-{}.hbackup", hopilo_core::new_id()))
 }
 const KEEP_SCHEDULED: usize = 10;
+const KEEP_RECOVERY: usize = 5;
+const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(5 * 60);
 
-fn prune_scheduled(directory: &Path, keep: usize) {
+fn prune_backups(directory: &Path, prefix: &str, keep: usize) {
     let Ok(entries) = std::fs::read_dir(directory) else { return };
     let mut backups: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
         .filter(|e| {
             let name = e.file_name();
             let name = name.to_string_lossy();
-            name.starts_with("hopilo-") && name.ends_with(".hbackup")
+            name.starts_with(prefix) && name.ends_with(".hbackup")
         })
         .filter_map(|e| {
             let meta = std::fs::symlink_metadata(e.path()).ok()?;
@@ -59,6 +70,10 @@ fn prune_scheduled(directory: &Path, keep: usize) {
     for (_, path) in backups.into_iter().skip(keep) {
         let _ = std::fs::remove_file(path);
     }
+}
+
+fn prune_scheduled(directory: &Path, keep: usize) {
+    prune_backups(directory, "hopilo-", keep);
 }
 
 fn take_due(schedule: &mut Option<Schedule>, now: Instant) -> Option<(PathBuf, Zeroizing<String>)> {
@@ -79,9 +94,9 @@ pub async fn backup_status(app: AppHandle) -> CmdResult<BackupStatus> {
     let saved_hours = saved.as_ref().and_then(|v| v.get("hours")).and_then(|v| v.as_u64());
     let last_result = lock(&runtime.last).clone();
     Ok(BackupStatus {
-        unlocked: schedule.is_some(),
-        directory: schedule.as_ref().map(|s| s.directory.display().to_string()).or(saved_dir),
-        hours: schedule.as_ref().map(|s| s.hours).or(saved_hours),
+        unlocked: schedule.active.is_some(),
+        directory: schedule.active.as_ref().map(|s| s.directory.display().to_string()).or(saved_dir),
+        hours: schedule.active.as_ref().map(|s| s.hours).or(saved_hours),
         last_result,
     })
 }
@@ -117,22 +132,29 @@ pub async fn restore_backup(app: AppHandle, path: String, password: String) -> C
         let _guard = lock(&runtime.operation);
         let _sync = lock(&state.sync_lock);
         let verified = backup::verify(Path::new(&path), &password).map_err(err)?;
-        let (report, recovery_path, settings) = with_store(&state, |s| {
-            let recovery_dir = s.root().join("recovery");
-            std::fs::create_dir_all(&recovery_dir).map_err(err)?;
-            let recovery = destination(&recovery_dir, "before-restore");
-            s.create_backup(&recovery, &password).map_err(err)?;
+        let recovery_dir = state.library_root.join("recovery");
+        std::fs::create_dir_all(&recovery_dir).map_err(err)?;
+        let recovery = destination(&recovery_dir, "before-restore");
+        let prepared = with_store(&state, |s| s.prepare_backup(&recovery, &password).map_err(err))?;
+        prepared.write(&password).map_err(err)?;
+        prune_backups(&recovery_dir, "before-restore-", KEEP_RECOVERY);
+        let recovery_path = recovery.display().to_string();
+        let (report, settings) = with_store(&state, |s| {
             let report = s.restore_backup(verified).map_err(err)?;
-            Ok((report, recovery.display().to_string(), s.settings().map_err(err)?))
+            Ok((report, s.settings().map_err(err)?))
         })?;
-        *state.settings.write().unwrap_or_else(|p| p.into_inner()) = settings;
+        state.replace_settings_mirror(settings);
         let shortcut = state.setting(crate::SHORTCUT_KEY).and_then(|v| v.as_str().map(str::to_string));
         if let Err(error) = crate::apply_shortcut(app, shortcut.as_deref()) {
             eprintln!("Restored shortcut could not be registered: {error}");
             save_setting_blocking(app, crate::SHORTCUT_KEY, serde_json::Value::Null)?;
         }
         lock(&state.discovery).clear();
-        *lock(&runtime.schedule) = None;
+        {
+            let mut sched = lock(&runtime.schedule);
+            sched.active = None;
+            sched.generation = sched.generation.wrapping_add(1);
+        }
         let _ = app.emit("hopilo://settings-changed", ("restored", serde_json::Value::Null));
         notify(app);
         Ok(RestoreResult { report, recovery_path })
@@ -152,9 +174,8 @@ pub async fn unlock_backup_schedule(app: AppHandle, directory: String, hours: u6
         let directory = std::fs::canonicalize(directory).map_err(err)?;
         validate_directory(&directory)?;
         tempfile::NamedTempFile::new_in(&directory).map_err(err)?;
-        let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
-        if directory.starts_with(std::fs::canonicalize(root.join("attachments")).map_err(err)?) {
-            return Err("Choose a folder outside attachment storage".into());
+        if directory.starts_with(std::fs::canonicalize(&state.library_root).map_err(err)?) {
+            return Err("Choose a folder outside Hopilo library storage".into());
         }
         save_setting_blocking(
             app,
@@ -162,14 +183,19 @@ pub async fn unlock_backup_schedule(app: AppHandle, directory: String, hours: u6
             serde_json::json!({"directory":directory.display().to_string(),"hours":hours}),
         )?;
         let runtime = app.state::<BackupRuntime>();
-        *lock(&runtime.schedule) = Some(Schedule { directory, password, hours, next: Instant::now() });
+        let mut sched = lock(&runtime.schedule);
+        sched.generation = sched.generation.wrapping_add(1);
+        sched.active = Some(Schedule { directory, password, hours, next: Instant::now() });
         Ok(())
     })
     .await
 }
 #[tauri::command]
 pub fn lock_backup_schedule(app: AppHandle) -> CmdResult<()> {
-    *lock(&app.state::<BackupRuntime>().schedule) = None;
+    let runtime = app.state::<BackupRuntime>();
+    let mut sched = lock(&runtime.schedule);
+    sched.active = None;
+    sched.generation = sched.generation.wrapping_add(1);
     Ok(())
 }
 
@@ -180,18 +206,28 @@ pub fn start(app: &AppHandle) {
         std::thread::sleep(Duration::from_secs(30));
         let runtime = app.state::<BackupRuntime>();
         let Some(_operation) = try_lock(&runtime.operation) else { continue };
-        let task = {
-            let mut schedule = lock(&runtime.schedule);
-            let Some(task) = take_due(&mut schedule, Instant::now()) else { continue };
-            task
+        let (dir, pw, generation) = {
+            let mut sched = lock(&runtime.schedule);
+            let Some((dir, pw)) = take_due(&mut sched.active, Instant::now()) else { continue };
+            (dir, pw, sched.generation)
         };
-        let path = destination(&task.0, "hopilo");
+        let path = destination(&dir, "hopilo");
         let state = app.state::<AppState>();
-        let result = with_store(&state, |s| s.prepare_backup(&path, &task.1).map_err(err))
-            .and_then(|prepared| prepared.write(&task.1).map_err(err));
-        if result.is_ok() {
-            prune_scheduled(&task.0, KEEP_SCHEDULED);
+        let result = with_store(&state, |s| s.prepare_backup(&path, &pw).map_err(err))
+            .and_then(|prepared| prepared.write(&pw).map_err(err));
+        let mut sched = lock(&runtime.schedule);
+        if sched.generation != generation {
+            if result.is_ok() {
+                prune_scheduled(&dir, KEEP_SCHEDULED);
+            }
+            continue;
         }
+        if result.is_ok() {
+            prune_scheduled(&dir, KEEP_SCHEDULED);
+        } else if let Some(s) = sched.active.as_mut() {
+            s.next = Instant::now() + RETRY_AFTER_FAILURE.min(Duration::from_secs(s.hours * 3600));
+        }
+        drop(sched);
         *lock(&runtime.last) = Some(match result {
             Ok(_) => format!("Verified backup saved: {}", path.display()),
             Err(e) => format!("Scheduled backup failed: {e}"),

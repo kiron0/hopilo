@@ -11,11 +11,38 @@ All notable changes to Hopilo will be documented in this file.
 - **Agent Access Settings & Granular Controls**: Added **Settings › Agent access** with a master access toggle and configurable permission modes: allow agents to read "All" saved sessions or only "Selected" sessions via an interactive multi-filter session picker with pagination. Hidden sessions and files on disk outside the Hopilo library are never exposed.
 - **One-Click Agent MCP Configuration**: Settings displays ready-to-copy configuration commands and JSON snippets for Claude Code (`claude mcp add hopilo -- ...`), Cursor, and Codex, automatically resolving the installed `hopilo` binary path.
 - **Desktop Sidecar Packaging**: Tauri build pipeline and `scripts/sidecar.mjs` automatically compile and bundle the `hopilo-agent-cli` executable alongside the desktop application across macOS, Windows, and Linux.
+- **Zip exports with files**: Export several formats at once, optionally with session attachments, into a single zip archive, with a system notification when the export finishes.
+- **Auth header redaction**: A new built-in rule redacts `Authorization: Bearer|Basic …` headers and long bearer tokens. The private key rule also catches PGP `PRIVATE KEY BLOCK` armor, the secret assignment rule catches JSON-style `"api_key": "…"` and `access_token`/`auth_token` keys, and connection strings with a password but no username are now redacted.
 
 ### Changed
 
 - **Modular Session Filters UI**: Refactored filter selectors, dropdown hooks, and search options into a shared `SessionFilters` component reused across the main Sessions explorer and Agent Access settings.
 - **Documentation Cleanup**: Cleaned up outdated architectural draft specifications and internal audit notes across the repository.
+- **Agent CLI binary renamed to `hopilo-cli`**: The bundled agent CLI ships as `hopilo-cli`. Running the desktop app binary with `mcp`, `sessions`, `handoff`, `--help` or `--version` forwards to it, and reports a clear error if it is missing.
+- **Per-window permissions**: The Quick Panel and onboarding windows get their own minimal Tauri capabilities instead of sharing the main window's permissions.
+- **Faster search and file tracking**: A schema migration rebuilds the search index with prefix indexing and a row map for direct deletes and updates, tracks which sessions and pack versions reference each stored file, and adds indexes for the library filters. Deleting a file no longer scans every message to check whether it is still in use.
+- **Faster discovery**: Cursor, OpenCode and Zed discovery results are cached until their database or WAL file changes, Gemini CLI sessions are scanned in parallel, and discovery skips tool inputs, outputs and inline files it does not need.
+- **Faster redaction**: Built-in rules compile once per process and a combined pre-check skips text that cannot match. Overlapping matches merge into a single `[REDACTED: …]` tag, and ignored findings are left out of scan results.
+- **Safer file opening**: Opening an attachment launches it directly only for known document, media and source-code types. Anything else, including HTML, scripts and unknown files, is revealed in the file manager instead. The temporary open cache is pruned to 50 entries and 7 days.
+- **Tamper-resistant handoff prompts**: When session content contains the wrapper's own closing tag or BEGIN/END marker, the prompt picks a unique wrapper so the content cannot break out of it. Custom instruction placeholders are expanded in a single pass, so `{title}` text inside a title is kept literal.
+- **Main window sizing**: The minimum main window size is 960 × 640 (capped at 80% of the display), and reopening the window places it on the monitor under the cursor.
+- **Backups**: Recovery copies made before a restore keep only the latest 5, a failed scheduled backup retries after 5 minutes, and backup folders inside Hopilo's library are refused.
+
+### Fixed
+
+- **Claude Code task notifications**: Background task notifications are no longer captured as user messages.
+- **Claude Code turn merging**: An assistant line with only thinking no longer merges the next reply into the previous turn.
+- **Restore cleanup**: Restoring a backup removes stored files that are not part of the restored library, and rolls back newly written files if the restore fails.
+- **Imported bundles**: Importing a `.hopilo` bundle no longer overwrites a local session that has the same origin path. Imported attachments get fresh IDs, and their checksums and sizes are verified.
+- **Browser captures**: Files captured from the browser extension are stored in the same transaction as the session, so a failed capture leaves no orphaned files. Session drafts refuse hidden sessions, and Firefox callers are checked against the allowed extension list.
+- **Quick Panel placement**: The panel anchors to the tray icon on the correct monitor, flips above or below the taskbar as needed, and centers near the top of the screen when there is no tray position.
+- **Bundle open timing**: Opening a `.hopilo` file while Hopilo is starting queues the import until the main window is ready instead of waiting a fixed delay.
+- **Global shortcut**: Changing the shortcut registers it on the main thread and restores the previous shortcut if saving fails.
+- **Data folder button**: **Show in Finder/Explorer** opens the data folder itself instead of selecting the database file.
+- **MCP server**: Oversized or invalid UTF-8 requests get a JSON-RPC error instead of a malformed reply, `limit: 0` is rejected, and `arguments: null` is treated as empty.
+- **Export parsing**: ChatGPT exports with looping message chains no longer hang, and Gemini CLI sessions with non-ASCII IDs no longer crash.
+- **Build scripts**: `bump-version`, `clean` and `ship` stop with an error when a step fails instead of continuing silently. Build scripts use a shell for `spawnSync` only on Windows.
+- **Fullscreen windows**: Resize limits no longer apply in fullscreen mode.
 
 ## 0.1.5
 

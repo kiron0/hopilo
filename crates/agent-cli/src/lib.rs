@@ -5,7 +5,7 @@ use hopilo_core::render::{estimate_tokens, render_handoff_prompt, RenderOptions}
 use hopilo_core::scan::{RedactionRules, Redactor};
 use hopilo_core::Pack;
 use hopilo_database::{DbError, SessionQuery, Store};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub mod mcp;
 
@@ -46,8 +46,8 @@ pub struct Access {
 }
 
 impl Access {
-    pub fn load(store: &Store) -> Access {
-        let Some(v) = store.settings().ok().and_then(|s| s.get(SETTINGS_KEY).cloned()) else {
+    fn from_value(v: Option<&serde_json::Value>) -> Access {
+        let Some(v) = v else {
             return Access::default();
         };
         let selected = (v.get("mode").and_then(|m| m.as_str()) == Some("selected")).then(|| {
@@ -61,6 +61,11 @@ impl Access {
             ids
         });
         Access { enabled: v.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false), selected }
+    }
+
+    pub fn load(store: &Store) -> Access {
+        let settings = store.settings().ok();
+        Self::from_value(settings.as_ref().and_then(|s| s.get(SETTINGS_KEY)))
     }
 
     pub fn require(self) -> Result<Access, AgentError> {
@@ -111,14 +116,11 @@ pub struct Handoff {
     pub attach_manually: Vec<String>,
 }
 
-fn redactor(store: &Store) -> Redactor {
-    let rules: RedactionRules = store
-        .settings()
-        .ok()
-        .and_then(|s| s.get("redaction").cloned())
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-    Redactor::new(&rules, []).0
+fn load_access_and_redactor(store: &Store) -> (Access, Redactor) {
+    let settings = store.settings().unwrap_or_default();
+    let access = Access::from_value(settings.get(SETTINGS_KEY));
+    let rules = settings.get("redaction").and_then(|v| RedactionRules::deserialize(v).ok()).unwrap_or_default();
+    (access, Redactor::new(&rules, []).0)
 }
 
 pub fn search(
@@ -127,7 +129,8 @@ pub fn search(
     query: &str,
     limit: Option<usize>,
 ) -> Result<Vec<SessionSummary>, AgentError> {
-    let access = Access::load(store).require()?;
+    let (access, red) = load_access_and_redactor(store);
+    let access = access.require()?;
     let roots = match project {
         Some(p) => Some(vec![normalize_root(p).ok_or_else(|| AgentError::new("bad_request", "project is empty"))?]),
         None => None,
@@ -143,7 +146,6 @@ pub fn search(
             ..Default::default()
         })
         .map_err(AgentError::library)?;
-    let red = redactor(store);
     Ok(page
         .rows
         .into_iter()
@@ -152,8 +154,8 @@ pub fn search(
             id: r.id,
             title: red.redact_text(&r.title),
             provider: r.provider,
-            project: r.project,
-            model: r.model,
+            project: r.project.map(|p| red.redact_text(&p)),
+            model: r.model.map(|m| red.redact_text(&m)),
             updated_at: r.updated_at,
             message_count: r.message_count,
             token_estimate: r.token_estimate,
@@ -187,7 +189,8 @@ fn strip_local_paths(pack: &mut Pack) {
 }
 
 pub fn handoff(store: &Store, ids: &[String], level: ContextLevel) -> Result<Handoff, AgentError> {
-    let access = Access::load(store).require()?;
+    let (access, red) = load_access_and_redactor(store);
+    let access = access.require()?;
     if ids.is_empty() {
         return Err(AgentError::new("bad_request", "Give at least one session id."));
     }
@@ -205,11 +208,9 @@ pub fn handoff(store: &Store, ids: &[String], level: ContextLevel) -> Result<Han
         }
     }
     let mut pack = store.compose(ids).map_err(AgentError::library)?;
-    let red = redactor(store);
     red.drop_excluded(&mut pack);
     strip_local_paths(&mut pack);
-    let findings_redacted = red.scan_pack(&pack, None).iter().map(|f| f.count.max(1)).sum();
-    red.redact_pack(&mut pack);
+    let findings_redacted = red.redact_pack(&mut pack);
     let text = render_handoff_prompt(&pack, &RenderOptions { level, ..Default::default() });
     if text.len() > MAX_TEXT {
         return Err(AgentError::new(

@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 
 use serde_json::Value;
 
@@ -13,7 +14,7 @@ pub struct OpenCode;
 const DB_NAME: &str = "opencode.db";
 
 fn open_ro(db: &Path) -> Result<Connection> {
-    Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+    crate::open_sqlite_ro(db)
         .map_err(|e| AdapterError::Io { path: db.display().to_string(), source: std::io::Error::other(e) })
 }
 
@@ -59,45 +60,75 @@ impl LocalAgentAdapter for OpenCode {
         if !db.is_file() {
             return Ok(vec![]);
         }
-        let size = std::fs::metadata(&db).map(|m| m.len()).unwrap_or(0);
-        let conn = open_ro(&db)?;
-        let mut out = Vec::new();
-        for (id, row) in list_sessions(&conn, &db)? {
-            if row.count == 0 {
-                continue;
+        crate::db_memo_scan(&db, |db| {
+            let size = std::fs::metadata(db).map(|m| m.len()).unwrap_or(0);
+            let conn = open_ro(db)?;
+            let mut out = Vec::new();
+            for (id, row) in list_sessions(&conn, db)? {
+                if row.count == 0 {
+                    continue;
+                }
+                out.push(DiscoveredSession {
+                    adapter: "opencode".into(),
+                    path: format!("{}#{id}", db.display()),
+                    title: real_title(row.title).unwrap_or_else(|| format!("OpenCode session {id}")),
+                    session_id: id,
+                    project: row.dir,
+                    model: row.model.and_then(|m| model_name(&m)),
+                    modified_at: row.updated.map(millis_to_rfc3339).unwrap_or_default(),
+                    size_bytes: size,
+                    message_count: row.count as usize,
+                });
             }
-            out.push(DiscoveredSession {
-                adapter: "opencode".into(),
-                path: format!("{}#{id}", db.display()),
-                title: real_title(row.title).unwrap_or_else(|| format!("OpenCode session {id}")),
-                session_id: id,
-                project: row.dir,
-                model: row.model.and_then(|m| model_name(&m)),
-                modified_at: row.updated.map(millis_to_rfc3339).unwrap_or_default(),
-                size_bytes: size,
-                message_count: row.count as usize,
-            });
-        }
-        out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
-        Ok(out)
+            out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+            Ok(out)
+        })
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
         let (db, session_id) =
             split_locator(path).ok_or_else(|| AdapterError::Unrecognized(path.display().to_string()))?;
         let conn = open_ro(&db)?;
-        let rows = list_sessions(&conn, &db)?;
-        match rows.get(&session_id) {
-            Some(r) if r.store == Store::V2 => read_session_v2(&conn, &db, &session_id, path, r),
-            _ => read_session(&db, &session_id, path),
+        let v2_row = lookup_session_row(&conn, &db, "session_v2", true, &session_id)?;
+        let v1_row = lookup_session_row(&conn, &db, "session", false, &session_id)?;
+        match (v1_row, v2_row) {
+            (Some(r1), Some(r2)) => {
+                if r2.updated.unwrap_or(0) >= r1.updated.unwrap_or(0) && r2.count > 0 {
+                    read_session_v2(&conn, &db, &session_id, path, &r2)
+                } else {
+                    read_session_with(&conn, &db, &session_id, path)
+                }
+            }
+            (None, Some(r2)) if r2.count > 0 => read_session_v2(&conn, &db, &session_id, path, &r2),
+            _ => read_session_with(&conn, &db, &session_id, path),
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Store {
-    V1,
-    V2,
+fn lookup_session_row(
+    conn: &Connection,
+    db: &Path,
+    table: &str,
+    is_v2: bool,
+    session_id: &str,
+) -> Result<Option<SessionRow>> {
+    if !has_table(conn, table) {
+        return Ok(None);
+    }
+    let count_sql = if is_v2 {
+        "(SELECT COUNT(*) FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user', 'assistant'))"
+    } else {
+        "(SELECT COUNT(*) FROM message m WHERE m.session_id = s.id)"
+    };
+    let sql = format!(
+        "SELECT s.title, s.directory, s.model, s.time_updated, {count_sql}
+         FROM {table} s WHERE s.id = ?1 AND s.parent_id IS NULL AND s.time_archived IS NULL"
+    );
+    conn.query_row(&sql, [session_id], |r| {
+        Ok(SessionRow { title: r.get(0)?, dir: r.get(1)?, model: r.get(2)?, updated: r.get(3)?, count: r.get(4)? })
+    })
+    .optional()
+    .map_err(sql_err(db))
 }
 
 #[derive(Debug)]
@@ -107,7 +138,6 @@ struct SessionRow {
     model: Option<String>,
     updated: Option<i64>,
     count: i64,
-    store: Store,
 }
 
 fn has_table(conn: &Connection, name: &str) -> bool {
@@ -118,21 +148,19 @@ fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashM
     let mut map: std::collections::HashMap<String, SessionRow> = std::collections::HashMap::new();
     let queries = [
         (
-            Store::V1,
             "session",
             "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
                 (SELECT COUNT(*) FROM message m WHERE m.session_id = s.id)
              FROM session s WHERE s.parent_id IS NULL AND s.time_archived IS NULL",
         ),
         (
-            Store::V2,
             "session_v2",
             "SELECT s.id, s.title, s.directory, s.model, s.time_updated,
                 (SELECT COUNT(*) FROM session_message m WHERE m.session_id = s.id AND m.type IN ('user', 'assistant'))
              FROM session_v2 s WHERE s.parent_id IS NULL AND s.time_archived IS NULL",
         ),
     ];
-    for (store, table, sql) in queries {
+    for (table, sql) in queries {
         if !has_table(conn, table) {
             continue;
         }
@@ -147,7 +175,6 @@ fn list_sessions(conn: &Connection, db: &Path) -> Result<std::collections::HashM
                         model: r.get(3)?,
                         updated: r.get(4)?,
                         count: r.get(5)?,
-                        store,
                     },
                 ))
             })
@@ -179,8 +206,7 @@ fn model_name(raw: &str) -> Option<String> {
     }
 }
 
-fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> {
-    let conn = open_ro(db)?;
+fn read_session_with(conn: &Connection, db: &Path, session_id: &str, locator: &Path) -> Result<Capture> {
     let (title, dir): (Option<String>, Option<String>) = conn
         .query_row("SELECT title, directory FROM session WHERE id = ?1", [session_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()
@@ -195,8 +221,23 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
         .map_err(sql_err(db))?
         .flatten()
         .collect();
-    let mut part_stmt =
-        conn.prepare("SELECT data FROM part WHERE message_id = ?1 ORDER BY time_created, id").map_err(sql_err(db))?;
+    let mut parts_by_msg: HashMap<String, Vec<String>> = HashMap::new();
+    {
+        let mut part_stmt = conn
+            .prepare(
+                "SELECT p.message_id, p.data FROM part p
+                 INNER JOIN message m ON m.id = p.message_id
+                 WHERE m.session_id = ?1
+                 ORDER BY p.time_created, p.id",
+            )
+            .map_err(sql_err(db))?;
+        let part_rows = part_stmt
+            .query_map([session_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(sql_err(db))?;
+        for (mid, data) in part_rows.flatten() {
+            parts_by_msg.entry(mid).or_default().push(data);
+        }
+    }
 
     let source_id = new_id();
     let mut messages = Vec::new();
@@ -221,7 +262,7 @@ fn read_session(db: &Path, session_id: &str, locator: &Path) -> Result<Capture> 
         let created_at = Some(millis_to_rfc3339(created));
         let mut blocks = Vec::new();
         let mut results = Vec::new();
-        let parts: Vec<String> = part_stmt.query_map([&mid], |r| r.get(0)).map_err(sql_err(db))?.flatten().collect();
+        let parts = parts_by_msg.remove(&mid).unwrap_or_default();
         for p in parts {
             let Ok(part) = serde_json::from_str::<Value>(&p) else {
                 unreadable += 1;

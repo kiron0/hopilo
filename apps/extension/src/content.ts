@@ -63,16 +63,26 @@ function overlay() {
     <div class="zone" part="zone">Drop the session here<small>Hopilo inserts it as a draft. You review and send.</small></div>`;
   document.documentElement.appendChild(hostEl);
   const zone = shadow.querySelector<HTMLDivElement>(".zone")!;
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  let activeToast: HTMLDivElement | null = null;
   const toast = (text: string) => {
+    if (toastTimer !== undefined) {
+      clearTimeout(toastTimer);
+      toastTimer = undefined;
+    }
+    activeToast?.remove();
     const t = document.createElement("div");
     t.className = "toast";
     t.setAttribute("role", "status");
     t.textContent = text;
     shadow.appendChild(t);
+    activeToast = t;
     hostEl.style.display = "block";
     zone.style.display = "none";
-    setTimeout(() => {
+    toastTimer = setTimeout(() => {
+      toastTimer = undefined;
       t.remove();
+      if (activeToast === t) activeToast = null;
       hostEl.style.display = "none";
       zone.style.display = "";
     }, 5000);

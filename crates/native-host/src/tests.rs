@@ -195,3 +195,20 @@ fn browser_draft_honors_file_exclusions_and_custom_secret_rules() {
     assert!(draft["result"]["findings"].as_u64().unwrap() > 0, "custom keyword is scanned");
     assert_eq!(h.store.list_attachments().unwrap().len(), 1, "library file is preserved");
 }
+
+#[test]
+fn draft_refuses_hidden_sessions() {
+    let (_d, mut h) = host();
+    let sid = h.handle(&capture_req("claude", "complete"))["result"]["sourceId"].as_str().unwrap().to_string();
+    h.store.remove_session(&sid).unwrap();
+    let resp = h.handle(&json!({ "type": "session.getDraft", "requestId": "hid", "ids": [sid] }));
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["error"]["code"], "not_found");
+}
+
+#[test]
+fn firefox_caller_checks_allowlist_and_sanitizes_origin() {
+    let allowed = vec![DEFAULT_EXTENSION_ID.to_string(), "custom-ff@example.org".to_string()];
+    assert!(caller_allowed(&["/path/host.json".into(), "custom-ff@example.org".into()], &allowed));
+    assert!(!origin_allowed(&format!("chrome-extension://{DEFAULT_EXTENSION_ID}/extra"), &allowed));
+}

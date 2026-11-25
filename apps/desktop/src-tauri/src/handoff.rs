@@ -1,4 +1,6 @@
+use std::borrow::Cow;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use hopilo_core::brief::ContextLevel;
 use hopilo_core::framing::{arrange_sources, render_framed, Framing, Intent, PromptStyle, SessionOrder};
@@ -73,12 +75,24 @@ fn defaults(state: &State<AppState>) -> Defaults {
     }
 }
 
-pub(crate) fn redaction_rules(state: &State<AppState>) -> RedactionRules {
-    state.setting("redaction").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
-}
+type CachedRedactor = (Option<serde_json::Value>, Redactor, Vec<RuleError>);
+static REDACTOR_CACHE: OnceLock<Mutex<Option<CachedRedactor>>> = OnceLock::new();
 
 fn redactor(state: &State<AppState>, ignore: &[String]) -> (Redactor, Vec<RuleError>) {
-    Redactor::new(&redaction_rules(state), ignore.iter().cloned())
+    let raw = state.setting("redaction");
+    let cache = REDACTOR_CACHE.get_or_init(|| Mutex::new(None));
+    let mut guard = cache.lock().unwrap_or_else(|p| p.into_inner());
+    let (base, errors) = match guard.as_ref() {
+        Some((cached_raw, red, errs)) if *cached_raw == raw => (red, errs.clone()),
+        _ => {
+            let rules: RedactionRules = raw.clone().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+            let (red, errs) = Redactor::new(&rules, std::iter::empty());
+            *guard = Some((raw, red, errs.clone()));
+            let (_, red, errs) = guard.as_ref().unwrap();
+            (red, errs.clone())
+        }
+    };
+    (base.clone().with_ignore(ignore.iter().cloned()), errors)
 }
 
 pub(crate) fn style_for_target(target: &str) -> PromptStyle {
@@ -183,7 +197,7 @@ pub(crate) fn copy_blocking(app: &AppHandle, ids: &[String], opts: CopyOptions) 
         Ok(())
     })?;
     notify(app);
-    let remaining = prepared.redactor.scan_pack(&prepared.pack, None).len();
+    let remaining = if opts.exclude_secrets { 0 } else { prepared.redactor.scan_pack(&prepared.pack, None).len() };
     Ok(outcome(&prepared.pack, ids, target, &text, remaining))
 }
 
@@ -222,26 +236,27 @@ pub async fn preflight_handoff(app: AppHandle, ids: Vec<String>) -> CmdResult<Ha
         let excluded_files = red.drop_excluded(&mut pack);
         let findings = red.scan_pack(&pack, None);
         let total_messages = pack.messages.len();
+        let visible = hopilo_core::render::visible_messages(&pack, &render_opts(d.tool_detail, ContextLevel::Full));
+        let earlier_text_count =
+            |len: usize| visible[..len].iter().filter(|m| m.role != Role::Tool && m.has_text()).count();
+        let minimal_count = {
+            let first = hopilo_core::brief::first_user(&visible);
+            let last_user = hopilo_core::brief::last_with(&visible, Role::User)
+                .filter(|m| Some(m.id.as_str()) != first.map(|f| f.id.as_str()));
+            let last_assistant = hopilo_core::brief::last_with(&visible, Role::Assistant);
+            let count = [first.is_some(), last_user.is_some(), last_assistant.is_some()].iter().filter(|b| **b).count();
+            count.max(usize::from(total_messages > 0)).min(total_messages)
+        };
         let level_stats = |level: ContextLevel| {
             let ropts = render_opts(d.tool_detail, level);
             let tokens = estimate_tokens(&render_handoff_prompt(&pack, &ropts));
-            let visible = hopilo_core::render::visible_messages(&pack, &ropts);
             let message_count = match level {
                 ContextLevel::Full => visible.len(),
                 ContextLevel::Balanced => {
                     let split = visible.len().saturating_sub(hopilo_core::brief::BALANCED_RECENT);
-                    let (earlier, recent) = visible.split_at(split);
-                    earlier.iter().filter(|m| m.role != Role::Tool && m.has_text()).count() + recent.len()
+                    earlier_text_count(split) + (visible.len() - split)
                 }
-                ContextLevel::Minimal => {
-                    let first = hopilo_core::brief::first_user(&visible);
-                    let last_user = hopilo_core::brief::last_with(&visible, Role::User)
-                        .filter(|m| Some(m.id.as_str()) != first.map(|f| f.id.as_str()));
-                    let last_assistant = hopilo_core::brief::last_with(&visible, Role::Assistant);
-                    let count =
-                        [first.is_some(), last_user.is_some(), last_assistant.is_some()].iter().filter(|b| **b).count();
-                    count.max(usize::from(total_messages > 0)).min(total_messages)
-                }
+                ContextLevel::Minimal => minimal_count,
             };
             LevelStats { message_count, token_estimate: tokens }
         };
@@ -380,7 +395,8 @@ fn prepare_export(
     let mut framing = opts.framing(&d, &target);
     framing.note = None;
     let (red, _) = redactor(state, &opts.ignore);
-    let (pack, blob_root) = with_store(state, |s| Ok((load_pack(s, ids, &opts)?, s.root().join("attachments"))))?;
+    let pack = with_store(state, |s| load_pack(s, ids, &opts))?;
+    let blob_root = state.library_root.join("attachments");
     Ok(Prepared {
         pack: finish_pack(pack, &opts, &red),
         blob_root,
@@ -438,7 +454,8 @@ fn attachment_bytes(p: &Prepared, a: &hopilo_core::Attachment) -> Option<Vec<u8>
     if a.sha256.len() != 64 || !a.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    std::fs::File::open(p.blob_root.join(&a.sha256))
+    let sha = a.sha256.to_ascii_lowercase();
+    std::fs::File::open(p.blob_root.join(sha))
         .ok()
         .and_then(|file| hopilo_core::limits::read_bounded(file, hopilo_core::limits::DOCUMENT_BYTES).ok())
 }
@@ -447,7 +464,7 @@ fn attachment_available(p: &Prepared, a: &hopilo_core::Attachment) -> bool {
     (p.exclude_secrets && a.text.is_some())
         || (a.sha256.len() == 64
             && a.sha256.bytes().all(|b| b.is_ascii_hexdigit())
-            && p.blob_root.join(&a.sha256).is_file())
+            && p.blob_root.join(a.sha256.to_ascii_lowercase()).is_file())
 }
 
 fn zip_file_name(name: &str) -> String {
@@ -497,15 +514,33 @@ fn write_export(p: &Prepared, format: &str, file: &mut std::fs::File) -> CmdResu
     file.write_all(render_text_export(p, format)?.as_bytes()).map_err(err)
 }
 
+fn redact_framing<'a>(f: &'a Framing, r: &Redactor, exclude_secrets: bool) -> Cow<'a, Framing> {
+    if !exclude_secrets {
+        return Cow::Borrowed(f);
+    }
+    let inst = f.instructions.as_deref().map(|s| r.redact_cow(s));
+    let note = f.note.as_deref().map(|s| r.redact_cow(s));
+    if matches!(&inst, Some(Cow::Owned(_))) || matches!(&note, Some(Cow::Owned(_))) {
+        let mut cloned = f.clone();
+        cloned.instructions = inst.map(Cow::into_owned);
+        cloned.note = note.map(Cow::into_owned);
+        Cow::Owned(cloned)
+    } else {
+        Cow::Borrowed(f)
+    }
+}
+
 fn render_text_export(p: &Prepared, format: &str) -> CmdResult<String> {
-    let text = match format {
-        "md" => render_markdown(&p.pack, &p.ropts),
-        "txt" => render_framed(&p.pack, &p.ropts, &p.framing),
-        "html" => hopilo_core::html::render_html(&p.pack, &p.ropts),
-        "json" | "handoff" => hopilo_pack_format::to_json(&p.pack).map_err(err)?,
-        other => return Err(format!("unknown export format {other}")),
-    };
-    Ok(if p.exclude_secrets && format != "json" && format != "handoff" { p.redactor.redact_text(&text) } else { text })
+    match format {
+        "md" => Ok(render_markdown(&p.pack, &p.ropts)),
+        "txt" => {
+            let framing = redact_framing(&p.framing, &p.redactor, p.exclude_secrets);
+            Ok(render_framed(&p.pack, &p.ropts, &framing))
+        }
+        "html" => Ok(hopilo_core::html::render_html(&p.pack, &p.ropts)),
+        "json" | "handoff" => hopilo_pack_format::to_json(&p.pack).map_err(err),
+        other => Err(format!("unknown export format {other}")),
+    }
 }
 
 fn reviewed_text(p: &Prepared, format: &str, review: Option<&ReviewedPreview>) -> CmdResult<String> {
@@ -802,12 +837,7 @@ pub fn copy_latest_session(app: &AppHandle, source: &str) {
         let agents_only =
             state.setting("shortcutScope").and_then(|v| v.as_str().map(|s| s == "agents")).unwrap_or(false);
         let redact = state.setting("shortcutRedact").and_then(|v| v.as_bool()).unwrap_or(true);
-        let latest = with_store(&state, |s| s.list_sessions().map_err(err)).ok().and_then(|rows| {
-            rows.into_iter()
-                .filter(|r| !agents_only || r.kind == "local-agent")
-                .filter(|r| r.message_count > 0)
-                .max_by(|a, b| a.updated_at.cmp(&b.updated_at))
-        });
+        let latest = with_store(&state, |s| s.latest_session(agents_only).map_err(err)).ok().flatten();
         let event = match latest {
             None => {
                 flash("No sessions");

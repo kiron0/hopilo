@@ -68,7 +68,11 @@ impl<'de> serde::de::Visitor<'de> for ExportVisitor<'_> {
             if self.selected.is_some_and(|ids| !id.is_some_and(|id| ids.contains(id))) {
                 continue;
             }
-            let parsed = if kind == "chatgpt" { chatgpt(&value, self.origin) } else { claude(&value, self.origin) };
+            let parsed = if kind == "chatgpt" {
+                chatgpt(&value, self.origin, self.metadata_only)
+            } else {
+                claude(&value, self.origin, self.metadata_only)
+            };
             if let Some((meta, capture)) = parsed {
                 if self.metadata_only {
                     metadata.push(meta);
@@ -209,19 +213,21 @@ fn finish(
     ))
 }
 
-fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
+fn chatgpt(c: &Value, origin: &str, quick: bool) -> Option<(ExportConversation, Capture)> {
     let conv_id = c.get("conversation_id").or_else(|| c.get("id")).and_then(Value::as_str)?.to_string();
     let mapping = c.get("mapping")?.as_object()?;
 
     let mut chain = Vec::new();
-    let mut cursor = c.get("current_node").and_then(Value::as_str).map(str::to_string);
-    let mut guard = 0;
+    let mut visited = std::collections::HashSet::new();
+    let mut cursor = c.get("current_node").and_then(Value::as_str);
     while let Some(id) = cursor {
-        let Some(node) = mapping.get(&id) else { break };
+        if !visited.insert(id) {
+            break;
+        }
+        let Some(node) = mapping.get(id) else { break };
         chain.push(node);
-        cursor = node.get("parent").and_then(Value::as_str).map(str::to_string);
-        guard += 1;
-        if guard > 100_000 {
+        cursor = node.get("parent").and_then(Value::as_str);
+        if visited.len() > 100_000 {
             break;
         }
     }
@@ -234,7 +240,7 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
     for node in chain {
         let Some(m) = node.get("message").filter(|m| !m.is_null()) else { continue };
         let role = m.get("author").and_then(|a| a.get("role")).and_then(Value::as_str).unwrap_or("");
-        let content = m.get("content").cloned().unwrap_or(Value::Null);
+        let content = m.get("content").unwrap_or(&Value::Null);
         let ctype = content.get("content_type").and_then(Value::as_str).unwrap_or("text");
         let meta = m.get("metadata");
         if model.is_none() {
@@ -252,16 +258,36 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
             continue;
         }
         let created_at = secs_to_rfc3339(m.get("create_time"));
-        let id = m.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(new_id);
+        let id = if quick {
+            String::new()
+        } else {
+            m.get("id").and_then(Value::as_str).map(str::to_string).unwrap_or_else(new_id)
+        };
         let mut blocks = Vec::new();
         match ctype {
             "code" => blocks.push(Block::ToolCall {
-                name: m.get("recipient").and_then(Value::as_str).unwrap_or("code").to_string(),
-                input: content.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+                name: if quick {
+                    String::new()
+                } else {
+                    m.get("recipient").and_then(Value::as_str).unwrap_or("code").to_string()
+                },
+                input: if quick {
+                    String::new()
+                } else {
+                    content.get("text").and_then(Value::as_str).unwrap_or("").to_string()
+                },
             }),
             "execution_output" => blocks.push(Block::ToolResult {
-                name: m.get("author").and_then(|a| a.get("name")).and_then(Value::as_str).map(str::to_string),
-                output: content.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+                name: if quick {
+                    None
+                } else {
+                    m.get("author").and_then(|a| a.get("name")).and_then(Value::as_str).map(str::to_string)
+                },
+                output: if quick {
+                    String::new()
+                } else {
+                    content.get("text").and_then(Value::as_str).unwrap_or("").to_string()
+                },
                 is_error: false,
             }),
             _ => {
@@ -325,7 +351,7 @@ fn chatgpt(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
     Some(out)
 }
 
-fn claude(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
+fn claude(c: &Value, origin: &str, quick: bool) -> Option<(ExportConversation, Capture)> {
     let conv_id = c.get("uuid").and_then(Value::as_str)?.to_string();
     let source_id = new_id();
     let (mut thinking, mut lost_files) = (0, 0);
@@ -336,7 +362,11 @@ fn claude(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
             Some("assistant") => Role::Assistant,
             _ => continue,
         };
-        let id = m.get("uuid").and_then(Value::as_str).map(str::to_string).unwrap_or_else(new_id);
+        let id = if quick {
+            String::new()
+        } else {
+            m.get("uuid").and_then(Value::as_str).map(str::to_string).unwrap_or_else(new_id)
+        };
         let created_at = m.get("created_at").and_then(Value::as_str).map(str::to_string);
         let mut blocks = Vec::new();
         let mut results = Vec::new();
@@ -351,24 +381,39 @@ fn claude(c: &Value, origin: &str) -> Option<(ExportConversation, Capture)> {
                         }
                         "thinking" | "redacted_thinking" => thinking += 1,
                         "tool_use" => blocks.push(Block::ToolCall {
-                            name: b.get("name").and_then(Value::as_str).unwrap_or("tool").to_string(),
-                            input: b
-                                .get("input")
-                                .map(|i| serde_json::to_string_pretty(i).unwrap_or_default())
-                                .unwrap_or_default(),
+                            name: if quick {
+                                String::new()
+                            } else {
+                                b.get("name").and_then(Value::as_str).unwrap_or("tool").to_string()
+                            },
+                            input: if quick {
+                                String::new()
+                            } else {
+                                b.get("input")
+                                    .map(|i| serde_json::to_string_pretty(i).unwrap_or_default())
+                                    .unwrap_or_default()
+                            },
                         }),
                         "tool_result" => {
-                            let output = match b.get("content") {
-                                Some(Value::Array(parts)) => parts
-                                    .iter()
-                                    .filter_map(|p| p.get("text").and_then(Value::as_str))
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
-                                Some(Value::String(s)) => s.clone(),
-                                _ => String::new(),
+                            let output = if quick {
+                                String::new()
+                            } else {
+                                match b.get("content") {
+                                    Some(Value::Array(parts)) => parts
+                                        .iter()
+                                        .filter_map(|p| p.get("text").and_then(Value::as_str))
+                                        .collect::<Vec<_>>()
+                                        .join("\n"),
+                                    Some(Value::String(s)) => s.clone(),
+                                    _ => String::new(),
+                                }
                             };
                             results.push(Block::ToolResult {
-                                name: b.get("name").and_then(Value::as_str).map(str::to_string),
+                                name: if quick {
+                                    None
+                                } else {
+                                    b.get("name").and_then(Value::as_str).map(str::to_string)
+                                },
                                 output,
                                 is_error: b.get("is_error").and_then(Value::as_bool).unwrap_or(false),
                             });
@@ -511,5 +556,23 @@ mod tests {
         let p = dir.path().join("x.json");
         std::fs::write(&p, r#"[{"foo":1}]"#).unwrap();
         assert!(parse_export(&p).is_err());
+    }
+
+    #[test]
+    fn chatgpt_cyclic_parents_terminate_without_duplication() {
+        let doc = serde_json::json!([{
+            "conversation_id": "cyc",
+            "title": "Cycle",
+            "current_node": "n2",
+            "mapping": {
+                "n1": { "parent": "n2", "message": { "id": "m1", "author": { "role": "user" }, "content": { "parts": ["one"] } } },
+                "n2": { "parent": "n1", "message": { "id": "m2", "author": { "role": "assistant" }, "content": { "parts": ["two"] } } }
+            }
+        }]);
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("c.json");
+        std::fs::write(&p, doc.to_string()).unwrap();
+        let parsed = parse_export(&p).unwrap();
+        assert_eq!(parsed.conversations[0].1.messages.len(), 2);
     }
 }

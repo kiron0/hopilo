@@ -261,6 +261,15 @@ mod protocol {
         assert_eq!(bad["result"]["isError"], true);
         let bad = call(&lib, json!({"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"prepare_handoff","arguments":{"ids":"x"}}})).unwrap();
         assert_eq!(bad["result"]["isError"], true);
+        let zero = call(&lib, json!({"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"search_sessions","arguments":{"limit":0}}})).unwrap();
+        assert_eq!(zero["result"]["isError"], true);
+        let null_args = call(
+            &lib,
+            json!({"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"search_sessions","arguments":null}}),
+        )
+        .unwrap();
+        assert_eq!(null_args["result"]["isError"], false);
+        assert_eq!(call(&lib, json!({"jsonrpc":"2.0","foo":1})).unwrap()["error"]["code"], -32600);
     }
 }
 

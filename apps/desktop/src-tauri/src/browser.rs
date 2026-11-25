@@ -110,7 +110,28 @@ fn registry_key(id: &str) -> Option<String> {
 
 fn registry_registered(id: &str) -> bool {
     let Some(key) = registry_key(id) else { return false };
-    background_command("reg").args(["query", &key, "/ve"]).output().is_ok_and(|o| o.status.success())
+    let Ok(out) = background_command("reg").args(["query", &key, "/ve"]).output() else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    stdout.contains("REG_SZ")
+}
+
+fn registry_manifest_path(id: &str) -> Option<PathBuf> {
+    let key = registry_key(id)?;
+    let out = background_command("reg").args(["query", &key, "/ve"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    stdout.lines().find_map(|line| {
+        let (_, rest) = line.split_once("REG_SZ")?;
+        let trimmed = rest.trim();
+        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    })
 }
 
 fn register_windows(id: &str, manifest: &Path) -> Result<(), String> {
@@ -170,6 +191,13 @@ fn manifest_json(id: &str, host: &Path) -> serde_json::Value {
     v
 }
 
+fn manifest_matches_host(manifest: &Path, host: &Path) -> bool {
+    std::fs::read_to_string(manifest)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .is_some_and(|v| v.get("path").and_then(|p| p.as_str()) == Some(&host.display().to_string()))
+}
+
 pub fn targets() -> Vec<BrowserTarget> {
     let host = host_binary();
     known_browsers()
@@ -177,13 +205,11 @@ pub fn targets() -> Vec<BrowserTarget> {
         .map(|(id, name, profile)| {
             let mp = manifest_path(id, &profile);
             let registered = if cfg!(windows) {
-                registry_registered(id)
+                host.as_ref().is_some_and(|h| {
+                    registry_manifest_path(id).is_some_and(|p| p.is_file() && manifest_matches_host(&p, h))
+                })
             } else {
-                mp.as_ref()
-                    .and_then(|p| std::fs::read_to_string(p).ok())
-                    .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-                    .zip(host.as_ref())
-                    .is_some_and(|(v, h)| v.get("path").and_then(|p| p.as_str()) == Some(&h.display().to_string()))
+                mp.as_ref().zip(host.as_ref()).is_some_and(|(p, h)| manifest_matches_host(p, h))
             };
             BrowserTarget {
                 id,
@@ -250,11 +276,17 @@ pub fn unregister(ids: &[String]) -> Result<Vec<String>, String> {
 }
 
 pub fn extension_dir() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../extension/dist");
     std::fs::canonicalize(p).ok()
 }
 
 pub fn firefox_extension_dir() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../extension/dist-firefox");
     std::fs::canonicalize(p).ok()
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
-use rusqlite::OpenFlags;
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -128,6 +128,8 @@ fn extract_project(s: &str) -> Option<String> {
                 if !p.is_empty() {
                     return Some(p.to_string());
                 }
+            } else if !t.is_empty() {
+                break;
             }
         }
     }
@@ -136,7 +138,7 @@ fn extract_project(s: &str) -> Option<String> {
         if let Some(line) = after.lines().next() {
             let cwd = line.trim();
             if !cwd.is_empty() {
-                if let Some(root) = project_root(Path::new(cwd)) {
+                if let Some(root) = project_root(Path::new(cwd), true) {
                     return Some(root.display().to_string());
                 }
             }
@@ -148,25 +150,9 @@ fn extract_project(s: &str) -> Option<String> {
             return Some(root.display().to_string());
         }
     }
-    if let Some(pos) = s.find("Active Document:") {
-        let after = &s[pos + "Active Document:".len()..];
-        if let Some(line) = after.lines().next() {
-            let path_str = line.split(" (").next().unwrap_or(line).trim();
-            if let Some(root) = project_root(Path::new(path_str)) {
-                return Some(root.display().to_string());
-            }
-        }
-    }
-    if let Some(pos) = s.find("Other open documents:") {
-        let after = &s[pos + "Other open documents:".len()..];
-        for line in after.lines() {
-            let t = line.trim();
-            if let Some(p) = t.strip_prefix("- ") {
-                let path_str = p.split(" (").next().unwrap_or(p).trim();
-                if let Some(root) = project_root(Path::new(path_str)) {
-                    return Some(root.display().to_string());
-                }
-            }
+    for doc in &documents {
+        if let Some(root) = project_root(doc, false) {
+            return Some(root.display().to_string());
         }
     }
     None
@@ -186,15 +172,14 @@ fn metadata_documents(s: &str) -> Vec<PathBuf> {
     if let Some(pos) = s.find("Other open documents:") {
         let after = &s[pos + "Other open documents:".len()..];
         for line in after.lines() {
-            let Some(path) = line.trim().strip_prefix("- ") else {
-                if !line.trim().is_empty() {
-                    break;
+            let trimmed = line.trim();
+            if let Some(path) = trimmed.strip_prefix("- ") {
+                let path = path.split(" (").next().unwrap_or(path).trim();
+                if !path.is_empty() {
+                    paths.push(PathBuf::from(path));
                 }
-                continue;
-            };
-            let path = path.split(" (").next().unwrap_or(path).trim();
-            if !path.is_empty() {
-                paths.push(PathBuf::from(path));
+            } else if !trimmed.is_empty() {
+                break;
             }
         }
     }
@@ -206,14 +191,22 @@ fn common_parent(paths: &[PathBuf]) -> Option<PathBuf> {
     while !paths.iter().all(|path| path.starts_with(&root)) {
         root = root.parent()?.to_path_buf();
     }
-    (root.parent().is_some()).then_some(root)
+    (root.parent().and_then(Path::parent).is_some() && !crate::macos_protected_user_path(&root)).then_some(root)
 }
 
-fn project_root(document: &Path) -> Option<PathBuf> {
+fn project_root(document: &Path, is_known_dir: bool) -> Option<PathBuf> {
+    let start = if is_known_dir {
+        Some(document)
+    } else if crate::macos_protected_user_path(document) {
+        document.parent()
+    } else if document.is_dir() {
+        Some(document)
+    } else {
+        document.parent()
+    }?;
     if crate::macos_protected_user_path(document) {
-        return document.parent().map(Path::to_path_buf);
+        return Some(start.to_path_buf());
     }
-    let start = if document.is_dir() { document } else { document.parent()? };
 
     for dir in start.ancestors() {
         if [".git", ".hg", ".svn"].iter().any(|marker| dir.join(marker).exists()) {
@@ -422,12 +415,15 @@ fn read_session(path: &Path) -> Result<Capture> {
         return Err(AdapterError::Unrecognized(transcript.display().to_string()));
     }
 
-    let session_dir = if transcript.is_file()
-        && transcript.file_name().is_some_and(|n| n == "transcript.jsonl" || n == "transcript_full.jsonl")
-    {
-        transcript.parent().and_then(Path::parent).and_then(Path::parent).unwrap_or(&transcript)
-    } else {
-        path
+    let session_dir = match transcript.parent() {
+        Some(logs)
+            if logs.file_name().is_some_and(|n| n == "logs")
+                && logs.parent().and_then(Path::file_name).is_some_and(|n| n == ".system_generated") =>
+        {
+            logs.parent().and_then(Path::parent).unwrap_or(path)
+        }
+        Some(dir) if transcript.is_file() => dir,
+        _ => path,
     };
     let session_id = session_dir.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(new_id);
     let db_title = find_summary_db(&transcript).and_then(|db| lookup_antigravity_title(&db, &session_id));
@@ -485,12 +481,32 @@ fn find_summary_db(start: &Path) -> Option<PathBuf> {
     None
 }
 
+type TitleCache = Mutex<HashMap<PathBuf, (crate::DbMemoKey, HashMap<String, String>)>>;
+
+fn title_cache() -> &'static TitleCache {
+    static CACHE: OnceLock<TitleCache> = OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
 fn load_antigravity_titles(db_path: &Path) -> HashMap<String, String> {
+    if let Some(stamp) = crate::sqlite_cache_stamp(db_path) {
+        if let Some((cached_stamp, titles)) = title_cache().lock().ok().and_then(|c| c.get(db_path).cloned()) {
+            if cached_stamp == stamp {
+                return titles;
+            }
+        }
+        let map = read_antigravity_titles_uncached(db_path);
+        if let Ok(mut c) = title_cache().lock() {
+            c.insert(db_path.to_path_buf(), (stamp, map.clone()));
+        }
+        return map;
+    }
+    HashMap::new()
+}
+
+fn read_antigravity_titles_uncached(db_path: &Path) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        db_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) else {
+    let Ok(conn) = crate::open_sqlite_ro(db_path) else {
         return map;
     };
 
@@ -528,11 +544,14 @@ fn load_antigravity_titles(db_path: &Path) -> HashMap<String, String> {
 }
 
 fn lookup_antigravity_title(db_path: &Path, session_id: &str) -> Option<String> {
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
+    if let Some(stamp) = crate::sqlite_cache_stamp(db_path) {
+        if let Some((cached_stamp, titles)) = title_cache().lock().ok().and_then(|c| c.get(db_path).cloned()) {
+            if cached_stamp == stamp {
+                return titles.get(session_id).cloned();
+            }
+        }
+    }
+    let conn = crate::open_sqlite_ro(db_path).ok()?;
 
     if let Ok(title) = conn.query_row(
         "SELECT COALESCE(NULLIF(trim(title), ''), NULLIF(trim(preview), ''))
@@ -652,6 +671,23 @@ Other open documents:
         assert_eq!(capture.files.len(), 1);
         assert_eq!(capture.files[0].media_type, "image/png");
         assert!(matches!(capture.messages[0].blocks[1], Block::File { .. }));
+    }
+
+    #[test]
+    fn flat_transcript_and_protected_cwd_preserve_session_and_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let sess = dir.path().join("flat-sess-99");
+        std::fs::create_dir_all(&sess).unwrap();
+        let line = serde_json::json!({
+            "step_index": 0,
+            "type": "USER_INPUT",
+            "content": "<USER_REQUEST>\nFix bug\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nCommand Working Directory: /Users/me/work/repo\n</ADDITIONAL_METADATA>"
+        });
+        let tx = sess.join("transcript.jsonl");
+        std::fs::write(&tx, format!("{line}\n")).unwrap();
+        let cap = Antigravity.read(&tx).unwrap();
+        assert_eq!(cap.source.project.as_deref(), Some("/Users/me/work/repo"));
+        assert_eq!(cap.source.title, "Fix bug");
     }
 
     #[test]

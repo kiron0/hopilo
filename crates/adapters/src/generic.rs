@@ -67,7 +67,7 @@ impl LocalAgentAdapter for ChatLogAgent {
         let mut files = Vec::new();
         dir_files(root, self.depth, self.accept, &mut files);
         Ok(crate::par_scan(&files, |p| {
-            let cap = read_log(self, p).ok()?;
+            let cap = read_log(self, p, true).ok()?;
             let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
             if count == 0 {
                 return None;
@@ -88,7 +88,7 @@ impl LocalAgentAdapter for ChatLogAgent {
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
-        read_log(self, path)
+        read_log(self, path, false)
     }
 }
 
@@ -368,7 +368,13 @@ fn recover_file_part(part: &Value, n: usize) -> Option<hopilo_core::CapturedFile
     })
 }
 
-fn parts_to_blocks(role: Role, content: &Value, names: &mut HashMap<String, String>, t: &mut Tally) -> Vec<Block> {
+fn parts_to_blocks(
+    role: Role,
+    content: &Value,
+    names: &mut HashMap<String, String>,
+    t: &mut Tally,
+    quick: bool,
+) -> Vec<Block> {
     let mut blocks = Vec::new();
     match content {
         Value::String(s) => push_text(role, s, &mut blocks, t),
@@ -390,45 +396,59 @@ fn parts_to_blocks(role: Role, content: &Value, names: &mut HashMap<String, Stri
                         if let Some(id) = first_str(p, &["/id", "/toolCallId", "/call_id"]) {
                             names.insert(id.to_string(), name.clone());
                         }
-                        let input = [
-                            "/input",
-                            "/arguments",
-                            "/args",
-                            "/function/arguments",
-                            "/toolCall/value/arguments",
-                            "/toolCall/arguments",
-                        ]
-                        .iter()
-                        .find_map(|k| p.pointer(k));
-                        blocks.push(Block::ToolCall { name, input: args_text(input) });
+                        let input = if quick {
+                            String::new()
+                        } else {
+                            args_text(
+                                [
+                                    "/input",
+                                    "/arguments",
+                                    "/args",
+                                    "/function/arguments",
+                                    "/toolCall/value/arguments",
+                                    "/toolCall/arguments",
+                                ]
+                                .iter()
+                                .find_map(|k| p.pointer(k)),
+                            )
+                        };
+                        blocks.push(Block::ToolCall { name, input });
                     }
                     "tool_result" | "toolResult" | "tool-result" | "function_call_output" | "toolResponse" => {
                         let id = first_str(p, &["/tool_use_id", "/toolCallId", "/call_id", "/id"]);
                         let name = first_str(p, &["/toolName", "/name"])
                             .map(str::to_string)
                             .or_else(|| id.and_then(|i| names.get(i).cloned()));
-                        let out = ["/content", "/result", "/output", "/toolResult/value", "/toolResult"]
-                            .iter()
-                            .find_map(|k| p.pointer(k));
+                        let output = if quick {
+                            String::new()
+                        } else {
+                            ["/content", "/result", "/output", "/toolResult/value", "/toolResult"]
+                                .iter()
+                                .find_map(|k| p.pointer(k))
+                                .map(value_text)
+                                .unwrap_or_default()
+                        };
                         let is_error =
                             p.get("is_error").or_else(|| p.get("isError")).and_then(Value::as_bool).unwrap_or(false);
-                        blocks.push(Block::ToolResult {
-                            name,
-                            output: out.map(value_text).unwrap_or_default(),
-                            is_error,
-                        });
+                        blocks.push(Block::ToolResult { name, output, is_error });
                     }
                     "thinking" | "reasoning" | "redacted_thinking" => t.thinking += 1,
                     "image" | "image_url" | "input_image" | "file" | "document" => {
-                        match recover_file_part(p, t.files.len() + 1) {
-                            Some(file) => {
-                                blocks.push(file.block());
-                                t.files.push(file);
-                            }
-                            None => {
-                                t.media += 1;
-                                blocks
-                                    .push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                        if quick {
+                            t.media += 1;
+                            blocks.push(Block::Missing { description: format!("{kind} shared in the conversation") });
+                        } else {
+                            match recover_file_part(p, t.files.len() + 1) {
+                                Some(file) => {
+                                    blocks.push(file.block());
+                                    t.files.push(file);
+                                }
+                                None => {
+                                    t.media += 1;
+                                    blocks.push(Block::Missing {
+                                        description: format!("{kind} shared in the conversation"),
+                                    });
+                                }
                             }
                         }
                     }
@@ -609,7 +629,7 @@ fn read_entries(path: &Path, t: &mut Tally) -> Result<Vec<Value>> {
     Ok(out)
 }
 
-fn read_log(agent: &ChatLogAgent, path: &Path) -> Result<Capture> {
+fn read_log(agent: &ChatLogAgent, path: &Path, quick: bool) -> Result<Capture> {
     let mut t = Tally::default();
     let entries = read_entries(path, &mut t)?;
     let source_id = new_id();
@@ -636,19 +656,23 @@ fn read_log(agent: &ChatLogAgent, path: &Path) -> Result<Capture> {
         let mut blocks = if role == Role::Tool && content.is_string() {
             vec![Block::ToolResult {
                 name: tool_id.as_deref().and_then(|i| names.get(i).cloned()),
-                output: content.as_str().unwrap_or("").to_string(),
+                output: if quick { String::new() } else { content.as_str().unwrap_or("").to_string() },
                 is_error: false,
             }]
         } else {
-            parts_to_blocks(role, &content, &mut names, &mut t)
+            parts_to_blocks(role, &content, &mut names, &mut t, quick)
         };
         for c in calls.as_ref().and_then(Value::as_array).into_iter().flatten() {
             let name = first_str(c, &["/function/name", "/name"]).unwrap_or("tool").to_string();
             if let Some(id) = first_str(c, &["/id", "/toolCallId"]) {
                 names.insert(id.to_string(), name.clone());
             }
-            let input = c.pointer("/function/arguments").or_else(|| c.get("arguments")).or_else(|| c.get("input"));
-            blocks.push(Block::ToolCall { name, input: args_text(input) });
+            let input = if quick {
+                String::new()
+            } else {
+                args_text(c.pointer("/function/arguments").or_else(|| c.get("arguments")).or_else(|| c.get("input")))
+            };
+            blocks.push(Block::ToolCall { name, input });
         }
         if blocks.is_empty() {
             continue;
