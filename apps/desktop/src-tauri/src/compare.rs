@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 
 use hopilo_core::brief::{edited_files, excerpt, first_user, key_references, last_with};
-use hopilo_core::render::estimate_tokens;
 use hopilo_core::{Block, Message, Role};
 use serde::Serialize;
 use tauri::AppHandle;
@@ -48,24 +47,23 @@ pub struct Comparison {
     b_prompt_at_diverge: Option<String>,
 }
 
-fn user_texts(messages: &[&Message]) -> Vec<String> {
-    messages
-        .iter()
-        .filter(|m| m.role == Role::User && m.has_text())
-        .map(|m| {
-            m.blocks
-                .iter()
-                .filter_map(|b| match b {
-                    Block::Text { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .collect()
+fn normalize_user_text(m: &Message) -> String {
+    let mut out = String::new();
+    for b in &m.blocks {
+        if let Block::Text { text } = b {
+            for word in text.split_whitespace() {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(word);
+            }
+        }
+    }
+    out
+}
+
+fn user_texts(messages: &[Message]) -> Vec<String> {
+    messages.iter().filter(|m| m.role == Role::User && m.has_text()).map(normalize_user_text).collect()
 }
 
 fn short(s: &str, n: usize) -> String {
@@ -82,19 +80,25 @@ fn side(id: &str, row: &hopilo_database::SessionRow, messages: &[Message]) -> Si
     let keys = key_references(&refs);
     let mut tool_calls = 0;
     let mut tool_errors = 0;
-    let mut text = String::new();
+    let mut started_at: Option<&str> = None;
+    let mut ended_at: Option<&str> = None;
     for m in messages {
+        if let Some(ts) = m.created_at.as_deref() {
+            if started_at.is_none_or(|cur| ts < cur) {
+                started_at = Some(ts);
+            }
+            if ended_at.is_none_or(|cur| ts > cur) {
+                ended_at = Some(ts);
+            }
+        }
         for b in &m.blocks {
             match b {
                 Block::ToolCall { .. } => tool_calls += 1,
                 Block::ToolResult { is_error: true, .. } => tool_errors += 1,
                 _ => {}
             }
-            text.push_str(b.plain_text());
-            text.push('\n');
         }
     }
-    let times: Vec<&str> = messages.iter().filter_map(|m| m.created_at.as_deref()).collect();
     Side {
         id: id.to_string(),
         title: row.title.clone(),
@@ -106,9 +110,9 @@ fn side(id: &str, row: &hopilo_database::SessionRow, messages: &[Message]) -> Si
         assistant_turns: messages.iter().filter(|m| m.role == Role::Assistant && m.has_text()).count(),
         tool_calls,
         tool_errors,
-        token_estimate: estimate_tokens(&text),
-        started_at: times.iter().min().map(|s| s.to_string()),
-        ended_at: times.iter().max().map(|s| s.to_string()),
+        token_estimate: row.token_estimate.max(0) as usize,
+        started_at: started_at.map(str::to_string),
+        ended_at: ended_at.map(str::to_string),
         edited_files: edited_files(&refs),
         mentioned_files: keys.files,
         commands: keys.commands,
@@ -136,8 +140,8 @@ fn compare(a: Side, b: Side, a_msgs: &[Message], b_msgs: &[Message]) -> Comparis
     let (ea, eb) = (norm(&a), norm(&b));
     let ca: BTreeSet<&String> = a.commands.iter().collect();
     let cb: BTreeSet<&String> = b.commands.iter().collect();
-    let ua = user_texts(&a_msgs.iter().collect::<Vec<_>>());
-    let ub = user_texts(&b_msgs.iter().collect::<Vec<_>>());
+    let ua = user_texts(a_msgs);
+    let ub = user_texts(b_msgs);
     let common = ua.iter().zip(ub.iter()).take_while(|(x, y)| x == y).count();
     let diverge_at = (common < ua.len().max(ub.len())).then_some(common);
     Comparison {

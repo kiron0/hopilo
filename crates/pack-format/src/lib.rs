@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::{Read, Seek, Write};
 use std::path::Path;
 
-use hopilo_core::render::{render_handoff_prompt, render_markdown, RenderOptions};
+use hopilo_core::framing::render_framed_with_body;
+use hopilo_core::render::{render_markdown, RenderOptions};
 use hopilo_core::{Attachment, Pack, SCHEMA_VERSION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -35,18 +36,113 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-pub fn sanitize_filename(title: &str) -> String {
-    let mut s: String =
-        title.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
-    while s.contains("--") {
-        s = s.replace("--", "-");
+fn utf8_char_len(first: u8) -> usize {
+    match first {
+        0x00..=0x7F => 1,
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => 0,
     }
-    let s = s.trim_matches('-');
-    let s: String = s.chars().take(60).collect();
-    if s.is_empty() {
+}
+
+fn validate_utf8_chunk(mut chunk: &[u8], pending: &mut [u8; 4], pending_len: &mut usize) -> bool {
+    if *pending_len > 0 {
+        let expected = utf8_char_len(pending[0]);
+        if expected < 2 {
+            return false;
+        }
+        let need = expected - *pending_len;
+        if chunk.len() < need {
+            pending[*pending_len..*pending_len + chunk.len()].copy_from_slice(chunk);
+            *pending_len += chunk.len();
+            return std::str::from_utf8(&pending[..*pending_len])
+                .is_err_and(|e| e.error_len().is_none() && e.valid_up_to() == 0);
+        }
+        pending[*pending_len..expected].copy_from_slice(&chunk[..need]);
+        if std::str::from_utf8(&pending[..expected]).is_err() {
+            return false;
+        }
+        *pending_len = 0;
+        chunk = &chunk[need..];
+    }
+    match std::str::from_utf8(chunk) {
+        Ok(_) => true,
+        Err(e) if e.error_len().is_some() => false,
+        Err(e) => {
+            let tail = &chunk[e.valid_up_to()..];
+            pending[..tail.len()].copy_from_slice(tail);
+            *pending_len = tail.len();
+            true
+        }
+    }
+}
+
+pub fn sha256_bounded(mut reader: impl Read, max_bytes: u64, check_utf8: bool) -> std::io::Result<(String, u64, bool)> {
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut total = 0u64;
+    let mut valid_utf8 = true;
+    let mut pending = [0u8; 4];
+    let mut pending_len = 0usize;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        total = total.saturating_add(n as u64);
+        if total > max_bytes {
+            return Err(std::io::Error::other("larger than the size limit"));
+        }
+        let chunk = &buf[..n];
+        hasher.update(chunk);
+        if check_utf8 && valid_utf8 {
+            valid_utf8 = validate_utf8_chunk(chunk, &mut pending, &mut pending_len);
+        }
+    }
+    if check_utf8 && valid_utf8 && pending_len > 0 {
+        valid_utf8 = false;
+    }
+    Ok((hex::encode(hasher.finalize()), total, valid_utf8))
+}
+
+pub fn sanitize_filename(title: &str) -> String {
+    let mut s = String::with_capacity(title.len().min(60));
+    let mut chars_written = 0usize;
+    let mut prev_dash = true;
+    for c in title.chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(c.to_ascii_lowercase());
+            chars_written += 1;
+            prev_dash = false;
+        } else if !prev_dash {
+            s.push('-');
+            chars_written += 1;
+            prev_dash = true;
+        }
+        if chars_written >= 60 {
+            break;
+        }
+    }
+    let trimmed = s.trim_end_matches('-');
+    if trimmed.is_empty() {
         "context-pack".into()
-    } else {
+    } else if trimmed.len() == s.len() {
         s
+    } else {
+        trimmed.to_string()
+    }
+}
+
+struct CountWriter(u64);
+
+impl Write for CountWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len() as u64;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -111,7 +207,8 @@ struct SourceMapEntry<'a> {
 }
 
 fn attachment_path(a: &Attachment) -> String {
-    format!("attachments/{}-{}", &a.sha256[..a.sha256.len().min(12)], sanitize_attachment_name(&a.file_name))
+    let prefix: String = a.sha256.chars().take(12).map(|c| c.to_ascii_lowercase()).collect();
+    format!("attachments/{}-{}", prefix, sanitize_attachment_name(&a.file_name))
 }
 
 fn sanitize_attachment_name(name: &str) -> String {
@@ -138,34 +235,28 @@ pub fn handoff_entries(
     opts: &RenderOptions,
     available: &dyn Fn(&Attachment) -> bool,
 ) -> Result<Vec<HandoffEntry>> {
+    validate_attachments(pack)?;
     let transcript_opts = RenderOptions { include_attachments_inline: false, ..opts.clone() };
+    let mut json_count = CountWriter(0);
+    serde_json::to_writer_pretty(&mut json_count, pack)?;
+    let full_md = render_markdown(pack, opts);
+    let prompt_md = render_framed_with_body(pack, &full_md, &Default::default());
     let mut entries = vec![
-        HandoffEntry {
-            path: "conversation/normalized.json".into(),
-            size: Some(serde_json::to_vec_pretty(pack)?.len() as u64),
-            kind: "data",
-        },
+        HandoffEntry { path: "conversation/normalized.json".into(), size: Some(json_count.0), kind: "data" },
         HandoffEntry {
             path: "conversation/transcript.md".into(),
             size: Some(render_markdown(pack, &transcript_opts).len() as u64),
             kind: "transcript",
         },
-        HandoffEntry {
-            path: "context/full.md".into(),
-            size: Some(render_markdown(pack, opts).len() as u64),
-            kind: "transcript",
-        },
-        HandoffEntry {
-            path: "context/handoff-prompt.md".into(),
-            size: Some(render_handoff_prompt(pack, opts).len() as u64),
-            kind: "prompt",
-        },
+        HandoffEntry { path: "context/full.md".into(), size: Some(full_md.len() as u64), kind: "transcript" },
+        HandoffEntry { path: "context/handoff-prompt.md".into(), size: Some(prompt_md.len() as u64), kind: "prompt" },
         HandoffEntry { path: "provenance/source-map.json".into(), size: None, kind: "meta" },
     ];
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     for a in &pack.attachments {
         let path = attachment_path(a);
-        if seen.insert(path.clone()) && available(a) {
+        if !seen.contains(&path) && available(a) {
+            seen.insert(path.clone());
             entries.push(HandoffEntry { path, size: Some(a.size), kind: "file" });
         }
     }
@@ -205,12 +296,14 @@ pub fn write_handoff<W: Write + Seek>(
         w.write_all(render_markdown(pack, &transcript_opts).as_bytes())?;
         Ok(())
     })?;
+    let full_md = render_markdown(pack, opts);
     entry(&mut zip, &mut sums, "context/full.md", |w| {
-        w.write_all(render_markdown(pack, opts).as_bytes())?;
+        w.write_all(full_md.as_bytes())?;
         Ok(())
     })?;
+    let prompt_md = render_framed_with_body(pack, &full_md, &Default::default());
     entry(&mut zip, &mut sums, "context/handoff-prompt.md", |w| {
-        w.write_all(render_handoff_prompt(pack, opts).as_bytes())?;
+        w.write_all(prompt_md.as_bytes())?;
         Ok(())
     })?;
     let sources: std::collections::HashMap<_, _> = pack.sources.iter().map(|s| (s.source_id.as_str(), s)).collect();
@@ -231,16 +324,17 @@ pub fn write_handoff<W: Write + Seek>(
         serde_json::to_writer_pretty(w, &map)?;
         Ok(())
     })?;
-    let mut written = std::collections::HashSet::new();
+    let mut written = HashSet::new();
     for a in &pack.attachments {
         let path = attachment_path(a);
-        if !written.insert(path.clone()) {
+        if written.contains(&path) {
             continue;
         }
         if let Some(bytes) = bytes_for(a) {
             if bytes.len() as u64 != a.size || !sha256_hex(&bytes).eq_ignore_ascii_case(&a.sha256) {
                 return Err(FormatError::Checksum(path));
             }
+            written.insert(path.clone());
             entry(&mut zip, &mut sums, &path, |w| {
                 w.write_all(&bytes)?;
                 Ok(())
@@ -320,7 +414,7 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     let mut verified = |name: &str| -> Result<Vec<u8>> {
         let bytes = read(name)?;
         match expected.get(name) {
-            Some(h) if *h == sha256_hex(&bytes) => Ok(bytes),
+            Some(h) if h.eq_ignore_ascii_case(&sha256_hex(&bytes)) => Ok(bytes),
             _ => Err(FormatError::Checksum(name.to_string())),
         }
     };
@@ -333,11 +427,12 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
     }
     let pack: Pack = serde_json::from_slice(&verified("conversation/normalized.json")?)?;
     validate_attachments(&pack)?;
+    let manifest_files: HashSet<&str> = manifest.files.iter().map(String::as_str).collect();
     let mut attachments = BTreeMap::new();
     let mut read_blobs = BTreeMap::new();
     for a in &pack.attachments {
         let p = attachment_path(a);
-        if manifest.files.contains(&p) {
+        if manifest_files.contains(p.as_str()) {
             let bytes = match read_blobs.get(&p) {
                 Some(bytes) => std::sync::Arc::clone(bytes),
                 None => {
@@ -346,7 +441,7 @@ pub fn read_handoff<R: Read + Seek>(reader: R) -> Result<ImportedHandoff> {
                     bytes
                 }
             };
-            if sha256_hex(&bytes) != a.sha256 {
+            if bytes.len() as u64 != a.size || !sha256_hex(&bytes).eq_ignore_ascii_case(&a.sha256) {
                 return Err(FormatError::Checksum(p));
             }
             attachments.insert(a.id.clone(), bytes);
@@ -434,8 +529,21 @@ mod tests {
         let (mut pack, _) = sample();
         pack.attachments[0].sha256 = format!("{}é{}", "a".repeat(11), "b".repeat(51));
         assert!(from_json(&to_json(&pack).unwrap()).is_err());
+        assert!(handoff_entries(&pack, &RenderOptions::default(), &|_| true).is_err());
         let mut buf = Cursor::new(Vec::new());
         assert!(write_handoff(&pack, &RenderOptions::default(), &|_| None, &mut buf).is_err());
+    }
+
+    #[test]
+    fn handoff_accepts_uppercase_sha_and_rejects_mismatched_size() {
+        let (mut pack, img) = sample();
+        pack.attachments[0].sha256 = pack.attachments[0].sha256.to_ascii_uppercase();
+        let mut buf = Cursor::new(Vec::new());
+        let bytes = img.clone();
+        write_handoff(&pack, &RenderOptions::default(), &move |_| Some(bytes.clone()), &mut buf).unwrap();
+        buf.set_position(0);
+        let back = read_handoff(buf).unwrap();
+        assert_eq!(back.attachments["a1"].as_slice(), img.as_slice());
     }
 
     #[test]

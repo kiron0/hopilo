@@ -238,14 +238,14 @@ export function HandoffModal({ ids, action, onClose, onSuccess }: HandoffModalPr
   const multi = ids.length > 1;
   const isCopy = action === "copy";
   const showIntent = isCopy || (action === "export" && picked.includes("txt"));
-  const choices = intentChoices(settings.handoffTemplates);
+  const choices = useMemo(() => intentChoices(settings.handoffTemplates), [settings.handoffTemplates]);
   const choice = resolveIntent(intentKey, settings.handoffTemplates);
   const model = modelFor(targetId, settings.destinationBudgets);
   const style: PromptStyle = styleChoice === "auto" ? model.style : styleChoice;
 
   useEffect(() => {
     if (!choices.some((c) => c.key === intentKey)) setIntentKey("continue");
-  }, [choices.length]);
+  }, [choices, intentKey]);
 
   const toggleFormat = (f: Format) =>
     setPicked((p) => {

@@ -1,9 +1,9 @@
-use crate::commands::{err, lock, try_lock, with_store, write_atomic, AppState, CmdResult};
+use crate::commands::{err, lock, try_lock, write_atomic, AppState, CmdResult};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Read,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
@@ -31,6 +31,39 @@ pub struct ModelLimit {
 struct Catalog {
     updated_at: Option<String>,
     models: Vec<ModelLimit>,
+    #[serde(skip)]
+    search_keys: Vec<String>,
+}
+
+fn model_search_key(m: &ModelLimit) -> String {
+    let mut s = String::with_capacity(m.provider_id.len() + m.id.len() + m.name.len() + m.provider_name.len() + 3);
+    s.push_str(&m.provider_id);
+    s.push('/');
+    s.push_str(&m.id);
+    s.push(' ');
+    s.push_str(&m.name);
+    s.push(' ');
+    s.push_str(&m.provider_name);
+    s.make_ascii_lowercase();
+    if !s.is_ascii() {
+        return s.to_lowercase();
+    }
+    s
+}
+
+impl Catalog {
+    fn new(updated_at: Option<String>, models: Vec<ModelLimit>) -> Self {
+        let search_keys = models.iter().map(model_search_key).collect();
+        Self { updated_at, models, search_keys }
+    }
+
+    fn key_for(&self, idx: usize, m: &ModelLimit) -> std::borrow::Cow<'_, str> {
+        if let Some(k) = self.search_keys.get(idx) {
+            std::borrow::Cow::Borrowed(k.as_str())
+        } else {
+            std::borrow::Cow::Owned(model_search_key(m))
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -91,14 +124,24 @@ fn parse_catalog(body: &str) -> Result<Vec<ModelLimit>, String> {
     Ok(models)
 }
 
+fn http_client() -> Result<&'static reqwest::blocking::Client, String> {
+    static CLIENT: OnceLock<Result<reqwest::blocking::Client, String>> = OnceLock::new();
+    match CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(25))
+            .redirect(reqwest::redirect::Policy::limited(3))
+            .user_agent("Hopilo/model-limit-sync")
+            .https_only(true)
+            .build()
+            .map_err(|e| e.to_string())
+    }) {
+        Ok(c) => Ok(c),
+        Err(e) => Err(e.clone()),
+    }
+}
+
 fn fetch() -> Result<String, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(25))
-        .redirect(reqwest::redirect::Policy::limited(3))
-        .user_agent("Hopilo/model-limit-sync")
-        .https_only(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client()?;
     let response = client.get(URL).send().and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
     let mut body = String::new();
     response.take(MAX_BYTES + 1).read_to_string(&mut body).map_err(|e| e.to_string())?;
@@ -108,32 +151,44 @@ fn fetch() -> Result<String, String> {
     Ok(body)
 }
 
-fn file(app: &AppHandle) -> CmdResult<PathBuf> {
-    with_store(&app.state::<AppState>(), |s| Ok(s.root().join(FILE)))
+fn file(app: &AppHandle) -> PathBuf {
+    app.state::<AppState>().library_root.join(FILE)
 }
 
 fn catalog(app: &AppHandle) -> CmdResult<Arc<Catalog>> {
     let state = app.state::<LimitState>();
-    let mut slot = lock(&state.catalog);
-    if let Some(catalog) = slot.as_ref() {
+    if let Some(catalog) = lock(&state.catalog).as_ref() {
         return Ok(catalog.clone());
     }
-    let mut loaded: Catalog = match std::fs::read(file(app)?) {
+    let path = file(app);
+    let mut loaded: Catalog = match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
         Err(_) => Catalog::default(),
     };
     loaded.models.retain(|m| PROVIDERS.contains(&m.provider_id.as_str()));
-    let loaded = Arc::new(loaded);
+    let loaded = Arc::new(Catalog::new(loaded.updated_at, loaded.models));
+    let mut slot = lock(&state.catalog);
+    if let Some(existing) = slot.as_ref() {
+        return Ok(existing.clone());
+    }
     *slot = Some(loaded.clone());
     Ok(loaded)
 }
 
 fn search(catalog: &Catalog, query: &str) -> CatalogPage {
     let terms: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    if terms.is_empty() {
+        return CatalogPage {
+            updated_at: catalog.updated_at.clone(),
+            total: catalog.models.len(),
+            matches: catalog.models.len(),
+            models: catalog.models.iter().take(PAGE).cloned().collect(),
+        };
+    }
     let mut matches = 0;
     let mut models = vec![];
-    for m in &catalog.models {
-        let haystack = format!("{}/{} {} {}", m.provider_id, m.id, m.name, m.provider_name).to_lowercase();
+    for (i, m) in catalog.models.iter().enumerate() {
+        let haystack = catalog.key_for(i, m);
         if terms.iter().all(|t| haystack.contains(t.as_str())) {
             matches += 1;
             if models.len() < PAGE {
@@ -157,8 +212,8 @@ pub async fn sync_model_limits(app: AppHandle) -> CmdResult<CatalogPage> {
             return Err("A model limit sync is already running".into());
         };
         let models = parse_catalog(&fetch()?)?;
-        let next = Catalog { updated_at: Some(chrono::Utc::now().to_rfc3339()), models };
-        write_atomic(&file(&app)?, &serde_json::to_vec(&next).map_err(err)?)?;
+        let next = Catalog::new(Some(chrono::Utc::now().to_rfc3339()), models);
+        write_atomic(&file(&app), &serde_json::to_vec(&next).map_err(err)?)?;
         let next = Arc::new(next);
         *lock(&state.catalog) = Some(next.clone());
         Ok(search(&next, ""))
@@ -212,7 +267,7 @@ mod tests {
                 window: 1000,
             });
         }
-        let catalog = Catalog { updated_at: None, models };
+        let catalog = Catalog::new(None, models);
         let page = search(&catalog, "ANTHROPIC model");
         assert_eq!((page.matches, page.models[0].id.as_str()), (1, "org/model-v1"));
         let page = search(&catalog, "bulk");

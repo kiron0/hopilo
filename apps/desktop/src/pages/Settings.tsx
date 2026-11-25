@@ -306,7 +306,7 @@ export function Settings() {
 
         <Group id="storage" title="Storage">
           <Row label="Data folder" hint={info.data?.dataDir}>
-            <Button size="sm" icon={<FolderOpen size={13} />} disabled={!info.data} onClick={() => info.data && revealItemInDir(`${info.data.dataDir}/hopilo.db`)}>
+            <Button size="sm" icon={<FolderOpen size={13} />} disabled={!info.data} onClick={() => info.data && revealItemInDir(info.data.dataDir)}>
               {`Show in ${fileManagerLabel}`}
             </Button>
           </Row>

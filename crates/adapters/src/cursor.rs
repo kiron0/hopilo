@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, Role, Source, SourceKind};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -12,7 +13,7 @@ pub struct Cursor;
 const DB_NAME: &str = "state.vscdb";
 
 fn open_ro(db: &Path) -> Result<Connection> {
-    Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
+    crate::open_sqlite_ro(db)
         .map_err(|e| AdapterError::Io { path: db.display().to_string(), source: std::io::Error::other(e) })
 }
 
@@ -56,43 +57,45 @@ impl LocalAgentAdapter for Cursor {
         if !db.is_file() {
             return Ok(vec![]);
         }
-        let (size, file_mtime) = crate::file_meta(&db)?;
-        let conn = open_ro(&db)?;
-        let Some(table) = kv_table(&conn) else { return Ok(vec![]) };
+        crate::db_memo_scan(&db, |db| {
+            let (size, file_mtime) = crate::file_meta(db)?;
+            let conn = open_ro(db)?;
+            let Some(table) = kv_table(&conn) else { return Ok(vec![]) };
 
-        let Ok(mut stmt) = conn.prepare(&format!("SELECT key, value FROM {table} WHERE key LIKE 'composerData:%'"))
-        else {
-            return Ok(vec![]);
-        };
-        let mut rows = stmt.query([]).map_err(sql_err(&db))?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next().map_err(sql_err(&db))? {
-            let key: String = row.get(0).map_err(sql_err(&db))?;
-            let Some(json) = json_cell(row.get_ref(1).ok()) else { continue };
-            let composer_id = json
-                .get("composerId")
-                .and_then(Value::as_str)
-                .unwrap_or_else(|| key.trim_start_matches("composerData:"))
-                .to_string();
-            let message_count = bubble_headers(&json).len().max(legacy_conversation(&json).len());
-            if message_count == 0 {
-                continue;
+            let Ok(mut stmt) = conn.prepare(&format!("SELECT key, value FROM {table} WHERE key LIKE 'composerData:%'"))
+            else {
+                return Ok(vec![]);
+            };
+            let mut rows = stmt.query([]).map_err(sql_err(db))?;
+            let mut out = Vec::new();
+            while let Some(row) = rows.next().map_err(sql_err(db))? {
+                let key: String = row.get(0).map_err(sql_err(db))?;
+                let Some(json) = json_cell(row.get_ref(1).ok()) else { continue };
+                let composer_id = json
+                    .get("composerId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| key.trim_start_matches("composerData:"))
+                    .to_string();
+                let message_count = bubble_headers(&json).len().max(legacy_conversation(&json).len());
+                if message_count == 0 {
+                    continue;
+                }
+                out.push(DiscoveredSession {
+                    adapter: "cursor".into(),
+                    path: format!("{}#{}", db.display(), composer_id),
+                    session_id: composer_id,
+                    title: composer_title(&json),
+                    project: None,
+                    model: composer_model(&json),
+                    modified_at: composer_time(&json, "lastUpdatedAt")
+                        .or_else(|| composer_time(&json, "createdAt"))
+                        .unwrap_or_else(|| file_mtime.clone()),
+                    size_bytes: size,
+                    message_count,
+                });
             }
-            out.push(DiscoveredSession {
-                adapter: "cursor".into(),
-                path: format!("{}#{}", db.display(), composer_id),
-                session_id: composer_id,
-                title: composer_title(&json),
-                project: None,
-                model: composer_model(&json),
-                modified_at: composer_time(&json, "lastUpdatedAt")
-                    .or_else(|| composer_time(&json, "createdAt"))
-                    .unwrap_or_else(|| file_mtime.clone()),
-                size_bytes: size,
-                message_count,
-            });
-        }
-        Ok(out)
+            Ok(out)
+        })
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
@@ -114,11 +117,14 @@ impl LocalAgentAdapter for Cursor {
         let bubbles: Vec<Value> = if headers.is_empty() {
             legacy_conversation(&json).to_vec()
         } else {
+            let prefix = format!("bubbleId:{composer_id}:");
+            let mut by_key = kv_prefix(&conn, table, &prefix);
             headers
                 .iter()
                 .filter_map(|h| {
                     let id = h.get("bubbleId").and_then(Value::as_str)?;
-                    let b = kv_get(&conn, table, &format!("bubbleId:{composer_id}:{id}"));
+                    let full_key = format!("{prefix}{id}");
+                    let b = by_key.remove(&full_key);
                     if b.is_none() {
                         missing_bubbles += 1;
                     }
@@ -228,6 +234,25 @@ fn kv_get(conn: &Connection, table: &str, key: &str) -> Option<Value> {
     conn.query_row(&format!("SELECT value FROM {table} WHERE key = ?1"), [key], |r| Ok(json_cell(r.get_ref(0).ok())))
         .ok()
         .flatten()
+}
+
+fn kv_prefix(conn: &Connection, table: &str, prefix: &str) -> HashMap<String, Value> {
+    let mut out = HashMap::new();
+    let escaped = prefix.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let pattern = format!("{escaped}%");
+    let Ok(mut stmt) = conn.prepare(&format!("SELECT key, value FROM {table} WHERE key LIKE ?1 ESCAPE '\\'")) else {
+        return out;
+    };
+    let Ok(mut rows) = stmt.query([&pattern]) else {
+        return out;
+    };
+    while let Ok(Some(row)) = rows.next() {
+        let Ok(key) = row.get::<_, String>(0) else { continue };
+        if let Some(val) = json_cell(row.get_ref(1).ok()) {
+            out.insert(key, val);
+        }
+    }
+    out
 }
 
 fn bubble_headers(json: &Value) -> &[Value] {

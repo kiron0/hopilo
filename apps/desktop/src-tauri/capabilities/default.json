@@ -3,9 +3,7 @@
   "identifier": "default",
   "description": "Permissions for Hopilo's own windows",
   "windows": [
-    "main",
-    "quick",
-    "welcome"
+    "main"
   ],
   "permissions": [
     "core:default",

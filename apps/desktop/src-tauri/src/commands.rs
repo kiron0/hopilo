@@ -14,6 +14,7 @@ use crate::files::{self, FilePreflight};
 type DiscoveryCache = HashMap<(String, PathBuf), (u64, Vec<DiscoveredSession>)>;
 
 pub struct AppState {
+    pub library_root: PathBuf,
     pub store: Mutex<Store>,
 
     pub discovery: Mutex<DiscoveryCache>,
@@ -25,7 +26,19 @@ pub struct AppState {
 
 impl AppState {
     pub(crate) fn setting(&self, key: &str) -> Option<serde_json::Value> {
-        self.settings.read().ok()?.get(key).cloned()
+        self.settings.read().unwrap_or_else(|p| p.into_inner()).get(key).cloned()
+    }
+
+    pub(crate) fn set_setting_mirror(&self, key: String, value: serde_json::Value) {
+        self.settings.write().unwrap_or_else(|p| p.into_inner()).insert(key, value);
+    }
+
+    pub(crate) fn remove_setting_mirror(&self, key: &str) {
+        self.settings.write().unwrap_or_else(|p| p.into_inner()).remove(key);
+    }
+
+    pub(crate) fn replace_settings_mirror(&self, settings: HashMap<String, serde_json::Value>) {
+        *self.settings.write().unwrap_or_else(|p| p.into_inner()) = settings;
     }
 }
 
@@ -107,17 +120,13 @@ pub struct AppInfo {
 
 #[tauri::command]
 pub async fn app_info(app: AppHandle) -> CmdResult<AppInfo> {
-    blocking(app, move |app, state| {
-        let app = app.clone();
-        let data_dir = with_store(&state, |s| Ok(s.root().display().to_string()))?;
-        Ok(AppInfo {
-            version: app.package_info().version.to_string(),
-            data_dir,
-            platform: std::env::consts::OS.into(),
-            adapters: all_adapters().iter().map(|a| a.info()).collect(),
-        })
+    let data_dir = app.state::<AppState>().library_root.display().to_string();
+    Ok(AppInfo {
+        version: app.package_info().version.to_string(),
+        data_dir,
+        platform: std::env::consts::OS.into(),
+        adapters: all_adapters().iter().map(|a| a.info()).collect(),
     })
-    .await
 }
 
 #[tauri::command]
@@ -138,9 +147,7 @@ pub fn quit_app(app: AppHandle) {
 pub(crate) fn save_setting_blocking(app: &AppHandle, key: &str, value: serde_json::Value) -> CmdResult<()> {
     let state = app.state::<AppState>();
     with_store(&state, |s| s.set_setting(key, &value).map_err(err))?;
-    if let Ok(mut mirror) = state.settings.write() {
-        mirror.insert(key.to_string(), value.clone());
-    }
+    state.set_setting_mirror(key.to_string(), value.clone());
     let _ = app.emit("hopilo://settings-changed", (key, &value));
     Ok(())
 }
@@ -185,11 +192,16 @@ fn dedupe_discovered(mut found: Vec<DiscoveredSession>) -> Vec<DiscoveredSession
 }
 
 fn checked_session_path(adapter: &dyn hopilo_adapters::LocalAgentAdapter, path: &str) -> CmdResult<PathBuf> {
-    let (file, fragment) = match path.rsplit_once('#') {
-        Some((f, frag)) => (f, Some(frag)),
-        None => (path, None),
+    let (real, fragment) = match std::fs::canonicalize(path) {
+        Ok(real) => (real, None),
+        Err(first_err) => match path.rsplit_once('#') {
+            Some((file, frag)) if !frag.is_empty() && !frag.contains(['/', '\\']) => {
+                let real = std::fs::canonicalize(file).map_err(|e| format!("{file}: {e}"))?;
+                (real, Some(frag))
+            }
+            _ => return Err(format!("{path}: {first_err}")),
+        },
     };
-    let real = std::fs::canonicalize(file).map_err(|e| format!("{file}: {e}"))?;
     let allowed =
         adapter.default_roots().iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|root| real.starts_with(root));
     if !allowed {
@@ -251,7 +263,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
         },
     };
     if mode == SyncMode::Background {
-        let mut last = state.last_background_sync.lock().unwrap_or_else(|p| p.into_inner());
+        let mut last = lock(&state.last_background_sync);
         if last.is_some_and(|at| at.elapsed() < Duration::from_secs(30)) {
             return SyncResult::default();
         }
@@ -260,7 +272,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     let mut result = SyncResult::default();
     const ANTIGRAVITY_MEDIA_MIGRATION: &str = "migration.antigravityMediaV1";
     let backfill_antigravity = state.setting(ANTIGRAVITY_MEDIA_MIGRATION).and_then(|v| v.as_bool()) != Some(true);
-    let mut antigravity_backfill_failed = false;
+    let mut antigravity_backfill_store_failed = false;
     let known = with_store(&state, |s| s.session_origins().map_err(err)).unwrap_or_default();
     let found = discover_all(app);
     result.found = found.len();
@@ -278,11 +290,13 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
         }) {
             continue;
         }
-        let saved = read_session(&d.adapter, &d.path).and_then(|(source, messages, files)| {
-            with_store(&state, |s| {
-                store_captured_files(s, &files)?;
-                s.upsert_session(&source, &messages, Some(&d.modified_at)).map_err(err)
-            })
+        let Ok((source, messages, files)) = read_session(&d.adapter, &d.path) else {
+            result.failed += 1;
+            continue;
+        };
+        let saved = with_store(&state, |s| {
+            store_captured_files(s, &files)?;
+            s.upsert_session(&source, &messages, Some(&d.modified_at)).map_err(err)
         });
         match saved {
             Ok(_) => {
@@ -295,7 +309,7 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
             }
             Err(_) => {
                 result.failed += 1;
-                antigravity_backfill_failed |= force_backfill;
+                antigravity_backfill_store_failed |= force_backfill;
             }
         }
         if pending && last_emit.elapsed() >= std::time::Duration::from_millis(1500) {
@@ -307,12 +321,11 @@ pub(crate) fn sync_blocking(app: &AppHandle, mode: SyncMode) -> SyncResult {
     if pending {
         notify(app);
     }
-    if backfill_antigravity && !antigravity_backfill_failed {
+    *lock(&state.last_background_sync) = Some(Instant::now());
+    if backfill_antigravity && !antigravity_backfill_store_failed {
         let done = serde_json::Value::Bool(true);
         if with_store(&state, |s| s.set_setting(ANTIGRAVITY_MEDIA_MIGRATION, &done).map_err(err)).is_ok() {
-            if let Ok(mut mirror) = state.settings.write() {
-                mirror.insert(ANTIGRAVITY_MEDIA_MIGRATION.into(), done);
-            }
+            state.set_setting_mirror(ANTIGRAVITY_MEDIA_MIGRATION.into(), done);
         }
     }
     result
@@ -396,6 +409,7 @@ pub async fn update_session(app: AppHandle, id: String, patch: SessionPatch) -> 
 #[tauri::command]
 pub async fn remove_session(app: AppHandle, id: String) -> CmdResult<()> {
     blocking(app, move |app, state| {
+        let _sync = lock(&state.sync_lock);
         with_store(&state, |s| s.remove_session(&id).map_err(err))?;
         notify(app);
         Ok(())
@@ -509,10 +523,16 @@ pub async fn import_handoff_file(app: AppHandle, path: String) -> CmdResult<Vec<
     blocking(app, move |app, state| import_handoff_blocking(app, &state, &path)).await
 }
 
+fn is_web_origin(url: &str) -> bool {
+    let lower = url.trim_start().to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
+}
+
 pub(crate) fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, path: &str) -> CmdResult<Vec<String>> {
     let p = Path::new(path);
     let is_json = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
-    let (pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, std::sync::Arc<Vec<u8>>>) = if is_json {
+    let (mut pack, blobs): (hopilo_core::Pack, std::collections::BTreeMap<String, std::sync::Arc<Vec<u8>>>) = if is_json
+    {
         let text = hopilo_core::limits::read_text(p).map_err(err)?;
         (hopilo_pack_format::from_json(&text).map_err(err)?, Default::default())
     } else {
@@ -520,12 +540,30 @@ pub(crate) fn import_handoff_blocking(app: &AppHandle, state: &State<AppState>, 
         let h = hopilo_pack_format::read_handoff(f).map_err(err)?;
         (h.pack, h.attachments)
     };
-    let ids = with_store(state, |s| {
-        for a in &pack.attachments {
-            if let Some(bytes) = blobs.get(&a.id) {
-                let a = Attachment { origin_path: None, ..a.clone() };
-                s.insert_attachment(&a, bytes).map_err(err)?;
+    for s in &mut pack.sources {
+        if !s.origin.as_deref().is_some_and(is_web_origin) {
+            s.origin = None;
+        }
+    }
+    for m in &mut pack.messages {
+        for b in &mut m.blocks {
+            if let Block::File { sha256, .. } = b {
+                sha256.make_ascii_lowercase();
             }
+        }
+    }
+    let mut blobs_to_insert = Vec::new();
+    for a in &mut pack.attachments {
+        let old_id = std::mem::replace(&mut a.id, new_id());
+        a.origin_path = None;
+        a.sha256.make_ascii_lowercase();
+        if let Some(bytes) = blobs.get(&old_id) {
+            blobs_to_insert.push((a.clone(), bytes));
+        }
+    }
+    let ids = with_store(state, |s| {
+        for (a, bytes) in blobs_to_insert {
+            s.insert_attachment(&a, bytes).map_err(err)?;
         }
         s.adopt_pack(&pack).map_err(err)
     })?;
@@ -544,9 +582,29 @@ pub struct PreflightResult {
 pub async fn preflight_files(app: AppHandle, paths: Vec<String>) -> CmdResult<PreflightResult> {
     tauri::async_runtime::spawn_blocking(move || {
         let (expanded, notes) = files::expand(&paths);
-        let state = app.state::<AppState>();
-        let is_known = |sha: &str| with_store(&state, |s| Ok(s.has_sha(sha).unwrap_or(false))).unwrap_or(false);
-        Ok(PreflightResult { files: expanded.iter().map(|p| files::preflight(p, &is_known)).collect(), notes })
+        let mut inspected: Vec<_> = expanded.iter().map(|p| files::preflight(p)).collect();
+        if inspected.iter().any(|(_, sha)| sha.is_some()) {
+            let state = app.state::<AppState>();
+            let known = with_store(&state, |s| {
+                let mut seen = HashSet::new();
+                for (_, sha) in &inspected {
+                    if let Some(h) = sha.as_deref() {
+                        if s.has_sha(h).unwrap_or(false) {
+                            seen.insert(h.to_string());
+                        }
+                    }
+                }
+                Ok(seen)
+            })
+            .unwrap_or_default();
+            for (pf, sha) in &mut inspected {
+                if sha.as_deref().is_some_and(|h| known.contains(h)) {
+                    pf.duplicate = true;
+                    pf.warnings.push("Already in your library — the existing copy will be reused".into());
+                }
+            }
+        }
+        Ok(PreflightResult { files: inspected.into_iter().map(|(pf, _)| pf).collect(), notes })
     })
     .await
     .map_err(err)?
@@ -682,8 +740,7 @@ pub async fn read_file_preview(
     length: u32,
 ) -> CmdResult<tauri::ipc::Response> {
     blocking(app, move |_, state| {
-        let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
-        let bytes = files::preview_chunk(&root, &sha, offset, length).map_err(err)?;
+        let bytes = files::preview_chunk(&state.library_root, &sha, offset, length).map_err(err)?;
         Ok(tauri::ipc::Response::new(bytes))
     })
     .await
@@ -703,6 +760,25 @@ fn is_external_url(url: &str) -> bool {
     ["https://", "http://", "mailto:"].iter().any(|p| lower.starts_with(p))
 }
 
+fn is_package_bundle(p: &Path) -> bool {
+    const BUNDLE_EXTS: &[&str] = &[
+        "app",
+        "bundle",
+        "pkg",
+        "mpkg",
+        "scptd",
+        "prefpane",
+        "framework",
+        "plugin",
+        "action",
+        "workflow",
+        "kext",
+        "xpc",
+        "appex",
+    ];
+    p.extension().and_then(|e| e.to_str()).is_some_and(|e| BUNDLE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
 #[tauri::command]
 pub fn open_folder(app: AppHandle, path: String) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
@@ -710,75 +786,111 @@ pub fn open_folder(app: AppHandle, path: String) -> CmdResult<()> {
     if !p.is_dir() {
         return Err(format!("Folder does not exist: {path}"));
     }
-    if p.extension().is_some() {
+    if is_package_bundle(p) {
         return app.opener().reveal_item_in_dir(p).map_err(err);
     }
     app.opener().open_path(path, None::<&str>).map_err(err)
 }
 
-const LAUNCHABLE_EXTS: &[&str] = &[
-    "app",
-    "command",
-    "tool",
-    "terminal",
-    "sh",
-    "bash",
-    "zsh",
-    "csh",
-    "ksh",
-    "fish",
-    "pkg",
-    "mpkg",
-    "dmg",
-    "scpt",
-    "scptd",
-    "applescript",
-    "workflow",
-    "action",
-    "prefpane",
-    "webloc",
-    "inetloc",
-    "fileloc",
-    "url",
-    "exe",
-    "com",
-    "bat",
-    "cmd",
-    "msi",
-    "msix",
-    "appx",
-    "ps1",
-    "psm1",
-    "vbs",
-    "vbe",
-    "js",
-    "jse",
-    "wsf",
-    "wsh",
-    "hta",
-    "scr",
-    "pif",
-    "lnk",
-    "reg",
-    "cpl",
-    "jar",
-    "desktop",
-    "appimage",
-    "run",
-    "deb",
-    "rpm",
-    "py",
-    "pyw",
-    "pl",
-    "rb",
-    "php",
+const SAFE_OPEN_EXTS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tif", "tiff", "heic", "avif", "pdf", "txt", "md", "markdown",
+    "rst", "csv", "tsv", "log", "json", "jsonl", "yaml", "yml", "toml", "xml", "ini", "cfg", "conf", "diff", "patch",
+    "sql", "graphql", "proto", "rs", "go", "java", "kt", "swift", "c", "h", "cc", "cpp", "hpp", "cs", "ts", "tsx",
+    "jsx", "css", "scss", "less", "vue", "svelte", "lua", "dart", "scala", "r", "tex", "mp3", "wav", "m4a", "aac",
+    "flac", "ogg", "opus", "mp4", "m4v", "mov", "webm", "ogv", "docx", "xlsx", "pptx", "odt", "ods", "odp", "rtf",
+    "epub",
 ];
+const SAFE_OPEN_NAMES: &[&str] = &["readme", "license", "changelog", "copying", "authors", "notice"];
+
+fn can_open_directly(name: &str) -> bool {
+    let path = Path::new(name);
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        return SAFE_OPEN_EXTS.contains(&ext.to_ascii_lowercase().as_str());
+    }
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| SAFE_OPEN_NAMES.contains(&n.to_ascii_lowercase().as_str()))
+}
 
 fn is_launchable(name: &str) -> bool {
-    Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| LAUNCHABLE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+    !can_open_directly(name)
+}
+
+fn sanitize_open_filename(raw: &str) -> String {
+    let cleaned: String =
+        raw.chars()
+            .map(|c| {
+                if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
+    let cleaned = cleaned.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
+    if cleaned.is_empty() {
+        return "file".to_string();
+    }
+    let stem = cleaned.split('.').next().unwrap_or("");
+    let reserved = matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    if reserved {
+        format!("_{cleaned}")
+    } else {
+        cleaned
+    }
+}
+
+pub(crate) fn prune_open_cache(open_root: &Path, keep: Option<&Path>) {
+    const MAX_CACHED_DIRS: usize = 50;
+    const MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
+    let Ok(rd) = std::fs::read_dir(open_root) else { return };
+    let now = std::time::SystemTime::now();
+    let mut dirs: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if keep.is_some_and(|k| k == p) {
+            continue;
+        }
+        let Ok(md) = std::fs::symlink_metadata(&p) else { continue };
+        let modified = md.modified().unwrap_or(std::time::UNIX_EPOCH);
+        if now.duration_since(modified).is_ok_and(|age| age > MAX_AGE) {
+            let _ = if md.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+            continue;
+        }
+        if md.is_dir() {
+            dirs.push((modified, p));
+        }
+    }
+    if dirs.len() > MAX_CACHED_DIRS {
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.0));
+        for (_, p) in dirs.into_iter().skip(MAX_CACHED_DIRS) {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
 }
 
 #[tauri::command]
@@ -789,22 +901,20 @@ pub async fn open_file(app: AppHandle, sha: String) -> CmdResult<()> {
 fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let (a, bytes) = stored_file(state, sha)?;
-    let name: String =
-        a.file_name
-            .chars()
-            .map(|c| {
-                if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
-                    '_'
-                } else {
-                    c
-                }
-            })
-            .collect();
-    let name = name.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
-    let dir = app.path().app_cache_dir().map_err(err)?.join("open").join(&sha[..sha.len().min(16)]);
+    let open_root = app.path().app_cache_dir().map_err(err)?.join("open");
+    let sha_prefix = sha.to_ascii_lowercase();
+    let dir = open_root.join(&sha_prefix[..sha_prefix.len().min(16)]);
     std::fs::create_dir_all(&dir).map_err(err)?;
-    let dest = dir.join(if name.trim().is_empty() { "file".to_string() } else { name });
-    std::fs::write(&dest, bytes).map_err(err)?;
+    let dest = dir.join(sanitize_open_filename(&a.file_name));
+    let same_on_disk = dest.metadata().ok().is_some_and(|m| m.is_file() && m.len() == bytes.len() as u64)
+        && std::fs::File::open(&dest)
+            .and_then(|f| hopilo_pack_format::sha256_bounded(f, bytes.len() as u64, false))
+            .ok()
+            .is_some_and(|(disk_sha, _, _)| disk_sha == sha_prefix);
+    if !same_on_disk {
+        write_atomic(&dest, &bytes)?;
+    }
+    prune_open_cache(&open_root, Some(&dir));
     if is_launchable(&dest.display().to_string()) {
         return app.opener().reveal_item_in_dir(&dest).map_err(err);
     }
@@ -866,9 +976,7 @@ pub async fn set_setting(app: AppHandle, key: String, value: serde_json::Value) 
     blocking(app, move |app, state| {
         let app = app.clone();
         with_store(&state, |s| s.set_setting(&key, &value).map_err(err))?;
-        if let Ok(mut mirror) = state.settings.write() {
-            mirror.insert(key.clone(), value.clone());
-        }
+        state.set_setting_mirror(key.clone(), value.clone());
         let _ = app.emit("hopilo://settings-changed", (&key, &value));
         Ok(())
     })
@@ -882,19 +990,20 @@ pub async fn integrity_check(app: AppHandle) -> CmdResult<String> {
 
 #[tauri::command]
 pub async fn audit_library(app: AppHandle) -> CmdResult<hopilo_database::AuditReport> {
-    blocking(app, |_, state| {
-        let root = with_store(&state, |s| Ok(s.root().to_path_buf()))?;
-        Store::open_reader(&root).map_err(err)?.audit().map_err(err)
-    })
-    .await
+    blocking(app, |_, state| Store::open_reader(&state.library_root).map_err(err)?.audit().map_err(err)).await
 }
 
 #[tauri::command]
 pub async fn wipe_library(app: AppHandle) -> CmdResult<()> {
     blocking(app, |app, state| {
+        let backup_rt = app.try_state::<crate::backups::BackupRuntime>();
+        let _backup_guard = backup_rt.as_deref().map(crate::backups::lock_operation);
+        let _sync = lock(&state.sync_lock);
         with_store(&state, |s| s.wipe().map_err(err))?;
-        if let Ok(mut c) = state.discovery.lock() {
-            c.clear();
+        lock(&state.discovery).clear();
+        *lock(&state.last_background_sync) = None;
+        if let Ok(open_root) = app.path().app_cache_dir().map(|d| d.join("open")) {
+            let _ = std::fs::remove_dir_all(open_root);
         }
         notify(app);
         Ok(())
@@ -956,7 +1065,10 @@ pub async fn unregister_browser_host(app: AppHandle, ids: Vec<String>) -> CmdRes
                 let _ = s.remove_setting("browser.extensionVersion");
                 Ok(())
             })?;
+            state.remove_setting_mirror("browser.lastSeen");
+            state.remove_setting_mirror("browser.extensionVersion");
             let _ = app.emit("hopilo://settings-changed", ("browser.lastSeen", &serde_json::Value::Null));
+            let _ = app.emit("hopilo://settings-changed", ("browser.extensionVersion", &serde_json::Value::Null));
         }
         notify(app);
         Ok(())
@@ -1163,9 +1275,22 @@ mod tests {
         assert!(is_launchable("/tmp/x/notes.command"));
         assert!(is_launchable("/tmp/x/Setup.EXE"));
         assert!(is_launchable("run.sh"));
+        assert!(is_launchable("page.html"));
+        assert!(is_launchable("script.py"));
+        assert!(is_launchable("macro.docm"));
+        assert!(is_launchable("unknown_binary"));
         assert!(!is_launchable("diagram.png"));
         assert!(!is_launchable("README"));
         assert!(!is_launchable("report.pdf"));
+    }
+
+    #[test]
+    fn folder_bundle_and_open_filename_safety() {
+        assert!(is_package_bundle(Path::new("/Applications/Calculator.app")));
+        assert!(!is_package_bundle(Path::new("/Users/dev/hopilo-v1.0")));
+        assert_eq!(sanitize_open_filename("CON.txt"), "_CON.txt");
+        assert_eq!(sanitize_open_filename("..."), "file");
+        assert_eq!(sanitize_open_filename("../a:b?.md"), "_a_b_.md");
     }
 
     #[test]

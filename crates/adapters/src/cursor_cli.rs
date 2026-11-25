@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use hopilo_core::{new_id, now_rfc3339, Block, CaptureStatus, Message, OmittedCount, Role, Source, SourceKind};
-use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use crate::text::title_from;
@@ -159,8 +158,7 @@ fn blocks_for(role: Role, content: &Value, t: &mut Tally) -> Vec<Block> {
 }
 
 fn read_store(db: &Path) -> Result<Capture> {
-    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(sql(db))?;
+    let conn = crate::open_sqlite_ro(db).map_err(sql(db))?;
     let meta = conn
         .query_row("SELECT value FROM meta WHERE key = '0' OR key = 'meta' LIMIT 1", [], |r| bytes(r, 0))
         .ok()
@@ -237,6 +235,7 @@ fn read_store(db: &Path) -> Result<Capture> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     #[test]
     fn reads_json_blobs_in_order() {

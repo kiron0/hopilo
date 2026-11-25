@@ -1,4 +1,4 @@
-use std::io::{stdin, stdout};
+use std::io::{stdin, stdout, BufReader};
 
 use hopilo_database::Store;
 use hopilo_native_host::{
@@ -34,7 +34,7 @@ fn main() {
         return;
     }
     let mut host = Host { store };
-    let mut input = stdin().lock();
+    let mut input = BufReader::new(stdin().lock());
     while let Ok(Some(req)) = read_message(&mut input) {
         let resp = fit_outgoing(host.handle(&req));
         if write_message(&mut out, &resp).is_err() {

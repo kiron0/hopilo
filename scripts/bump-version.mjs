@@ -141,16 +141,27 @@ if (nextCargo !== cargo) {
   console.log(`  ✓ Updated ${relative(root, cargoToml)}`);
 }
 
+const runStep = (cmd, args, opts = {}) => {
+  const res = spawnSync(cmd, args, { cwd: root, ...opts });
+  if (res.error) throw res.error;
+  if (res.status !== 0) {
+    throw new Error(`${cmd} ${args.join(" ")} exited with ${res.status ?? res.signal}`);
+  }
+};
+
 try {
   const res = spawnSync("cargo", ["check", "--workspace", "--quiet"], {
     cwd: root,
     stdio: "ignore",
   });
-  if (res.status !== 0) {
-    spawnSync("cargo", ["check", "--workspace"], { cwd: root, stdio: "inherit" });
+  if (res.error || res.status !== 0) {
+    runStep("cargo", ["check", "--workspace"], { stdio: "inherit" });
   }
   console.log("  ✓ Updated Cargo.lock");
-} catch {}
+} catch (err) {
+  console.error(`Error updating Cargo.lock: ${err.message}`);
+  process.exit(1);
+}
 
 try {
   const res = spawnSync("pnpm", ["install", "--lockfile-only", "--quiet"], {
@@ -158,15 +169,17 @@ try {
     shell: process.platform === "win32",
     stdio: "ignore",
   });
-  if (res.status !== 0) {
-    spawnSync("pnpm", ["install", "--no-frozen-lockfile"], {
-      cwd: root,
+  if (res.error || res.status !== 0) {
+    runStep("pnpm", ["install", "--no-frozen-lockfile"], {
       shell: process.platform === "win32",
       stdio: "inherit",
     });
   }
   console.log("  ✓ Updated pnpm-lock.yaml");
-} catch {}
+} catch (err) {
+  console.error(`Error updating pnpm-lock.yaml: ${err.message}`);
+  process.exit(1);
+}
 
 if (existsSync(changelogFile)) {
   const changelog = readFileSync(changelogFile, "utf8");

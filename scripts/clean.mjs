@@ -57,6 +57,10 @@ if (process.argv.includes("--all")) {
     console.error(res.error);
     process.exit(1);
   }
+  if (res.status !== 0) {
+    console.error(`cargo clean failed with ${res.status ?? res.signal}`);
+    process.exit(res.status ?? 1);
+  }
 }
 
 console.log("Clean complete. Dependencies, signing keys, installed app, app data preserved.");

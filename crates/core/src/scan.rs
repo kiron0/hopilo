@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::borrow::Cow;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use regex::{Regex, RegexBuilder};
+use regex::{Regex, RegexBuilder, RegexSet, RegexSetBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -33,6 +34,7 @@ pub const BUILTIN_KINDS: &[&str] = &[
     "Slack token",
     "JWT",
     "Connection string",
+    "Auth header",
     "Secret assignment",
     "Email address",
 ];
@@ -41,7 +43,10 @@ fn builtin_patterns() -> &'static [(&'static str, Regex)] {
     static P: OnceLock<Vec<(&'static str, Regex)>> = OnceLock::new();
     P.get_or_init(|| {
         [
-            ("Private key", r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)"),
+            (
+                "Private key",
+                r"(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\z)",
+            ),
             ("Anthropic API key", r"sk-ant-[A-Za-z0-9_\-]{20,}"),
             ("OpenAI-style API key", r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}"),
             ("GitHub token", r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
@@ -51,11 +56,15 @@ fn builtin_patterns() -> &'static [(&'static str, Regex)] {
             ("JWT", r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
             (
                 "Connection string",
-                r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqps?|mssql|sqlserver)://[^\s:/@]+:[^\s@/]+@[^\s'`]+",
+                r#"(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqps?|mssql|sqlserver)://[^\s:/@]*:[^\s@/]+@[^\s'`"]+"#,
+            ),
+            (
+                "Auth header",
+                r"(?i)\b(?:Authorization\s*:\s*(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}|Bearer\s+[A-Za-z0-9._~+/=-]{20,})",
             ),
             (
                 "Secret assignment",
-                r#"(?i)\b(?:password|passwd|secret|api_key|apikey|token)\s*[:=]\s*["']?[^\s"']{8,}"#,
+                r#"(?i)\b(?:password|passwd|secret|api_?key|access_?token|auth_?token|token)["']?\s*[:=]\s*["']?[^\[\s"',}\]]{8,}"#,
             ),
             ("Email address", r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
         ]
@@ -132,22 +141,32 @@ pub fn fingerprint(matched: &str) -> String {
 }
 
 fn mask(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= 8 {
-        return "•".repeat(chars.len());
+    let mut chars = s.chars();
+    let mut head = String::with_capacity(4);
+    let mut count = 0usize;
+    for c in chars.by_ref().take(9) {
+        if count < 4 {
+            head.push(c);
+        }
+        count += 1;
     }
-    let head: String = chars[..4].iter().collect();
-    format!("{head}{}", "•".repeat(8))
+    if count <= 8 {
+        return "•".repeat(count);
+    }
+    format!("{head}••••••••")
 }
 
+#[derive(Clone)]
 struct Rule {
     kind: String,
     re: Regex,
     custom: bool,
 }
 
+#[derive(Clone)]
 pub struct Redactor {
     rules: Vec<Rule>,
+    set: Option<RegexSet>,
     ignore: HashSet<String>,
     excludes: Vec<String>,
 }
@@ -160,7 +179,12 @@ impl Default for Redactor {
 
 impl Redactor {
     pub fn builtin() -> Self {
-        Self::new(&RedactionRules::default(), std::iter::empty()).0
+        Self::builtin_ref().clone()
+    }
+
+    pub fn builtin_ref() -> &'static Self {
+        static BUILTIN: OnceLock<Redactor> = OnceLock::new();
+        BUILTIN.get_or_init(|| Self::new(&RedactionRules::default(), std::iter::empty()).0)
     }
 
     pub fn new(rules: &RedactionRules, ignore: impl IntoIterator<Item = String>) -> (Self, Vec<RuleError>) {
@@ -183,14 +207,37 @@ impl Redactor {
                 out.push(Rule { kind: "Blocked keyword".into(), re, custom: true });
             }
         }
+        let set = RegexSetBuilder::new(out.iter().map(|r| r.re.as_str()))
+            .size_limit(4 << 20)
+            .dfa_size_limit(4 << 20)
+            .build()
+            .ok();
         let excludes = rules.exclude_paths.iter().map(|g| g.trim().to_string()).filter(|g| !g.is_empty()).collect();
-        (Self { rules: out, ignore: ignore.into_iter().collect(), excludes }, errors)
+        (Self { rules: out, set, ignore: ignore.into_iter().collect(), excludes }, errors)
+    }
+
+    pub fn with_ignore(mut self, ignore: impl IntoIterator<Item = String>) -> Self {
+        self.ignore = ignore.into_iter().collect();
+        self
     }
 
     pub fn scan_text(&self, text: &str, location: &str, out: &mut Vec<Finding>) {
-        for rule in &self.rules {
+        if text.is_empty() || self.rules.is_empty() {
+            return;
+        }
+        let matches = self.set.as_ref().map(|s| s.matches(text));
+        if matches.as_ref().is_some_and(|m| !m.matched_any()) {
+            return;
+        }
+        for (idx, rule) in self.rules.iter().enumerate() {
+            if matches.as_ref().is_some_and(|m| !m.matched(idx)) {
+                continue;
+            }
             for m in rule.re.find_iter(text).take(20) {
                 let fp = fingerprint(m.as_str());
+                if !self.ignore.is_empty() && self.ignore.contains(&fp) {
+                    continue;
+                }
                 if let Some(f) = out.iter_mut().find(|f| f.fingerprint == fp && f.kind == rule.kind) {
                     f.count += 1;
                     continue;
@@ -247,10 +294,11 @@ impl Redactor {
             if out.len() >= LIMIT {
                 break;
             }
+            let loc = format!("attachment:{}", a.id);
             if let Some(t) = &a.text {
-                self.scan_text(t, &format!("attachment:{}", a.id), &mut out);
+                self.scan_text(t, &loc, &mut out);
             }
-            self.scan_text(&a.file_name, &format!("attachment:{}", a.id), &mut out);
+            self.scan_text(&a.file_name, &loc, &mut out);
         }
         out.truncate(LIMIT);
         out
@@ -260,56 +308,106 @@ impl Redactor {
         self.redact_cow(text).into_owned()
     }
 
-    pub fn redact_cow<'t>(&self, text: &'t str) -> std::borrow::Cow<'t, str> {
-        let mut out = std::borrow::Cow::Borrowed(text);
-        for rule in &self.rules {
-            if !rule.re.is_match(&out) {
+    pub fn redact_cow<'t>(&self, text: &'t str) -> Cow<'t, str> {
+        self.redact_cow_counted(text).0
+    }
+
+    pub fn redact_cow_counted<'t>(&self, text: &'t str) -> (Cow<'t, str>, usize) {
+        if text.is_empty() || self.rules.is_empty() {
+            return (Cow::Borrowed(text), 0);
+        }
+        let matches = self.set.as_ref().map(|s| s.matches(text));
+        if matches.as_ref().is_some_and(|m| !m.matched_any()) {
+            return (Cow::Borrowed(text), 0);
+        }
+
+        #[derive(Clone, Copy)]
+        struct Span {
+            start: usize,
+            end: usize,
+            rule_idx: usize,
+        }
+
+        let mut spans = Vec::new();
+        for (rule_idx, rule) in self.rules.iter().enumerate() {
+            if matches.as_ref().is_some_and(|m| !m.matched(rule_idx)) {
                 continue;
             }
-            let replaced = rule.re.replace_all(&out, |c: &regex::Captures| {
-                let m = &c[0];
-                if self.ignore.contains(&fingerprint(m)) {
-                    m.to_string()
-                } else {
-                    format!("[REDACTED: {}]", rule.kind)
+            for m in rule.re.find_iter(text) {
+                if m.start() == m.end() {
+                    continue;
                 }
-            });
-            if let std::borrow::Cow::Owned(next) = replaced {
-                if next != *out {
-                    out = std::borrow::Cow::Owned(next);
+                if !self.ignore.is_empty() && self.ignore.contains(&fingerprint(m.as_str())) {
+                    continue;
                 }
+                spans.push(Span { start: m.start(), end: m.end(), rule_idx });
             }
         }
-        out
+        if spans.is_empty() {
+            return (Cow::Borrowed(text), 0);
+        }
+
+        spans.sort_unstable_by(|a, b| a.start.cmp(&b.start).then(b.end.cmp(&a.end)).then(a.rule_idx.cmp(&b.rule_idx)));
+        let mut merged: Vec<Span> = Vec::with_capacity(spans.len());
+        for s in spans {
+            if let Some(last) = merged.last_mut() {
+                if s.start < last.end {
+                    if s.end > last.end {
+                        last.end = s.end;
+                    }
+                    if s.rule_idx < last.rule_idx {
+                        last.rule_idx = s.rule_idx;
+                    }
+                    continue;
+                }
+            }
+            merged.push(s);
+        }
+
+        let count = merged.len();
+        let mut out = String::with_capacity(text.len());
+        let mut cursor = 0;
+        for s in merged {
+            out.push_str(&text[cursor..s.start]);
+            out.push_str("[REDACTED: ");
+            out.push_str(&self.rules[s.rule_idx].kind);
+            out.push(']');
+            cursor = s.end;
+        }
+        out.push_str(&text[cursor..]);
+        (Cow::Owned(out), count)
     }
 
-    fn redact_in_place(&self, text: &mut String) {
-        if let std::borrow::Cow::Owned(next) = self.redact_cow(text) {
+    fn redact_in_place(&self, text: &mut String) -> usize {
+        let (cow, count) = self.redact_cow_counted(text);
+        if let Cow::Owned(next) = cow {
             *text = next;
         }
+        count
     }
 
-    pub fn redact_pack(&self, pack: &mut Pack) {
+    pub fn redact_pack(&self, pack: &mut Pack) -> usize {
+        let mut total = 0;
         for m in &mut pack.messages {
             for b in &mut m.blocks {
                 match b {
-                    crate::model::Block::Text { text } => self.redact_in_place(text),
+                    crate::model::Block::Text { text } => total += self.redact_in_place(text),
                     crate::model::Block::ToolCall { name, input } => {
-                        self.redact_in_place(name);
-                        self.redact_in_place(input);
+                        total += self.redact_in_place(name);
+                        total += self.redact_in_place(input);
                     }
                     crate::model::Block::ToolResult { name, output, .. } => {
                         if let Some(name) = name {
-                            self.redact_in_place(name);
+                            total += self.redact_in_place(name);
                         }
-                        self.redact_in_place(output);
+                        total += self.redact_in_place(output);
                     }
-                    crate::model::Block::Missing { description } => self.redact_in_place(description),
-                    crate::model::Block::File { name, .. } => self.redact_in_place(name),
+                    crate::model::Block::Missing { description } => total += self.redact_in_place(description),
+                    crate::model::Block::File { name, .. } => total += self.redact_in_place(name),
                 }
             }
         }
-        self.redact_in_place(&mut pack.title);
+        total += self.redact_in_place(&mut pack.title);
         let context = &mut pack.context;
         for text in context
             .note
@@ -321,10 +419,10 @@ impl Redactor {
             .chain(context.next_steps.iter_mut())
             .chain(pack.tags.iter_mut())
         {
-            self.redact_in_place(text);
+            total += self.redact_in_place(text);
         }
         for source in &mut pack.sources {
-            self.redact_in_place(&mut source.title);
+            total += self.redact_in_place(&mut source.title);
             for text in source
                 .origin
                 .iter_mut()
@@ -332,18 +430,19 @@ impl Redactor {
                 .chain(source.model.iter_mut())
                 .chain(source.missing_items.iter_mut())
             {
-                self.redact_in_place(text);
+                total += self.redact_in_place(text);
             }
         }
         for a in &mut pack.attachments {
-            self.redact_in_place(&mut a.file_name);
+            total += self.redact_in_place(&mut a.file_name);
             if let Some(path) = &mut a.origin_path {
-                self.redact_in_place(path);
+                total += self.redact_in_place(path);
             }
             if let Some(t) = &mut a.text {
-                self.redact_in_place(t);
+                total += self.redact_in_place(t);
             }
         }
+        total
     }
 
     pub fn is_excluded(&self, a: &Attachment) -> bool {
@@ -359,11 +458,16 @@ impl Redactor {
         let (dropped, kept): (Vec<_>, Vec<_>) =
             std::mem::take(&mut pack.attachments).into_iter().partition(|a| self.is_excluded(a));
         pack.attachments = kept;
-        let gone: HashSet<&str> = dropped.iter().map(|a| a.sha256.as_str()).collect();
+        let kept_shas: HashSet<String> = pack.attachments.iter().map(|a| a.sha256.to_ascii_lowercase()).collect();
+        let gone_pairs: HashSet<(String, &str)> =
+            dropped.iter().map(|a| (a.sha256.to_ascii_lowercase(), a.file_name.as_str())).collect();
+        let gone_shas: HashSet<String> =
+            dropped.iter().map(|a| a.sha256.to_ascii_lowercase()).filter(|s| !kept_shas.contains(s)).collect();
         for m in &mut pack.messages {
             for b in &mut m.blocks {
                 if let crate::model::Block::File { name, sha256, .. } = b {
-                    if gone.contains(sha256.as_str()) {
+                    let sha_lower = sha256.to_ascii_lowercase();
+                    if gone_pairs.contains(&(sha_lower.clone(), name.as_str())) || gone_shas.contains(&sha_lower) {
                         *b = crate::model::Block::Missing {
                             description: format!("{name} (left out by your exclusion rules)"),
                         };
@@ -376,54 +480,81 @@ impl Redactor {
 }
 
 fn path_matches(glob: &str, path: &str) -> bool {
-    let path = path.replace('\\', "/");
-    if glob_match(glob, &path) {
+    let owned;
+    let path = if path.contains('\\') {
+        owned = path.replace('\\', "/");
+        owned.as_str()
+    } else {
+        path
+    };
+    if glob_match(glob, path) {
         return true;
     }
-    let parts: Vec<&str> = path.split('/').collect();
-    (1..parts.len()).any(|i| glob_match(glob, &parts[i..].join("/")))
+    path.match_indices('/').any(|(idx, _)| glob_match(glob, &path[idx + 1..]))
+}
+
+#[inline]
+fn norm_glob_ascii(b: u8) -> u8 {
+    if b == b'\\' {
+        b'/'
+    } else {
+        b.to_ascii_lowercase()
+    }
 }
 
 pub fn glob_match(glob: &str, text: &str) -> bool {
-    let g: Vec<char> = glob.to_lowercase().replace('\\', "/").chars().collect();
-    let t: Vec<char> = text.to_lowercase().replace('\\', "/").chars().collect();
-    let mut memo: HashMap<(usize, usize), bool> = HashMap::new();
-    fn go(g: &[char], t: &[char], gi: usize, ti: usize, memo: &mut HashMap<(usize, usize), bool>) -> bool {
-        if let Some(v) = memo.get(&(gi, ti)) {
-            return *v;
-        }
-        let r = if gi == g.len() {
-            ti == t.len()
-        } else if g[gi] == '*' {
-            let double = g.get(gi + 1) == Some(&'*');
-            let next = if double { gi + 2 } else { gi + 1 };
-            let next = if double && g.get(next) == Some(&'/') { next + 1 } else { next };
-            (ti..=t.len()).take_while(|&k| double || k == ti || t[k - 1] != '/').any(|k| go(g, t, next, k, memo))
-        } else if ti < t.len() && (g[gi] == '?' && t[ti] != '/' || g[gi] == t[ti]) {
-            go(g, t, gi + 1, ti + 1, memo)
-        } else {
-            false
-        };
-        memo.insert((gi, ti), r);
-        r
+    if glob.is_ascii() && text.is_ascii() {
+        return glob_match_slice(glob.as_bytes(), text.as_bytes(), |&b| norm_glob_ascii(b), b'*', b'?', b'/');
     }
-    go(&g, &t, 0, 0, &mut memo)
+    let g: Vec<char> = glob.to_lowercase().chars().map(|c| if c == '\\' { '/' } else { c }).collect();
+    let t: Vec<char> = text.to_lowercase().chars().map(|c| if c == '\\' { '/' } else { c }).collect();
+    glob_match_slice(&g, &t, |&c| c, '*', '?', '/')
+}
+
+fn glob_match_slice<T: PartialEq>(g: &[T], t: &[T], norm: impl Fn(&T) -> T, star: T, qmark: T, slash: T) -> bool {
+    let tn = t.len();
+    let mut rows = [vec![false; tn + 1], vec![false; tn + 1], vec![false; tn + 1], vec![false; tn + 1]];
+    rows[g.len() % 4][tn] = true;
+    for gi in (0..g.len()).rev() {
+        let cur_idx = gi % 4;
+        if norm(&g[gi]) == star {
+            let double = g.get(gi + 1).is_some_and(|c| norm(c) == star);
+            let mut next = if double { gi + 2 } else { gi + 1 };
+            if double && g.get(next).is_some_and(|c| norm(c) == slash) {
+                next += 1;
+            }
+            let next_idx = next % 4;
+            rows[cur_idx][tn] = rows[next_idx][tn];
+            for ti in (0..tn).rev() {
+                rows[cur_idx][ti] = rows[next_idx][ti] || ((double || norm(&t[ti]) != slash) && rows[cur_idx][ti + 1]);
+            }
+        } else {
+            let next_idx = (gi + 1) % 4;
+            rows[cur_idx][tn] = false;
+            let gc = norm(&g[gi]);
+            for ti in 0..tn {
+                let tc = norm(&t[ti]);
+                rows[cur_idx][ti] = (gc == qmark && tc != slash || gc == tc) && rows[next_idx][ti + 1];
+            }
+        }
+    }
+    rows[0][0]
 }
 
 pub fn scan_text(text: &str, location: &str, out: &mut Vec<Finding>) {
-    Redactor::builtin().scan_text(text, location, out)
+    Redactor::builtin_ref().scan_text(text, location, out)
 }
 
 pub fn scan_pack(pack: &Pack, only: Option<&HashSet<String>>) -> Vec<Finding> {
-    Redactor::builtin().scan_pack(pack, only)
+    Redactor::builtin_ref().scan_pack(pack, only)
 }
 
 pub fn redact_text(text: &str) -> String {
-    Redactor::builtin().redact_text(text)
+    Redactor::builtin_ref().redact_text(text)
 }
 
-pub fn redact_pack(pack: &mut Pack) {
-    Redactor::builtin().redact_pack(pack)
+pub fn redact_pack(pack: &mut Pack) -> usize {
+    Redactor::builtin_ref().redact_pack(pack)
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -574,5 +705,58 @@ mod tests {
         assert!(path_matches("deploy/config.json", "/repo/deploy/config.json"));
         assert!(glob_match("**/secrets/*", "a/b/secrets/x.txt"));
         assert!(!glob_match("deploy/*.json", "deploy/x/config.json"));
+        assert!(glob_match("**/foo/*.pem", "foo/bar/foo/x.pem"));
+        assert!(path_matches("*.pem", r"C:\repo\keys\server.pem"));
+    }
+
+    #[test]
+    fn ignored_findings_are_omitted_and_redacted_tags_not_double_scanned() {
+        let keep = fingerprint("admin@example.com");
+        let rules = RedactionRules { keywords: vec!["Email address".into(), "Anthropic".into()], ..Default::default() };
+        let (r, errors) = Redactor::new(&rules, [keep]);
+        assert!(errors.is_empty());
+        let mut f = Vec::new();
+        r.scan_text("mail admin@example.com and other@example.com", "m1", &mut f);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].count, 1);
+
+        let redacted = r.redact_text("use sk-ant-api03-abcdefghijklmnopqrstuvwxyz");
+        assert_eq!(redacted, "use [REDACTED: Anthropic API key]");
+    }
+
+    #[test]
+    fn catches_pgp_json_auth_header_and_password_only_url() {
+        assert_eq!(
+            redact_text("-----BEGIN PGP PRIVATE KEY BLOCK-----\nabc\n-----END PGP PRIVATE KEY BLOCK-----"),
+            "[REDACTED: Private key]"
+        );
+        assert!(redact_text(r#"{"api_key": "super_secret_key_123"}"#).contains("[REDACTED: Secret assignment]"));
+        assert!(redact_text("Authorization: Bearer abcdefghijkl").contains("[REDACTED: Auth header]"));
+        assert!(redact_text("REDIS=REDIS://:hunter22@cache.internal:6379").contains("[REDACTED: Connection string]"));
+    }
+
+    #[test]
+    fn drop_excluded_preserves_kept_attachment_with_same_sha() {
+        let mut pack: Pack = serde_json::from_value(serde_json::json!({
+            "schemaVersion": "1.0.0", "packId": "p", "title": "t", "version": 0,
+            "createdAt": "", "mode": "full", "sources": [],
+            "messages": [{ "id": "m", "sourceId": "s", "role": "user", "blocks": [
+                { "type": "file", "name": ".env.local", "mediaType": "text/plain", "size": 5, "sha256": "abc" },
+                { "type": "file", "name": "public.txt", "mediaType": "text/plain", "size": 5, "sha256": "abc" }
+            ] }],
+            "attachments": [
+                { "id": "1", "fileName": ".env.local", "mediaType": "text/plain", "size": 5, "sha256": "ABC" },
+                { "id": "2", "fileName": "public.txt", "mediaType": "text/plain", "size": 5, "sha256": "abc" }
+            ]
+        }))
+        .unwrap();
+        let (r, _) = Redactor::new(&RedactionRules { exclude_paths: vec!["*.env*".into()], ..Default::default() }, []);
+        let dropped = r.drop_excluded(&mut pack);
+        assert_eq!(dropped, vec![".env.local"]);
+        assert!(matches!(pack.messages[0].blocks[0], crate::model::Block::Missing { .. }));
+        assert!(
+            matches!(pack.messages[0].blocks[1], crate::model::Block::File { ref name, .. } if name == "public.txt")
+        );
+        assert_eq!(redact_pack(&mut pack), 0);
     }
 }

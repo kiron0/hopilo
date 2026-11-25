@@ -158,7 +158,7 @@ export function installMockIpc() {
           minimal: { messageCount: 3, tokenEstimate: 4_900 },
         };
       case "builtin_redaction_kinds":
-        return ["Private key", "Anthropic API key", "OpenAI-style API key", "GitHub token", "AWS access key", "Google API key", "Slack token", "JWT", "Connection string", "Secret assignment", "Email address"];
+        return ["Private key", "Anthropic API key", "OpenAI-style API key", "GitHub token", "AWS access key", "Google API key", "Slack token", "JWT", "Connection string", "Auth header", "Secret assignment", "Email address"];
       case "test_redaction_rule": {
         try {
           const re = new RegExp(a.pattern, "g");

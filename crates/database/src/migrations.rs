@@ -181,6 +181,67 @@ const MIGRATIONS: &[&str] = &[
     r#"
     DROP TABLE IF EXISTS ignored_session_origins;
     "#,
+    r#"
+    DROP TABLE IF EXISTS search_index_v2;
+    CREATE VIRTUAL TABLE search_index_v2 USING fts5(
+        kind UNINDEXED, ref_id UNINDEXED, title, body, tokenize = 'unicode61', prefix = '2 3'
+    );
+    INSERT INTO search_index_v2 (kind, ref_id, title, body)
+    SELECT kind, ref_id, title, body FROM search_index;
+    DROP TABLE search_index;
+    ALTER TABLE search_index_v2 RENAME TO search_index;
+
+    CREATE TABLE IF NOT EXISTS search_index_map (
+        kind TEXT NOT NULL,
+        ref_id TEXT NOT NULL,
+        fts_rowid INTEGER NOT NULL,
+        PRIMARY KEY (kind, ref_id)
+    );
+    DELETE FROM search_index_map;
+    INSERT OR REPLACE INTO search_index_map (kind, ref_id, fts_rowid)
+    SELECT kind, ref_id, rowid FROM search_index;
+
+    CREATE TABLE IF NOT EXISTS source_files (
+        source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+        sha256 TEXT NOT NULL,
+        PRIMARY KEY (source_id, sha256)
+    );
+    CREATE INDEX IF NOT EXISTS source_files_sha ON source_files(sha256);
+    INSERT OR IGNORE INTO source_files (source_id, sha256)
+    SELECT DISTINCT m.source_id, lower(json_extract(j.value, '$.sha256'))
+    FROM messages m, json_each(m.blocks_json) j
+    WHERE m.blocks_json LIKE '%"type":"file"%'
+      AND json_valid(m.blocks_json)
+      AND json_extract(j.value, '$.type') = 'file'
+      AND json_extract(j.value, '$.sha256') IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS pack_files (
+        pack_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        sha256 TEXT NOT NULL,
+        PRIMARY KEY (pack_id, version, sha256),
+        FOREIGN KEY (pack_id, version) REFERENCES pack_versions(pack_id, version) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS pack_files_sha ON pack_files(sha256);
+    INSERT OR IGNORE INTO pack_files (pack_id, version, sha256)
+    SELECT DISTINCT pv.pack_id, pv.version, lower(json_extract(a.value, '$.sha256'))
+    FROM pack_versions pv, json_each(pv.snapshot_json, '$.attachments') a
+    WHERE json_valid(pv.snapshot_json)
+      AND json_extract(a.value, '$.sha256') IS NOT NULL;
+    INSERT OR IGNORE INTO pack_files (pack_id, version, sha256)
+    SELECT DISTINCT pv.pack_id, pv.version, lower(json_extract(b.value, '$.sha256'))
+    FROM pack_versions pv, json_each(pv.snapshot_json, '$.messages') msg, json_each(msg.value, '$.blocks') b
+    WHERE json_valid(pv.snapshot_json)
+      AND pv.snapshot_json LIKE '%"type":"file"%'
+      AND json_extract(b.value, '$.type') = 'file'
+      AND json_extract(b.value, '$.sha256') IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS sources_hidden_kind ON sources(hidden, kind);
+    CREATE INDEX IF NOT EXISTS sources_hidden_provider ON sources(hidden, provider);
+    CREATE INDEX IF NOT EXISTS sources_hidden_project_trim ON sources(hidden, COALESCE(trim(project), ''));
+    CREATE INDEX IF NOT EXISTS sources_hidden_model ON sources(hidden, COALESCE(NULLIF(trim(model), ''), '__unknown'));
+    ANALYZE;
+    "#,
 ];
 
 pub fn latest() -> usize {
@@ -188,7 +249,14 @@ pub fn latest() -> usize {
 }
 
 pub fn run(conn: &mut Connection) -> rusqlite::Result<()> {
-    let current: usize = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? as usize;
+    let raw: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if raw < 0 || (raw as usize) > latest() {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+            Some(format!("unsupported database schema version {raw}")),
+        ));
+    }
+    let current = raw as usize;
     for (i, sql) in MIGRATIONS.iter().enumerate().skip(current) {
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
@@ -227,5 +295,14 @@ mod tests {
         let retired: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('workspaces','workspace_sessions','workspace_handoffs','session_lineage')", [], |r| r.get(0)).unwrap();
         assert_eq!(retired, 0);
         assert!(!conn.prepare("SELECT 1 FROM manual_file_messages").unwrap().exists([]).unwrap());
+    }
+
+    #[test]
+    fn rejects_negative_or_future_schema_versions() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", -1).unwrap();
+        assert!(run(&mut conn).is_err());
+        conn.pragma_update(None, "user_version", (latest() + 1) as i64).unwrap();
+        assert!(run(&mut conn).is_err());
     }
 }

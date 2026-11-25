@@ -74,8 +74,12 @@ fn call_tool(name: &str, args: &Value, open: &dyn Fn() -> Result<Store, AgentErr
             let limit = match args.get("limit") {
                 None | Some(Value::Null) => None,
                 Some(v) => {
-                    Some(v.as_u64().ok_or_else(|| AgentError::new("bad_request", "limit must be a positive integer"))?
-                        as usize)
+                    let n =
+                        v.as_u64().ok_or_else(|| AgentError::new("bad_request", "limit must be a positive integer"))?;
+                    if n < 1 {
+                        return Err(AgentError::new("bad_request", "limit must be at least 1"));
+                    }
+                    Some(usize::try_from(n).unwrap_or(usize::MAX))
                 }
             };
             let store = open()?;
@@ -132,9 +136,14 @@ pub fn handle_line(line: &str, open: &dyn Fn() -> Result<Store, AgentError>) -> 
         return Some(failure(Value::Null, -32600, "Invalid request"));
     };
     let method = obj.get("method").and_then(Value::as_str);
+    let is_notification_or_response = method.is_some() || obj.contains_key("result") || obj.contains_key("error");
     let id = match obj.get("id") {
         None => {
-            return None;
+            return if is_notification_or_response {
+                None
+            } else {
+                Some(failure(Value::Null, -32600, "Invalid request"))
+            };
         }
         Some(id @ (Value::String(_) | Value::Number(_))) => id.clone(),
         Some(_) => return Some(failure(Value::Null, -32600, "Invalid request id")),
@@ -166,8 +175,12 @@ pub fn handle_line(line: &str, open: &dyn Fn() -> Result<Store, AgentError>) -> 
             if !matches!(name, "search_sessions" | "prepare_handoff") {
                 return Some(failure(id, -32602, &format!("Unknown tool: {name}")));
             }
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            match call_tool(name, &args, open) {
+            let default_args = json!({});
+            let args = match params.get("arguments") {
+                None | Some(Value::Null) => &default_args,
+                Some(v) => v,
+            };
+            match call_tool(name, args, open) {
                 Ok(result) => reply(id, result),
                 Err(e) => reply(id, tool_text(e.to_string(), true)),
             }

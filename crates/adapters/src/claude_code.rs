@@ -34,12 +34,13 @@ struct LineOrigin {
 
 const TASK_NOTIFICATION: &str = "task-notification";
 const TASK_NOTIFICATION_OPEN: &str = "<task-notification>";
+const TASK_NOTIFICATION_QUOTED: &str = "\"<task-notification>";
 
 impl LineHead {
     fn is_task_notification(&self) -> bool {
         self.kind == "user"
             && (self.origin.as_ref().is_some_and(|o| o.kind == TASK_NOTIFICATION)
-                || self.message.as_ref().is_some_and(|m| m.get().contains(&format!("\"{TASK_NOTIFICATION_OPEN}"))))
+                || self.message.as_ref().is_some_and(|m| m.get().contains(TASK_NOTIFICATION_QUOTED)))
     }
 }
 
@@ -344,10 +345,16 @@ fn read_session(path: &Path) -> Result<Capture> {
             _ => {}
         }
 
-        if kind == "assistant" {
-            if model.is_none() {
-                model = msg.get("model").and_then(Value::as_str).map(str::to_string);
+        if kind == "assistant" && model.is_none() {
+            model = msg.get("model").and_then(Value::as_str).map(str::to_string);
+        }
+        if blocks.is_empty() {
+            if kind != "assistant" {
+                last_assistant_id = None;
             }
+            continue;
+        }
+        if kind == "assistant" {
             let api_id = msg.get("id").and_then(Value::as_str).map(str::to_string);
             if api_id.is_some() && api_id == last_assistant_id {
                 if let Some(prev) = messages.last_mut() {
@@ -358,10 +365,6 @@ fn read_session(path: &Path) -> Result<Capture> {
             last_assistant_id = api_id;
         } else {
             last_assistant_id = None;
-        }
-
-        if blocks.is_empty() {
-            continue;
         }
         let role = if kind == "assistant" {
             Role::Assistant
@@ -541,6 +544,24 @@ mod tests {
 
         let found = ClaudeCode.discover(dir.path()).unwrap();
         assert_eq!(found[0].message_count, 3);
+    }
+
+    #[test]
+    fn empty_thinking_only_assistant_line_does_not_merge_next_turn_into_previous() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let lines = [
+            serde_json::json!({ "type": "user", "uuid": "u1", "message": { "role": "user", "content": "Turn 1" } }),
+            serde_json::json!({ "type": "assistant", "uuid": "a1", "message": { "id": "msg_1", "role": "assistant", "content": [{ "type": "text", "text": "Reply 1" }] } }),
+            serde_json::json!({ "type": "assistant", "uuid": "a2", "message": { "id": "msg_2", "role": "assistant", "content": [{ "type": "thinking", "thinking": "hmm" }] } }),
+            serde_json::json!({ "type": "assistant", "uuid": "a3", "message": { "id": "msg_2", "role": "assistant", "content": [{ "type": "text", "text": "Reply 2" }] } }),
+        ];
+        let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+        std::fs::write(&path, body).unwrap();
+        let cap = ClaudeCode.read(&path).unwrap();
+        assert_eq!(cap.messages.len(), 3);
+        assert_eq!(cap.messages[1].blocks[0].plain_text(), "Reply 1");
+        assert_eq!(cap.messages[2].blocks[0].plain_text(), "Reply 2");
     }
 
     #[test]

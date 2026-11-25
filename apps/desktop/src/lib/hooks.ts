@@ -307,7 +307,7 @@ export function useBootstrap() {
       "hopilo://visibility",
       ({ payload }) => {
         windowShown = payload !== false;
-        if (windowShown) schedule();
+        if (windowShown && dirty) schedule();
       },
       label ? { target: label } : undefined,
     );
@@ -316,10 +316,10 @@ export function useBootstrap() {
       const [key, value] = payload;
       if (key === LIST_VIEW_KEY && value && typeof value === "object") {
         if (!isOwnListViewEcho(value)) hydrateListView(value as Partial<ListView>);
-      } else if (key in DEFAULT_SETTINGS) {
+      } else if (Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
         if (savesInFlight.get(key)) return;
         setSettings(normalizeSetting(key, value));
-      } else {
+      } else if (key === "restored") {
         load();
       }
     });

@@ -38,7 +38,44 @@ pub(crate) fn macos_protected_user_path(path: &Path) -> bool {
         return false;
     }
     let Some(home) = home() else { return false };
-    ["Desktop", "Documents", "Downloads"].iter().any(|folder| path.starts_with(home.join(folder)))
+    is_under_protected_folders(path, &home)
+}
+
+fn lexical_normalize(path: &Path) -> Vec<String> {
+    use std::path::Component;
+    let mut parts: Vec<String> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.last().is_some_and(|p| p != "/" && !p.ends_with(':')) {
+                    parts.pop();
+                }
+            }
+            Component::RootDir => parts.push("/".into()),
+            Component::Prefix(p) => parts.push(p.as_os_str().to_string_lossy().to_ascii_lowercase()),
+            Component::Normal(s) => parts.push(s.to_string_lossy().to_lowercase()),
+        }
+    }
+    parts
+}
+
+pub(crate) fn is_under_protected_folders(path: &Path, home: &Path) -> bool {
+    let p = lexical_normalize(path);
+    ["desktop", "documents", "downloads"].iter().any(|folder| {
+        let mut target = lexical_normalize(home);
+        target.push((*folder).to_string());
+        p.len() >= target.len() && p[..target.len()] == target[..]
+    })
+}
+
+pub(crate) fn open_sqlite_ro(db: &Path) -> std::result::Result<rusqlite::Connection, rusqlite::Error> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(250));
+    Ok(conn)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -198,6 +235,41 @@ pub(crate) fn memo_scan(
     Some(v)
 }
 
+pub(crate) type DbMemoKey = (u64, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>);
+type DbMemo = std::sync::Mutex<std::collections::HashMap<PathBuf, (DbMemoKey, Vec<DiscoveredSession>)>>;
+
+fn db_memo() -> &'static DbMemo {
+    static MEMO: std::sync::OnceLock<DbMemo> = std::sync::OnceLock::new();
+    MEMO.get_or_init(Default::default)
+}
+
+pub(crate) fn sqlite_cache_stamp(db: &Path) -> Option<DbMemoKey> {
+    let md = std::fs::metadata(db).ok()?;
+    let mut wal_os = db.as_os_str().to_os_string();
+    wal_os.push("-wal");
+    let wal_md = std::fs::metadata(Path::new(&wal_os)).ok();
+    Some((md.len(), md.modified().ok(), wal_md.as_ref().map_or(0, |m| m.len()), wal_md.and_then(|m| m.modified().ok())))
+}
+
+pub(crate) fn db_memo_scan(
+    db: &Path,
+    scan: impl FnOnce(&Path) -> Result<Vec<DiscoveredSession>>,
+) -> Result<Vec<DiscoveredSession>> {
+    let Some(key) = sqlite_cache_stamp(db) else {
+        return Ok(Vec::new());
+    };
+    if let Some((k, v)) = db_memo().lock().ok().and_then(|m| m.get(db).cloned()) {
+        if k == key {
+            return Ok(v);
+        }
+    }
+    let v = scan(db)?;
+    if let Ok(mut m) = db_memo().lock() {
+        m.insert(db.to_path_buf(), (key, v.clone()));
+    }
+    Ok(v)
+}
+
 pub(crate) fn file_meta(path: &Path) -> Result<(u64, String)> {
     let md = std::fs::metadata(path).map_err(|source| AdapterError::Io { path: path.display().to_string(), source })?;
     let modified = md
@@ -227,5 +299,18 @@ pub(crate) fn jsonl_files(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
 pub(crate) fn omitted(list: &mut Vec<hopilo_core::OmittedCount>, what: &str, count: usize) {
     if count > 0 {
         list.push(hopilo_core::OmittedCount { what: what.to_string(), count });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protected_folders_normalize_case_and_dot_segments() {
+        let h = Path::new("/Users/Alice");
+        assert!(is_under_protected_folders(Path::new("/Users/Alice/documents/app/file.txt"), h));
+        assert!(is_under_protected_folders(Path::new("/users/alice/foo/../Desktop/secret.png"), h));
+        assert!(!is_under_protected_folders(Path::new("/Users/Alice/Projects/Desktop/app"), h));
     }
 }

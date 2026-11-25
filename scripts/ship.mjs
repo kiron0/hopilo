@@ -262,7 +262,7 @@ if (platform === "macos") {
   mkdirSync(appDir, { recursive: true });
   dest = join(appDir, `${appName}.app`);
   rmSync(dest, { recursive: true, force: true });
-  spawnSync("ditto", [bundle, dest], { stdio: "inherit" });
+  run("ditto", [bundle, dest]);
   dataDir = join(home, "Library", "Application Support", bundleId);
   repointLoginItem(join(dest, "Contents", "MacOS", appName));
   warnOtherCopies(dest);
@@ -292,7 +292,7 @@ if (platform === "macos") {
   const binDir = join(home, ".local", "bin");
   mkdirSync(binDir, { recursive: true });
   dest = join(binDir, `${appName}.AppImage`);
-  spawnSync("install", ["-m", "755", bundle, dest], { stdio: "inherit" });
+  run("install", ["-m", "755", bundle, dest]);
   const dataHome = process.env.XDG_DATA_HOME || join(home, ".local", "share");
   dataDir = join(dataHome, bundleId);
   repointLoginItem(dest);
@@ -305,11 +305,7 @@ if (platform === "macos") {
   setupFiles.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   const bundle = setupFiles[0];
 
-  spawnSync(
-    "powershell.exe",
-    ["-NoProfile", "-Command", `Start-Process -FilePath '${bundle}' -ArgumentList '/S' -Wait`],
-    { stdio: "inherit" }
-  );
+  run("powershell.exe", ["-NoProfile", "-Command", `Start-Process -FilePath '${bundle}' -ArgumentList '/S' -Wait`]);
 
   const localAppData = process.env.LOCALAPPDATA || "";
   const candidates = [
@@ -333,18 +329,14 @@ console.log(`App data preserved: ${dataDir}`);
 
 console.log("[5/5] Launch + verify");
 if (platform === "macos") {
-  spawnSync("open", [dest], { stdio: "inherit" });
+  run("open", [dest]);
 } else if (platform === "linux") {
   spawn("nohup", [dest], {
     detached: true,
     stdio: "ignore",
   }).unref();
 } else if (platform === "windows") {
-  spawnSync(
-    "powershell.exe",
-    ["-NoProfile", "-Command", `Start-Process -FilePath '${dest}'`],
-    { stdio: "inherit" }
-  );
+  run("powershell.exe", ["-NoProfile", "-Command", `Start-Process -FilePath '${dest}'`]);
 }
 
 if (platform === "windows") {

@@ -30,6 +30,11 @@ pub struct KeyReferences {
 
 const SHELL_TOOLS: &[&str] = &["bash", "shell", "run_shell_command", "exec", "exec_command", "terminal", "local_shell"];
 
+fn contains_ascii_ignore_case(haystack: &str, needle: &str) -> bool {
+    let nb = needle.as_bytes();
+    haystack.as_bytes().windows(nb.len()).any(|w| w.eq_ignore_ascii_case(nb))
+}
+
 fn path_re() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
@@ -88,7 +93,7 @@ pub fn key_references(messages: &[&Message]) -> KeyReferences {
                 push_unique(&mut refs.files, &mut seen_f, p, 25);
             }
             match b {
-                Block::ToolCall { name, input } if SHELL_TOOLS.contains(&name.to_lowercase().as_str()) => {
+                Block::ToolCall { name, input } if SHELL_TOOLS.iter().any(|t| name.eq_ignore_ascii_case(t)) => {
                     if let Some(c) = command_from_input(input) {
                         commands.push(c.trim().to_string());
                     }
@@ -127,8 +132,7 @@ pub fn edited_files(messages: &[&Message]) -> Vec<String> {
     for m in messages {
         for b in &m.blocks {
             let Block::ToolCall { name, input } = b else { continue };
-            let lower = name.to_lowercase();
-            if !EDIT_HINTS.iter().any(|h| lower.contains(h)) {
+            if !EDIT_HINTS.iter().any(|h| contains_ascii_ignore_case(name, h)) {
                 continue;
             }
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
@@ -202,8 +206,9 @@ pub fn excerpt(m: &Message, limit: usize) -> Option<String> {
     let para = text.split("\n\n").next().unwrap_or(text);
     let total = text.chars().count();
     let mut cut: String = para.chars().take(limit).collect();
-    if cut.chars().count() < total {
-        let _ = write!(cut, " [… {} more characters in the full transcript]", total - cut.chars().count());
+    let cut_len = cut.chars().count();
+    if cut_len < total {
+        let _ = write!(cut, " [… {} more characters in the full transcript]", total - cut_len);
     }
     Some(cut)
 }

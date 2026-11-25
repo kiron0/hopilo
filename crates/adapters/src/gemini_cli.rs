@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use crate::text::title_from;
 use crate::{
-    file_meta, home, jsonl_files, omitted, open_lines, AdapterError, Capture, DiscoveredSession, LocalAgentAdapter,
-    Result,
+    file_meta, home, is_jsonl, omitted, open_lines, par_scan, AdapterError, Capture, DiscoveredSession,
+    LocalAgentAdapter, Result,
 };
 
 pub struct GeminiCli {
@@ -51,23 +51,17 @@ impl LocalAgentAdapter for GeminiCli {
 
     fn discover(&self, root: &Path) -> Result<Vec<DiscoveredSession>> {
         let mut files = Vec::new();
-        jsonl_files(root, 2, &mut files);
-        json_session_files(root, &mut files);
-        files.retain(|p| {
-            p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("session-"))
-                && p.parent().and_then(Path::file_name).is_some_and(|d| d == "chats")
-        });
-        let mut out = Vec::new();
-        for path in files {
-            let Ok(cap) = read_session(&path, self, true) else { continue };
+        collect_session_files(root, 2, &mut files);
+        Ok(par_scan(&files, |path| {
+            let cap = read_session(path, self, true).ok()?;
             let count = cap.messages.iter().filter(|m| m.role != Role::Tool).count();
             if count == 0 {
-                continue;
+                return None;
             }
-            let Ok((size_bytes, modified_at)) = file_meta(&path) else { continue };
-            out.push(DiscoveredSession {
+            let (size_bytes, modified_at) = file_meta(path).ok()?;
+            Some(DiscoveredSession {
                 adapter: self.id.into(),
-                session_id: path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
+                session_id: crate::session_stem(path),
                 path: path.display().to_string(),
                 title: cap.source.title,
                 project: cap.source.project,
@@ -75,9 +69,8 @@ impl LocalAgentAdapter for GeminiCli {
                 modified_at,
                 size_bytes,
                 message_count: count,
-            });
-        }
-        Ok(out)
+            })
+        }))
     }
 
     fn read(&self, path: &Path) -> Result<Capture> {
@@ -85,15 +78,21 @@ impl LocalAgentAdapter for GeminiCli {
     }
 }
 
-fn json_session_files(root: &Path, out: &mut Vec<PathBuf>) {
+fn collect_session_files(root: &Path, depth: usize, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(root) else { return };
     for e in rd.flatten() {
-        let chats = e.path().join("chats");
-        let Ok(inner) = std::fs::read_dir(&chats) else { continue };
-        for f in inner.flatten() {
-            let p = f.path();
-            let is_file = f.file_type().map(|t| t.is_file()).unwrap_or(false);
-            if is_file && p.extension().is_some_and(|x| x == "json") {
+        let Ok(ft) = e.file_type() else { continue };
+        if ft.is_symlink() {
+            continue;
+        }
+        let p = e.path();
+        if ft.is_dir() && depth > 0 {
+            collect_session_files(&p, depth - 1, out);
+        } else if ft.is_file() {
+            let in_chats = p.parent().and_then(Path::file_name).is_some_and(|d| d == "chats");
+            let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+            if in_chats && name.starts_with("session-") && (is_jsonl(&p) || p.extension().is_some_and(|x| x == "json"))
+            {
                 out.push(p);
             }
         }
@@ -207,19 +206,20 @@ fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
             if line.trim().is_empty() {
                 continue;
             }
-            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut v) = serde_json::from_str::<Value>(&line) else {
                 unreadable += 1;
                 continue;
             };
-            if let Some(set) = v.get("$set") {
-                if let Some(all) = set.get("messages").and_then(Value::as_array) {
-                    records = all.clone();
-                    index = records
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, r)| Some((r.get("id")?.as_str()?.to_string(), i)))
-                        .collect();
-                }
+            if let Some(all) = v.get_mut("$set").and_then(|s| s.get_mut("messages")).and_then(Value::as_array_mut) {
+                records = std::mem::take(all);
+                index = records
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, r)| Some((r.get("id")?.as_str()?.to_string(), i)))
+                    .collect();
+                continue;
+            }
+            if v.get("$set").is_some() {
                 continue;
             }
             if header.is_none() && v.get("sessionId").is_some() && v.get("type").is_none() {
@@ -350,12 +350,13 @@ fn read_session(path: &Path, fmt: &GeminiCli, quick: bool) -> Result<Capture> {
     omitted(&mut om, "CLI info/status messages", info);
 
     let sid = header.get("sessionId").and_then(Value::as_str).unwrap_or("").to_string();
+    let short_sid: String = sid.chars().take(8).collect();
     Ok(Capture {
         source: Source {
             source_id,
             kind: SourceKind::LocalAgent,
             provider: fmt.id.into(),
-            title: first_prompt.unwrap_or_else(|| format!("{} session {}", fmt.name, &sid[..sid.len().min(8)])),
+            title: first_prompt.unwrap_or_else(|| format!("{} session {}", fmt.name, short_sid)),
             origin: Some(path.display().to_string()),
             project,
             model,
@@ -404,5 +405,18 @@ mod tests {
         let found = GEMINI_CLI.discover(&root).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].message_count, 3);
+    }
+
+    #[test]
+    fn multibyte_session_id_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session-utf8.json");
+        let doc = serde_json::json!({
+            "sessionId": "αβγδεζηθικ",
+            "messages": [{ "type": "user", "content": "" }]
+        });
+        std::fs::write(&path, doc.to_string()).unwrap();
+        let cap = GEMINI_CLI.read(&path).unwrap();
+        assert!(cap.source.title.contains("αβγ"));
     }
 }

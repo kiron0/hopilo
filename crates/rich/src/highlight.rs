@@ -84,27 +84,39 @@ fn hex(c: Color) -> String {
     }
 }
 
-fn style_into(out: &mut BTreeMap<&'static str, String>, keys: [&'static str; 4], hl: &Highlighter, stack: &ScopeStack) {
-    let style = hl.style_for_stack(stack.as_slice());
-    out.insert(keys[0], hex(style.foreground));
-    if style.font_style.contains(FontStyle::ITALIC) {
-        out.insert(keys[1], "italic".into());
-    }
-    if style.font_style.contains(FontStyle::BOLD) {
-        out.insert(keys[2], "bold".into());
-    }
-    if style.font_style.contains(FontStyle::UNDERLINE) {
-        out.insert(keys[3], "underline".into());
-    }
-}
-
 const LIGHT: [&str; 4] =
     ["--syntax-light", "--syntax-light-font-style", "--syntax-light-font-weight", "--syntax-light-text-decoration"];
 const DARK: [&str; 4] =
     ["--syntax-dark", "--syntax-dark-font-style", "--syntax-dark-font-weight", "--syntax-dark-text-decoration"];
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct StyleKey {
+    fg: Color,
+    font: FontStyle,
+}
+
+impl StyleKey {
+    fn from_style(hl: &Highlighter, stack: &ScopeStack) -> Self {
+        let s = hl.style_for_stack(stack.as_slice());
+        Self { fg: s.foreground, font: s.font_style }
+    }
+
+    fn apply_into(self, out: &mut BTreeMap<&'static str, String>, keys: [&'static str; 4]) {
+        out.insert(keys[0], hex(self.fg));
+        if self.font.contains(FontStyle::ITALIC) {
+            out.insert(keys[1], "italic".into());
+        }
+        if self.font.contains(FontStyle::BOLD) {
+            out.insert(keys[2], "bold".into());
+        }
+        if self.font.contains(FontStyle::UNDERLINE) {
+            out.insert(keys[3], "underline".into());
+        }
+    }
+}
+
 pub fn highlight(code: &str, language: &str) -> Option<Vec<Vec<Token>>> {
-    if code.len() > MAX_HIGHLIGHT_BYTES || code.split('\n').count() > MAX_HIGHLIGHT_LINES {
+    if code.len() > MAX_HIGHLIGHT_BYTES || code.bytes().filter(|&b| b == b'\n').count() + 1 > MAX_HIGHLIGHT_LINES {
         return None;
     }
     let assets = assets();
@@ -114,33 +126,44 @@ pub fn highlight(code: &str, language: &str) -> Option<Vec<Vec<Token>>> {
     let mut state = ParseState::new(syntax);
     let mut stack = ScopeStack::new();
     let mut lines = Vec::new();
+    let mut line_buf = String::with_capacity(128);
+    let mut runs: Vec<((StyleKey, StyleKey), String)> = Vec::new();
     for raw in code.split('\n') {
-        let line = format!("{raw}\n");
-        let ops = state.parse_line(&line, &assets.syntaxes).ok()?;
-        let mut tokens: Vec<Token> = Vec::new();
+        line_buf.clear();
+        line_buf.push_str(raw);
+        line_buf.push('\n');
+        let ops = state.parse_line(&line_buf, &assets.syntaxes).ok()?;
+        runs.clear();
         let mut push = |text: &str, stack: &ScopeStack| {
             let text = text.strip_suffix('\n').unwrap_or(text);
             if text.is_empty() {
                 return;
             }
-            let mut html_style = BTreeMap::new();
-            style_into(&mut html_style, LIGHT, &light, stack);
-            style_into(&mut html_style, DARK, &dark, stack);
-            match tokens.last_mut() {
-                Some(last) if last.html_style == html_style => last.content.push_str(text),
-                _ => tokens.push(Token { content: text.to_string(), html_style }),
+            let key = (StyleKey::from_style(&light, stack), StyleKey::from_style(&dark, stack));
+            match runs.last_mut() {
+                Some((last_key, content)) if *last_key == key => content.push_str(text),
+                _ => runs.push((key, text.to_string())),
             }
         };
         let mut pos = 0;
         for (at, op) in ops {
-            let at = at.min(line.len());
+            let at = at.min(line_buf.len());
             if at > pos {
-                push(&line[pos..at], &stack);
+                push(&line_buf[pos..at], &stack);
                 pos = at;
             }
             stack.apply(&op).ok()?;
         }
-        push(&line[pos..], &stack);
+        push(&line_buf[pos..], &stack);
+        let tokens = runs
+            .drain(..)
+            .map(|((lk, dk), content)| {
+                let mut html_style = BTreeMap::new();
+                lk.apply_into(&mut html_style, LIGHT);
+                dk.apply_into(&mut html_style, DARK);
+                Token { content, html_style }
+            })
+            .collect();
         lines.push(tokens);
     }
     Some(lines)

@@ -3,8 +3,8 @@ use std::fmt::Write;
 use crate::model::{Block, Message, Pack, Role};
 use crate::render::{visible_messages, RenderOptions, ToolDetail};
 
-pub fn escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + s.len() / 8);
+fn push_escaped(out: &mut String, s: &str) {
+    out.reserve(s.len());
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
@@ -15,49 +15,56 @@ pub fn escape(s: &str) -> String {
             c => out.push(c),
         }
     }
+}
+
+pub fn escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + s.len() / 8);
+    push_escaped(&mut out, s);
     out
 }
 
-fn inline(s: &str) -> String {
-    let mut out = String::new();
+fn push_inline(out: &mut String, s: &str) {
     let mut rest = s;
     while let Some(start) = rest.find('`') {
         let (before, after) = rest.split_at(start);
         match after[1..].find('`') {
             Some(end) if end > 0 => {
-                out.push_str(&bold(&escape(before)));
-                let _ = write!(out, "<code>{}</code>", escape(&after[1..1 + end]));
+                push_bold_escaped(out, before);
+                out.push_str("<code>");
+                push_escaped(out, &after[1..1 + end]);
+                out.push_str("</code>");
                 rest = &after[end + 2..];
             }
             _ => {
-                out.push_str(&bold(&escape(before)));
+                push_bold_escaped(out, before);
                 out.push('`');
                 rest = &after[1..];
             }
         }
     }
-    out.push_str(&bold(&escape(rest)));
-    out
+    push_bold_escaped(out, rest);
 }
 
-fn bold(escaped: &str) -> String {
-    let parts: Vec<&str> = escaped.split("**").collect();
-    if parts.len() < 3 {
-        return escaped.to_string();
+fn push_bold_escaped(out: &mut String, raw: &str) {
+    if !raw.contains("**") {
+        push_escaped(out, raw);
+        return;
     }
-    let mut out = String::new();
-    for (i, p) in parts.iter().enumerate() {
+    let escaped = escape(raw);
+    let mut parts = escaped.split("**").peekable();
+    let mut i = 0usize;
+    while let Some(p) = parts.next() {
         if i > 0 {
-            let closing = i % 2 == 0;
-            if i == parts.len() - 1 && i % 2 == 1 {
+            let closing = i.is_multiple_of(2);
+            if parts.peek().is_none() && !closing {
                 out.push_str("**");
             } else {
                 out.push_str(if closing { "</strong>" } else { "<strong>" });
             }
         }
         out.push_str(p);
+        i += 1;
     }
-    out
 }
 
 fn fence_open(line: &str) -> Option<(usize, &str)> {
@@ -72,8 +79,14 @@ fn rich_text(text: &str) -> String {
     let mut para: Vec<&str> = Vec::new();
     let flush = |para: &mut Vec<&str>, out: &mut String| {
         if !para.is_empty() {
-            let body: Vec<String> = para.iter().map(|l| inline(l)).collect();
-            let _ = write!(out, "<p>{}</p>", body.join("<br>"));
+            out.push_str("<p>");
+            for (i, l) in para.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("<br>");
+                }
+                push_inline(out, l);
+            }
+            out.push_str("</p>");
             para.clear();
         }
     };
@@ -95,7 +108,9 @@ fn rich_text(text: &str) -> String {
             .filter(|_| line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### "))
         {
             flush(&mut para, &mut out);
-            let _ = write!(out, "<h4>{}</h4>", inline(h.trim_start_matches('#').trim()));
+            out.push_str("<h4>");
+            push_inline(&mut out, h.trim_start_matches('#').trim());
+            out.push_str("</h4>");
         } else {
             para.push(line);
         }
@@ -114,13 +129,17 @@ fn code_block(code: &str, lang: &str) -> String {
     )
 }
 
-fn tool_body(text: &str, opts: &RenderOptions) -> String {
+fn tool_body<'a>(text: &'a str, opts: &RenderOptions) -> std::borrow::Cow<'a, str> {
     match opts.tool_detail {
-        ToolDetail::Truncated { limit } if text.chars().count() > limit => {
-            let head: String = text.chars().take(limit).collect();
-            format!("{head}\n[… {} more characters not included]", text.chars().count() - limit)
+        ToolDetail::Truncated { limit } => {
+            if let Some((byte_idx, _)) = text.char_indices().nth(limit) {
+                let extra = text[byte_idx..].chars().count();
+                std::borrow::Cow::Owned(format!("{}\n[… {extra} more characters not included]", &text[..byte_idx]))
+            } else {
+                std::borrow::Cow::Borrowed(text)
+            }
         }
-        _ => text.to_string(),
+        _ => std::borrow::Cow::Borrowed(text),
     }
 }
 
@@ -235,12 +254,15 @@ q.oninput=function(){var v=q.value.trim().toLowerCase(),n=0;msgs.forEach(functio
 var KW=/^(?:fn|let|mut|const|var|function|return|if|else|for|while|loop|match|import|from|export|default|class|struct|enum|impl|pub|use|mod|async|await|def|lambda|try|catch|except|finally|throw|raise|new|in|of|type|interface|true|false|null|None|True|False|self|this|package|func|go|defer|select|case|switch|break|continue|static|public|private|protected|void|int|string|bool|echo|then|fi|do|done|esac)$/;
 document.querySelectorAll('pre code').forEach(function(el){var s=el.textContent;if(s.length>60000)return;var out='',i=0,L=s.length;
 function esc(x){return x.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-while(i<L){var ch=s[i],rest=s.slice(i),m;
-if((m=/^(\/\/[^\n]*|#(?![!{\[])[^\n]*|\/\*[\s\S]*?\*\/)/.exec(rest))&&(ch!=='#'||i===0||/\s/.test(s[i-1]))){out+='<span class="tc">'+esc(m[0])+'</span>';i+=m[0].length;continue}
-if((m=/^("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)/.exec(rest))){out+='<span class="ts">'+esc(m[0])+'</span>';i+=m[0].length;continue}
-if((m=/^\d[\d_.xXa-fA-F]*/.exec(rest))&&(i===0||!/[\w]/.test(s[i-1]))){out+='<span class="tn">'+esc(m[0])+'</span>';i+=m[0].length;continue}
-if((m=/^[A-Za-z_][\w]*/.exec(rest))){out+=KW.test(m[0])?'<span class="tk">'+m[0]+'</span>':esc(m[0]);i+=m[0].length;continue}
-out+=esc(ch);i++}
+var tok=/(\/\/[^\n]*|\/\*[\s\S]*?\*\/|#(?![!{\[])[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\d[\d_.xXa-fA-F]*)|([A-Za-z_][\w]*)/g;
+while(i<L){tok.lastIndex=i;var m=tok.exec(s);if(!m){out+=esc(s.slice(i));break}
+if(m.index>i)out+=esc(s.slice(i,m.index));
+var end=tok.lastIndex;
+if(m[1]){if(m[0][0]==='#'&&m.index>0&&!/\s/.test(s[m.index-1])){out+='#';i=m.index+1;continue}out+='<span class="tc">'+esc(m[1])+'</span>'}
+else if(m[2]){out+='<span class="ts">'+esc(m[2])+'</span>'}
+else if(m[3]){if(m.index>0&&/[\w]/.test(s[m.index-1])){out+=esc(m[3])}else{out+='<span class="tn">'+esc(m[3])+'</span>'}}
+else{out+=KW.test(m[4])?'<span class="tk">'+m[4]+'</span>':esc(m[4])}
+i=end}
 el.innerHTML=out});
 })();
 "#;

@@ -202,11 +202,11 @@ pub fn verify(path: &Path, password: &str) -> Result<VerifiedBackup> {
         std::fs::create_dir_all(dest.parent().unwrap())?;
         let mut out = File::create(&dest)?;
         let copied = std::io::copy(&mut entry.by_ref().take(expected.size + 1), &mut out)?;
-        if copied != expected.size || sha_file(&dest)? != expected.sha256 {
+        if copied != expected.size || !sha_file(&dest)?.eq_ignore_ascii_case(&expected.sha256) {
             return Err(invalid("Backup checksum mismatch"));
         }
         if let Some(sha) = name.strip_prefix("attachments/") {
-            if sha != expected.sha256 {
+            if !sha.eq_ignore_ascii_case(&expected.sha256) {
                 return Err(invalid("Attachment checksum mismatch"));
             }
         }
@@ -215,20 +215,27 @@ pub fn verify(path: &Path, password: &str) -> Result<VerifiedBackup> {
         dir.path().join("hopilo.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
     )?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
     let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
-    let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if integrity != "ok" || version == 0 || version > crate::migrations::latest() {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if integrity != "ok" || version <= 0 || (version as usize) > crate::migrations::latest() {
         return Err(invalid("Backup database is damaged or uses a different schema version"));
     }
-    crate::tune(&conn)?;
+    crate::tune(&conn, true)?;
     crate::migrations::run(&mut conn)?;
+    if version < 3 {
+        let mut temp_store = Store { conn, root: dir.path().to_path_buf(), cache: Default::default() };
+        temp_store.upgrade_to_sessions()?;
+        conn = temp_store.conn;
+    }
     if conn.prepare("PRAGMA foreign_key_check")?.exists([])? {
         return Err(invalid("Backup database relationships are invalid"));
     }
     let sessions = conn.query_row("SELECT COUNT(*) FROM sources", [], |r| r.get(0))?;
     let mut stmt = conn.prepare("SELECT sha256 FROM attachments")?;
     for sha in stmt.query_map([], |r| r.get::<_, String>(0))? {
-        if !manifest.files.contains_key(&format!("attachments/{}", sha?)) {
+        let sha = sha?.to_ascii_lowercase();
+        if !manifest.files.contains_key(&format!("attachments/{sha}")) {
             return Err(invalid("A library attachment is missing from the backup"));
         }
     }
@@ -265,7 +272,7 @@ impl PreparedBackup {
                     return Err(invalid("Backup exceeds size or file count limit"));
                 }
                 let sha = sha_file(&file)?;
-                if name.starts_with("attachments/") && name != format!("attachments/{sha}") {
+                if name.starts_with("attachments/") && !name.eq_ignore_ascii_case(&format!("attachments/{sha}")) {
                     return Err(invalid("Stored attachment failed verification"));
                 }
                 zip.start_file(
@@ -323,17 +330,45 @@ impl Store {
     }
     pub fn restore_backup(&mut self, verified: VerifiedBackup) -> Result<BackupReport> {
         let blobs = verified.dir.path().join("attachments");
+        let dest_blobs = self.root.join("attachments");
+        std::fs::create_dir_all(&dest_blobs)?;
+        let mut expected = std::collections::HashSet::new();
+        let mut written_new = Vec::new();
         if blobs.is_dir() {
-            for entry in std::fs::read_dir(blobs)? {
+            for entry in std::fs::read_dir(&blobs)? {
                 let entry = entry?;
-                let mut temp = tempfile::NamedTempFile::new_in(self.root.join("attachments"))?;
+                if !entry.file_type()?.is_file() {
+                    continue;
+                }
+                let name = entry.file_name();
+                expected.insert(name.clone());
+                let target = dest_blobs.join(&name);
+                let existed = target.exists();
+                let mut temp = tempfile::NamedTempFile::new_in(&dest_blobs)?;
                 std::io::copy(&mut File::open(entry.path())?, &mut temp)?;
                 temp.as_file().sync_all()?;
-                temp.persist(self.root.join("attachments").join(entry.file_name())).map_err(wrap)?;
+                temp.persist(&target).map_err(wrap)?;
+                if !existed {
+                    written_new.push(target);
+                }
             }
         }
         self.conn.flush_prepared_statement_cache();
-        self.conn.restore("main", verified.dir.path().join("hopilo.db"), None::<fn(rusqlite::backup::Progress)>)?;
+        if let Err(e) =
+            self.conn.restore("main", verified.dir.path().join("hopilo.db"), None::<fn(rusqlite::backup::Progress)>)
+        {
+            for p in written_new {
+                let _ = std::fs::remove_file(p);
+            }
+            return Err(e.into());
+        }
+        if let Ok(rd) = std::fs::read_dir(&dest_blobs) {
+            for entry in rd.flatten() {
+                if entry.file_type().is_ok_and(|t| t.is_file()) && !expected.contains(&entry.file_name()) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
         self.cache = Default::default();
         Ok(verified.report)
     }

@@ -1000,3 +1000,56 @@ fn today_counts_follow_the_local_day() {
     assert_eq!(start, "2026-11-10T18:00:00Z");
     assert_eq!(end, "2026-11-11T18:00:00Z");
 }
+
+#[test]
+fn adopt_pack_does_not_overwrite_existing_session_with_matching_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(dir.path()).unwrap();
+    let (local_src, local_msgs) = capture("/shared/origin.jsonl", "original local session");
+    let local_id = db.upsert_session(&local_src, &local_msgs, None).unwrap().source_id;
+
+    let (mut external_src, mut external_msgs) = capture("/shared/origin.jsonl", "imported external pack");
+    external_src.source_id = new_id();
+    external_msgs[0].source_id = external_src.source_id.clone();
+    external_msgs[1].source_id = external_src.source_id.clone();
+    let pack = pack_from(external_src.clone(), external_msgs);
+    let ids = db.adopt_pack(&pack).unwrap();
+    assert_eq!(ids, vec![external_src.source_id.clone()]);
+    assert_eq!(db.get_source(&local_id).unwrap().1[0].blocks[0].plain_text(), "original local session");
+}
+
+#[test]
+fn replace_messages_preserves_updated_at_and_restore_prunes_orphan_blobs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Store::open(&dir.path().join("lib")).unwrap();
+    let (s, m) = capture("/sync.jsonl", "hello");
+    let id = db.upsert_session(&s, &m, Some("2025-01-01T00:00:00Z")).unwrap().source_id;
+    let att = Attachment {
+        id: new_id(),
+        file_name: "a.txt".into(),
+        media_type: "text/plain".into(),
+        size: 1,
+        sha256: hopilo_pack_format_sha(b"a"),
+        origin_path: None,
+        text: Some("a".into()),
+    };
+    db.insert_attachment(&att, b"a").unwrap();
+    db.add_files(Some(&id), &[att]).unwrap();
+    assert_eq!(db.session_row(&id).unwrap().updated_at, "2025-01-01T00:00:00Z");
+
+    let backup_path = dir.path().join("b.hbackup");
+    db.create_backup(&backup_path, "long test password").unwrap();
+    let extra = Attachment {
+        id: new_id(),
+        file_name: "b.txt".into(),
+        media_type: "text/plain".into(),
+        size: 1,
+        sha256: hopilo_pack_format_sha(b"b"),
+        origin_path: None,
+        text: Some("b".into()),
+    };
+    db.insert_attachment(&extra, b"b").unwrap();
+    let verified = backup::verify(&backup_path, "long test password").unwrap();
+    db.restore_backup(verified).unwrap();
+    assert!(db.attachment_bytes(&extra.sha256).is_none());
+}

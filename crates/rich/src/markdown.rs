@@ -74,13 +74,37 @@ enum Frame {
     Footnote(String),
 }
 
+struct NoteEntry {
+    num: usize,
+    id: String,
+    refs: usize,
+}
+
 struct Builder {
     stack: Vec<(Frame, Vec<Node>)>,
-    slugs: HashSet<String>,
-    notes: HashMap<String, usize>,
+    used_slugs: HashSet<String>,
+    slug_next: HashMap<String, usize>,
+    notes: HashMap<String, NoteEntry>,
+    used_note_ids: HashSet<String>,
+    note_next: HashMap<String, usize>,
     definitions: Vec<(String, Vec<Node>)>,
     in_head: bool,
     column: usize,
+}
+
+fn unique_slug(base: String, used: &mut HashSet<String>, next_map: &mut HashMap<String, usize>) -> String {
+    if used.insert(base.clone()) {
+        return base;
+    }
+    let next = next_map.entry(base.clone()).or_insert(1);
+    loop {
+        let n = *next;
+        *next += 1;
+        let candidate = format!("{base}-{n}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
 }
 
 fn level(l: HeadingLevel) -> u8 {
@@ -133,9 +157,22 @@ fn note_id(label: &str) -> String {
 
 fn url_end(s: &str) -> usize {
     let mut end = s.find(|c: char| c.is_whitespace() || c == '<').unwrap_or(s.len());
-    while let Some(last) = s[..end].chars().last() {
-        let unbalanced = last == ')' && s[..end].matches('(').count() < s[..end].matches(')').count();
+    let (mut opens, mut closes) = (0usize, 0usize);
+    for b in s[..end].bytes() {
+        match b {
+            b'(' => opens += 1,
+            b')' => closes += 1,
+            _ => {}
+        }
+    }
+    while let Some(last) = s[..end].chars().next_back() {
+        let unbalanced = last == ')' && opens < closes;
         if matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '"' | '*' | '_' | '~') || unbalanced {
+            if last == ')' {
+                closes -= 1;
+            } else if last == '(' {
+                opens -= 1;
+            }
             end -= last.len_utf8();
         } else {
             break;
@@ -146,10 +183,19 @@ fn url_end(s: &str) -> usize {
 
 fn autolink(text: &str, out: &mut Vec<Node>) {
     let mut rest = text;
-    while let Some(at) = rest.find("http://").into_iter().chain(rest.find("https://")).min() {
-        let boundary = rest[..at].chars().last().is_none_or(|c| !c.is_alphanumeric());
-        let len = url_end(&rest[at..]);
-        let scheme = if rest[at..].starts_with("https://") { 8 } else { 7 };
+    while let Some(at) = rest.find("http") {
+        let tail = &rest[at..];
+        let scheme = if tail.starts_with("https://") {
+            8
+        } else if tail.starts_with("http://") {
+            7
+        } else {
+            push_text(out, &rest[..at + 4]);
+            rest = &rest[at + 4..];
+            continue;
+        };
+        let boundary = rest[..at].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+        let len = url_end(tail);
         if !boundary || len <= scheme {
             let skip = at + scheme;
             push_text(out, &rest[..skip]);
@@ -239,19 +285,15 @@ impl Builder {
     }
 
     fn close(&mut self, _end: TagEnd) {
+        if self.stack.len() <= 1 {
+            return;
+        }
         let Some((frame, c)) = self.stack.pop() else { return };
         let node = match frame {
             Frame::Root => return,
             Frame::Block(tag) => el(tag, c),
             Frame::Heading(n) => {
-                let base = slug(&plain(&c));
-                let mut id = base.clone();
-                let mut suffix = 1;
-                while self.slugs.contains(&id) {
-                    id = format!("{base}-{suffix}");
-                    suffix += 1;
-                }
-                self.slugs.insert(id.clone());
+                let id = unique_slug(slug(&plain(&c)), &mut self.used_slugs, &mut self.slug_next);
                 let tag = ["h1", "h2", "h3", "h4", "h5", "h6"][(n as usize).clamp(1, 6) - 1];
                 Node::El { tag, id: Some(id), class: None, start: None, align: None, checked: None, c }
             }
@@ -328,15 +370,29 @@ impl Builder {
         self.children().push(node);
     }
 
+    fn ensure_note(&mut self, label: &str) -> &mut NoteEntry {
+        let next_num = self.notes.len() + 1;
+        let used = &mut self.used_note_ids;
+        let next_map = &mut self.note_next;
+        self.notes.entry(label.to_string()).or_insert_with(|| NoteEntry {
+            num: next_num,
+            id: unique_slug(note_id(label), used, next_map),
+            refs: 0,
+        })
+    }
+
     fn footnote_ref(&mut self, label: &str) {
-        let next = self.notes.len() + 1;
-        let n = *self.notes.entry(label.to_string()).or_insert(next);
-        let id = note_id(label);
+        let (num, id, occ) = {
+            let entry = self.ensure_note(label);
+            entry.refs += 1;
+            (entry.num, entry.id.clone(), entry.refs)
+        };
+        let ref_id = if occ == 1 { format!("fnref-{id}-{num}") } else { format!("fnref-{id}-{num}-{occ}") };
         let link = Node::Link {
             href: format!("#fn-{id}"),
             title: String::new(),
-            id: Some(format!("fnref-{id}-{n}")),
-            c: vec![Node::Text { v: n.to_string() }],
+            id: Some(ref_id),
+            c: vec![Node::Text { v: num.to_string() }],
         };
         self.children().push(el("sup", vec![link]));
     }
@@ -346,14 +402,20 @@ impl Builder {
             return None;
         }
         let mut defs = std::mem::take(&mut self.definitions);
-        defs.sort_by_key(|(label, _)| self.notes.get(label).copied().unwrap_or(usize::MAX));
+        for (label, _) in &defs {
+            if !self.notes.contains_key(label) {
+                self.ensure_note(label);
+            }
+        }
+        defs.sort_by_key(|(label, _)| self.notes.get(label).map_or(usize::MAX, |n| n.num));
         let items = defs
             .into_iter()
             .map(|(label, mut c)| {
-                let id = note_id(&label);
-                if let Some(n) = self.notes.get(&label) {
+                let entry = &self.notes[&label];
+                let id = entry.id.clone();
+                if entry.refs > 0 {
                     let back = Node::Link {
-                        href: format!("#fnref-{id}-{n}"),
+                        href: format!("#fnref-{id}-{}", entry.num),
                         title: "Back to reference".into(),
                         id: None,
                         c: vec![Node::Text { v: "↩".into() }],
@@ -400,8 +462,11 @@ pub fn parse_markdown(text: &str) -> Option<Vec<Node>> {
         | Options::ENABLE_MATH;
     let mut b = Builder {
         stack: vec![(Frame::Root, Vec::new())],
-        slugs: HashSet::new(),
+        used_slugs: HashSet::new(),
+        slug_next: HashMap::new(),
         notes: HashMap::new(),
+        used_note_ids: HashSet::new(),
+        note_next: HashMap::new(),
         definitions: Vec::new(),
         in_head: false,
         column: 0,
@@ -413,7 +478,8 @@ pub fn parse_markdown(text: &str) -> Option<Vec<Node>> {
             continue;
         }
         if !pending.is_empty() {
-            b.text(&std::mem::take(&mut pending));
+            b.text(&pending);
+            pending.clear();
         }
         match event {
             Event::Start(tag) => b.open(tag),
@@ -532,5 +598,14 @@ mod tests {
     #[test]
     fn rejects_oversized_input() {
         assert!(parse_markdown(&"x".repeat(MAX_MARKDOWN_BYTES + 1)).is_none());
+    }
+
+    #[test]
+    fn duplicate_footnote_refs_and_colliding_note_ids_stay_unique() {
+        let out = json("First[^a b], repeat[^a b], second[^a-b]\n\n[^a b]: One\n\n[^a-b]: Two");
+        assert!(out.contains(r#""id":"fnref-a-b-1""#), "{out}");
+        assert!(out.contains(r#""id":"fnref-a-b-1-2""#), "{out}");
+        assert!(out.contains(r#""id":"fn-a-b""#), "{out}");
+        assert!(out.contains(r#""id":"fn-a-b-1""#), "{out}");
     }
 }
