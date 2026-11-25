@@ -234,10 +234,11 @@ async fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Res
     let previous = setting_str(&app, SHORTCUT_KEY);
     let next = accelerator.clone();
     let app_reg = app.clone();
+    let restore_on_fail = previous.clone();
     let (tx, rx) = std::sync::mpsc::channel();
     app.run_on_main_thread(move || {
         let res = apply_shortcut(&app_reg, next.as_deref()).inspect_err(|_| {
-            let _ = apply_shortcut(&app_reg, previous.as_deref());
+            let _ = apply_shortcut(&app_reg, restore_on_fail.as_deref());
         });
         let _ = tx.send(res);
     })
@@ -246,7 +247,6 @@ async fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Res
     let value =
         accelerator.filter(|a| !a.trim().is_empty()).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null);
     let app_save = app.clone();
-    let prev_restore = setting_str(&app, SHORTCUT_KEY);
     let saved =
         tauri::async_runtime::spawn_blocking(move || commands::save_setting_blocking(&app_save, SHORTCUT_KEY, value))
             .await
@@ -254,7 +254,7 @@ async fn set_global_shortcut(app: AppHandle, accelerator: Option<String>) -> Res
     if let Err(e) = saved {
         let app_rb = app.clone();
         let _ = app.run_on_main_thread(move || {
-            let _ = apply_shortcut(&app_rb, prev_restore.as_deref());
+            let _ = apply_shortcut(&app_rb, previous.as_deref());
         });
         return Err(e);
     }

@@ -902,15 +902,15 @@ fn open_file_blocking(app: &AppHandle, state: &State<AppState>, sha: &str) -> Cm
     use tauri_plugin_opener::OpenerExt;
     let (a, bytes) = stored_file(state, sha)?;
     let open_root = app.path().app_cache_dir().map_err(err)?.join("open");
-    let sha_prefix = sha.to_ascii_lowercase();
-    let dir = open_root.join(&sha_prefix[..sha_prefix.len().min(16)]);
+    let sha_lower = sha.to_ascii_lowercase();
+    let dir = open_root.join(&sha_lower[..sha_lower.len().min(16)]);
     std::fs::create_dir_all(&dir).map_err(err)?;
     let dest = dir.join(sanitize_open_filename(&a.file_name));
     let same_on_disk = dest.metadata().ok().is_some_and(|m| m.is_file() && m.len() == bytes.len() as u64)
         && std::fs::File::open(&dest)
             .and_then(|f| hopilo_pack_format::sha256_bounded(f, bytes.len() as u64, false))
             .ok()
-            .is_some_and(|(disk_sha, _, _)| disk_sha == sha_prefix);
+            .is_some_and(|(disk_sha, _, _)| disk_sha == sha_lower);
     if !same_on_disk {
         write_atomic(&dest, &bytes)?;
     }
